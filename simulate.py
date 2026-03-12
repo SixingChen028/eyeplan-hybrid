@@ -20,13 +20,18 @@ if __name__ == '__main__':
     args = parser.args
 
     # set experiment path
-    exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.jobid}')
+    exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.wm_decay}_{args.jobid}')
 
     # load net
     net = torch.load(os.path.join(exp_path, f'net.pth'), weights_only = False)
 
     # set environment
     env = DecisionTreeEnv(
+        num_nodes = args.num_nodes_full_tree,
+        beta_move = args.beta_move,
+        eps_move = args.eps_move,
+        learning_rate = args.learning_rate,
+        wm_decay = args.wm_decay,
         t_max = args.t_max,
         cost = args.cost,
         scale_factor = args.scale_factor,
@@ -43,6 +48,7 @@ if __name__ == '__main__':
         greedy = False,
     )
     save_data(data, os.path.join(exp_path, f'data_simulation.p'))
+
 
 
 

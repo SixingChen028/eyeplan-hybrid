@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ep
-#SBATCH --cpus-per-task=8
-#SBATCH --time=47:00:00
+#SBATCH --cpus-per-task=1
+#SBATCH --time=30:00:00
 #SBATCH --mem-per-cpu=10G
 #SBATCH -e ./results/slurm-%A_%a.err
 #SBATCH -o ./results/slurm-%A_%a.out
@@ -10,5 +10,6 @@
 python -u train.py \
     --jobid=$SLURM_ARRAY_TASK_ID \
     --path=./results \
-    --learning_rate=${1}
+    --learning_rate=${1} \
+    --wm_decay=${2}
     

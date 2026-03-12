@@ -1,6 +1,9 @@
 #!/bin/bash
 
-for learning_rate in 0.1 0.3 0.5
+for learning_rate in 0.1 0.5 1.0
 do
-    sbatch run_simulate.sh ${learning_rate}
+    for wm_decay in 0.0 0.5 1.0
+    do
+        sbatch run_simulate.sh ${learning_rate} ${wm_decay}
+    done
 done

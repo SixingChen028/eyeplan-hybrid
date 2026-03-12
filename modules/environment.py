@@ -23,6 +23,7 @@ class DecisionTreeEnv(gym.Env):
             beta_move = 4.0,
             eps_move = 0.02,
             learning_rate = 0.2,
+            wm_decay = 0.8,
             t_max = 100,
             cost = 0.01,
             scale_factor = 1 / 8,
@@ -35,6 +36,7 @@ class DecisionTreeEnv(gym.Env):
         """
 
         self.num_nodes = num_nodes # number of nodes
+        self.wm_decay = wm_decay # working memory decay
         self.t_max = t_max # max time steps per episode
         self.cost = cost # cost per action
         self.scale_factor = scale_factor # reward scale factor
@@ -63,6 +65,9 @@ class DecisionTreeEnv(gym.Env):
 
         # initialize observation space
         observation_shape = (
+            self.num_nodes + # fixation node (num_nodes,)
+            1 + # point (1,)
+            self.num_nodes * 3 + # parent and childs of fixation node (3 * num_nodes,)
             self.num_nodes + # q values
             self.num_nodes + # g values
             self.num_nodes + # fixation counts
@@ -108,7 +113,13 @@ class DecisionTreeEnv(gym.Env):
                 raise ValueError('Fixated node not in the partial tree.')
 
             # fixate
-            self.planner.look(action)
+            self.planner.look(action, self.active_mask)
+
+            # update fixated node
+            self.fixation_node = action
+
+            # update wm activation
+            self.update_activation(action)
 
         # move
         elif action == self.num_nodes:
@@ -152,14 +163,66 @@ class DecisionTreeEnv(gym.Env):
             root = self.graph.root_node
         )
 
+        # initialize fixation node
+        self.fixation_node = self.graph.root_node
+
+        # initialize activation
+        self.activation = np.zeros(self.num_nodes, dtype = np.float32)
+        self.active_mask = np.zeros(self.num_nodes, dtype = bool)
+
+        # make root and its children initially active
+        self.update_activation(self.graph.root_node)
+
+
+    def update_activation(self, node):
+        """
+        Update activation of all the nodes given the current fixated node.
+            decay -> boost local neighborhood -> stochastic dropout
+        """
+
+        # decay
+        self.activation *= self.wm_decay
+        self.activation = np.clip(self.activation, 0.0, 1.0) # make sure between 0 and 1
+
+        # boost fixated node
+        self.activation[node] = 1.0
+
+        # boost parent
+        parent = self.graph.predecessors(node)
+        if parent is not None:
+            self.activation[parent] = 1.0
+
+        # boost children
+        child1, child2 = self.graph.successors(node)
+        if child1 is not None:
+            self.activation[child1] = 1.0
+        if child2 is not None:
+            self.activation[child2] = 1.0
+        
+        # boost root
+        self.activation[self.graph.root_node] = 1.0
+
+        # stochastic dropout
+        keep = np.random.rand(self.num_nodes) < self.activation
+        self.active_mask = keep
+
 
     def get_obs(self):
         """
         Get observation.
         """
 
+        # get parent and child nodes
+        fixation_parent_node = self.graph.predecessors(self.fixation_node)
+        fixation_child_nodes = self.graph.successors(self.fixation_node)
+
         # wrap observation
         obs = np.hstack([
+            self.one_hot_coding(num_classes = self.num_nodes, labels = self.fixation_node),
+            self.graph.points[self.fixation_node],
+            self.one_hot_coding(num_classes = self.num_nodes, labels = fixation_parent_node),
+            self.one_hot_coding(num_classes = self.num_nodes, labels = fixation_child_nodes[0]),
+            self.one_hot_coding(num_classes = self.num_nodes, labels = fixation_child_nodes[1]),
             self.get_path_values(),
             self.get_q_values(),
             self.get_num_visits(),
@@ -223,11 +286,20 @@ class DecisionTreeEnv(gym.Env):
         # move is allowed
         mask[-1] = True
 
-        # candidates
+        # legal fixation nodes
+        self.legal_mask = np.zeros(self.num_nodes, dtype = bool)
         for node in self.planner.parents.keys():
-            if node != self.planner.root:
-                mask[node] = True
+            self.legal_mask[node] = True
+
+        # unmasked if both legal and active
+        self.gated_mask = self.legal_mask & self.active_mask
         
+        # safety: ensure at least one fixation available
+        if not np.any(self.gated_mask):
+            raise ValueError('All fixation actions are masked.')
+
+        mask[:self.num_nodes] = self.gated_mask
+
         return mask
     
 

@@ -11,7 +11,7 @@ if __name__ == '__main__':
     args = parser.args
 
     # set experiment path
-    exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.jobid}')
+    exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.wm_decay}_{args.jobid}')
     if not os.path.exists(exp_path):
         os.makedirs(exp_path)
 
@@ -19,10 +19,11 @@ if __name__ == '__main__':
     seeds = [random.randint(0, 1000) for _ in range(args.batch_size)]
     env = gym.vector.SyncVectorEnv([
         lambda: DecisionTreeEnv(
-            num_nodes = args.num_nodes,
+            num_nodes = args.num_nodes_full_tree, #########
             beta_move = args.beta_move,
             eps_move = args.eps_move,
             learning_rate = args.learning_rate,
+            wm_decay = args.wm_decay,
             t_max = args.t_max,
             cost = args.cost,
             scale_factor = args.scale_factor,
@@ -62,7 +63,7 @@ if __name__ == '__main__':
     # train network
     data = model.learn(
         num_episodes = args.num_episodes,
-        print_frequency = 2000, # change the print frequency when debugging
+        print_frequency = 2000,
     )
 
     # save net and data

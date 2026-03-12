@@ -49,59 +49,97 @@ class Planner:
 
         # trace (optional)
         self.trace: List[Dict[str, Any]] = []
-    
+
 
     # ---------- q value backpropagation ----------
     def update_q(
             self,
-            path: List[int],
-            value: float
+            node: int,
+            active_mask: np.ndarray,
         ):
         """
-        Backpropagate value along a path using MCTS-style updates.
-        
-        Args:
-            path: List of nodes from root to leaf (or current node)
-            value: The value to backpropagate (typically cumulative reward from current node to terminal)
+        Perform Bellman backup within the active connected component containing.
         """
 
-        # traverse path in reverse order (from leaf to root)
-        for i in range(len(path) - 1, -1, -1):
-            node = path[i]
+        # eligible nodes: active AND expanded
+        eligible = np.zeros_like(active_mask, dtype = bool)
+        for n in self.expanded:
+            if active_mask[n]:
+                eligible[n] = True
+
+        # make sure expanded
+        if eligible[node] == False:
+            raise ValueError('Fixated node is not eligible.')
+
+        # initialize Q value if not present
+        if node not in self.q:
+            self.q[node] = 0.0
+
+        # find active connected component
+        subtree = set()
+        stack = [node]
+
+        while stack:
+            n = stack.pop()
+            if n in subtree:
+                continue
+            if not eligible[n]:
+                continue
+
+            subtree.add(n)
+
+            # traverse parent
+            parent = self.parents.get(n)
+            if parent is not None:
+                stack.append(parent)
+
+            # traverse children
+            for c in self.children.get(n, []):
+                stack.append(c)
+
+        if not subtree:
+            return
+
+        # bottom-up order by depth 
+        ordered = sorted(subtree, reverse = True) ### This only works for full tree without shuffling
+
+        # Bellman backup
+        for n in ordered:
+            r = self.rewards.get(n, 0.0)
+
+            # children
+            children = self.children.get(n, [])
+
+            # if no child
+            if len(children) == 0:
+                target = r
             
-            # initialize Q-value if not present
-            if node not in self.q:
-                self.q[node] = 0.0
+            # if have children
+            else:
+                # get two children
+                child1, child2 = children
+
+                # if no child in subtree
+                if child1 not in subtree and child2 not in subtree:
+                    target = r
+
+                # if child 1 in subtree
+                elif child1 in subtree and child2 not in subtree:
+                    target = r + self.q[child1]
+                
+                # if child 1 in subtree
+                elif child1 not in subtree and child2 in subtree:
+                    target = r + self.q[child2]
+                
+                # if both child in subtree
+                elif child1 in subtree and child2 in subtree:
+                    target = r + max([self.q[child1], self.q[child2]])
+
+            # debugging
+            if n not in self.q:
+                raise ValueError('Q value not initialized')
             
-            # update Q-value with learning rate
-            # Q(node) = Q(node) + α * (value - Q(node))
-            self.q[node] += self.learning_rate * (value - self.q[node])
-            
-            # add immediate reward of the node to the value for parent updates
-            # this ensures parents see the cumulative value including this node's reward
-            value += self.rewards.get(node, 0.0)
-    
-
-    def get_path(
-            self,
-            node: int
-        ) -> List[int]:
-        """
-        Get path from root to the given node.
-        """
-
-        # initialize
-        path = []
-        current = node
-
-        # add nodes backward
-        while current is not None:
-            path.append(current)
-            current = self.parents.get(current)
-
-        path.reverse()
-
-        return path
+            self.q[n] += self.learning_rate * (target - self.q[n])
 
 
     # ---------- g value update ----------
@@ -195,7 +233,8 @@ class Planner:
     
     def look(
             self,
-            node: int
+            node: int,
+            active_mask: np.ndarray,
         ):
         """
         Perform a fixation (look) at node:
@@ -221,14 +260,11 @@ class Planner:
             children = self.children.get(node, [])
             if any(child not in self.parents for child in children):
                 self.expand(node)
-        
-        # get path from root to current node
-        path = self.get_path(node)
 
-        # backpropagation
-        estimated_value = self.rewards.get(node, 0.0)
-        self.update_q(path, estimated_value)
+        # update q value
+        self.update_q(node, active_mask)
 
+        # record trace
         self.trace.append({'event': 'LOOK', 'node': node, 'n_fix': self.n_fix})
         
 

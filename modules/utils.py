@@ -125,6 +125,55 @@ def merge(lst):
     return merged_list
 
 
+def count_intervals(node_seq, errors_seq):
+    """
+    Count refixation intervals.
+    """
+    
+    # initialize result
+    result = {}
+    length = len(node_seq)
+    
+    # iterate through unique elements
+    for node in np.unique(node_seq):
+
+        # get count
+        count = np.sum(node_seq == node)
+        
+        # if refixate
+        if count > 1:
+            
+            result[node] = {
+                'count': count,
+                'intervals': [],
+                'indices': []
+            }
+            
+            # get indices
+            indices = np.where(node_seq == node)[0]
+            result[node]['indices'] = list(indices)
+            
+            # get intervals
+            intervals = [indices[i + 1] - indices[i] for i in range(len(indices) - 1)]
+            result[node]['intervals'] = intervals
+
+            # get slices
+            slices = []
+            for i in range(len(indices) - 1):
+                start = indices[i]
+                end = indices[i + 1] + 2 ##############
+
+                # break if exceeding episode length
+                if end >= length:
+                    break
+                
+                slices.append(errors_seq[start:end, node]) # include the refixate timestep
+
+            result[node]['slices'] = slices
+    
+    return result
+
+
 def get_node_depths(child_dict, root_node):
     """
     Get node depths.
@@ -168,3 +217,23 @@ def get_cum_points(child_dict, root_node, points):
     _dfs(root_node, 0)
 
     return cum_points
+
+
+def normalize_logits(child_dict, logits_seq, num_node = 11):
+    """
+    Normalize action logits between sibling nodes.
+    """
+
+    # initialize normalized logits sequence as a copy of the original logits_seq
+    normalized_logits_seq = np.copy(logits_seq)
+    
+    # normalize logits between sibling states
+    for parent, children in child_dict.items():
+        child1, child2 = children
+        normalized_logits_seq[:, child1] = logits_seq[:, child1] - logits_seq[:, child2]
+        normalized_logits_seq[:, child2] = logits_seq[:, child2] - logits_seq[:, child1]
+
+        normalized_logits_seq[:, num_node + child1] = logits_seq[:, num_node + child1] - logits_seq[:, num_node + child2]
+        normalized_logits_seq[:, num_node + child2] = logits_seq[:, num_node + child2] - logits_seq[:, num_node + child1]
+    
+    return normalized_logits_seq
