@@ -19,7 +19,7 @@ class DecisionTreeEnv(gym.Env):
 
     def __init__(
             self,
-            num_nodes = 11,
+            num_nodes = 15,
             beta_move = 4.0,
             eps_move = 0.02,
             learning_rate = 0.2,
@@ -68,8 +68,9 @@ class DecisionTreeEnv(gym.Env):
             self.num_nodes + # fixation node (num_nodes,)
             1 + # point (1,)
             self.num_nodes * 3 + # parent and childs of fixation node (3 * num_nodes,)
-            self.num_nodes + # q values
+            self.num_nodes + # root node
             self.num_nodes + # g values
+            self.num_nodes + # q values
             self.num_nodes + # fixation counts
             1, # time
         )
@@ -113,7 +114,7 @@ class DecisionTreeEnv(gym.Env):
                 raise ValueError('Fixated node not in the partial tree.')
 
             # fixate
-            self.planner.look(action, self.active_mask)
+            self.planner.look(action)
 
             # update fixated node
             self.fixation_node = action
@@ -204,6 +205,11 @@ class DecisionTreeEnv(gym.Env):
 
         # stochastic dropout
         keep = np.random.rand(self.num_nodes) < self.activation
+
+        # *** zero out dropped nodes so they cannot reappear spontaneously ***
+        self.activation[~keep] = 0.0
+
+        # apply mask
         self.active_mask = keep
 
 
@@ -216,6 +222,9 @@ class DecisionTreeEnv(gym.Env):
         fixation_parent_node = self.graph.predecessors(self.fixation_node)
         fixation_child_nodes = self.graph.successors(self.fixation_node)
 
+        # get root node
+        root_node = self.graph.root_node
+
         # wrap observation
         obs = np.hstack([
             self.one_hot_coding(num_classes = self.num_nodes, labels = self.fixation_node),
@@ -223,6 +232,7 @@ class DecisionTreeEnv(gym.Env):
             self.one_hot_coding(num_classes = self.num_nodes, labels = fixation_parent_node),
             self.one_hot_coding(num_classes = self.num_nodes, labels = fixation_child_nodes[0]),
             self.one_hot_coding(num_classes = self.num_nodes, labels = fixation_child_nodes[1]),
+            self.one_hot_coding(num_classes = self.num_nodes, labels = root_node),
             self.get_path_values(),
             self.get_q_values(),
             self.get_num_visits(),
@@ -287,19 +297,23 @@ class DecisionTreeEnv(gym.Env):
         mask[-1] = True
 
         # legal fixation nodes
-        self.legal_mask = np.zeros(self.num_nodes, dtype = bool)
-        for node in self.planner.parents.keys():
-            self.legal_mask[node] = True
-
+        legal_mask = np.zeros(self.num_nodes, dtype = bool)
+        for node in self.planner.parents.keys(): # root always inluded
+            legal_mask[node] = True
+        
         # unmasked if both legal and active
-        self.gated_mask = self.legal_mask & self.active_mask
+        gated_mask = legal_mask & self.active_mask
+
+        # safety: make sure root included
+        if not gated_mask[self.graph.root_node]:
+            raise ValueError('Root is masked.')
         
         # safety: ensure at least one fixation available
-        if not np.any(self.gated_mask):
+        if not np.any(gated_mask):
             raise ValueError('All fixation actions are masked.')
-
-        mask[:self.num_nodes] = self.gated_mask
-
+        
+        mask[:self.num_nodes] = gated_mask
+        
         return mask
     
 

@@ -55,91 +55,33 @@ class Planner:
     def update_q(
             self,
             node: int,
-            active_mask: np.ndarray,
         ):
         """
-        Perform Bellman backup within the active connected component containing.
+        Backpropagate value along a path using MCTS-style updates.
         """
 
-        # eligible nodes: active AND expanded
-        eligible = np.zeros_like(active_mask, dtype = bool)
-        for n in self.expanded:
-            if active_mask[n]:
-                eligible[n] = True
-
         # make sure expanded
-        if eligible[node] == False:
-            raise ValueError('Fixated node is not eligible.')
+        if node not in self.expanded:
+            return
 
         # initialize Q value if not present
         if node not in self.q:
             self.q[node] = 0.0
 
-        # find active connected component
-        subtree = set()
-        stack = [node]
+        # eligible children = expanded children only (strong info gating)
+        children = self.children.get(node, []) # [c for c in self.children.get(node, []) if c in self.expanded]
 
-        while stack:
-            n = stack.pop()
-            if n in subtree:
-                continue
-            if not eligible[n]:
-                continue
+        # get reward
+        r = self.rewards.get(node, 0.0)
 
-            subtree.add(n)
+        if not children:
+            target = r
+        else:
+            best_child_q = max(self.q.get(c, 0.0) for c in children)
+            target = r + best_child_q
 
-            # traverse parent
-            parent = self.parents.get(n)
-            if parent is not None:
-                stack.append(parent)
+        self.q[node] += self.learning_rate * (target - self.q[node])
 
-            # traverse children
-            for c in self.children.get(n, []):
-                stack.append(c)
-
-        if not subtree:
-            return
-
-        # bottom-up order by depth 
-        ordered = sorted(subtree, reverse = True) ### This only works for full tree without shuffling
-
-        # Bellman backup
-        for n in ordered:
-            r = self.rewards.get(n, 0.0)
-
-            # children
-            children = self.children.get(n, [])
-
-            # if no child
-            if len(children) == 0:
-                target = r
-            
-            # if have children
-            else:
-                # get two children
-                child1, child2 = children
-
-                # if no child in subtree
-                if child1 not in subtree and child2 not in subtree:
-                    target = r
-
-                # if child 1 in subtree
-                elif child1 in subtree and child2 not in subtree:
-                    target = r + self.q[child1]
-                
-                # if child 1 in subtree
-                elif child1 not in subtree and child2 in subtree:
-                    target = r + self.q[child2]
-                
-                # if both child in subtree
-                elif child1 in subtree and child2 in subtree:
-                    target = r + max([self.q[child1], self.q[child2]])
-
-            # debugging
-            if n not in self.q:
-                raise ValueError('Q value not initialized')
-            
-            self.q[n] += self.learning_rate * (target - self.q[n])
 
 
     # ---------- g value update ----------
@@ -233,8 +175,7 @@ class Planner:
     
     def look(
             self,
-            node: int,
-            active_mask: np.ndarray,
+            node: int
         ):
         """
         Perform a fixation (look) at node:
@@ -262,7 +203,7 @@ class Planner:
                 self.expand(node)
 
         # update q value
-        self.update_q(node, active_mask)
+        self.update_q(node)
 
         # record trace
         self.trace.append({'event': 'LOOK', 'node': node, 'n_fix': self.n_fix})

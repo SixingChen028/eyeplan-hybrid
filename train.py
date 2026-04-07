@@ -19,7 +19,7 @@ if __name__ == '__main__':
     seeds = [random.randint(0, 1000) for _ in range(args.batch_size)]
     env = gym.vector.SyncVectorEnv([
         lambda: DecisionTreeEnv(
-            num_nodes = args.num_nodes_full_tree, #########
+            num_nodes = args.num_nodes,
             beta_move = args.beta_move,
             eps_move = args.eps_move,
             learning_rate = args.learning_rate,

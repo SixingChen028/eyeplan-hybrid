@@ -10,7 +10,7 @@ class Graph:
 
     def __init__(
             self,
-            num_nodes = 63,
+            num_nodes = 15,
             point_set = np.array([-8, -4, -2, -1, 1, 2, 4, 8])
         ):
         """
@@ -20,53 +20,6 @@ class Graph:
         # initialize parameters
         self.num_nodes = num_nodes # total number of nods
         self.point_set = point_set # point set
-
-        # initialize graph structures
-        # only 4 topological unique tree structures
-        self.possible_child_dicts = [
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 3: [7, 8], 4: [9, 10]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 3: [7, 8], 5: [11, 12]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 3: [7, 8], 6: [13, 14]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 3: [7, 8], 7: [15, 16]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 3: [7, 8], 8: [17, 18]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 4: [9, 10], 5: [11, 12]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 4: [9, 10], 6: [13, 14]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 4: [9, 10], 9: [19, 20]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 4: [9, 10], 10: [21, 22]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 5: [11, 12], 6: [13, 14]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 5: [11, 12], 11: [23, 24]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 5: [11, 12], 12: [25, 26]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 6: [13, 14], 13: [27, 28]},
-            {0: [1, 2], 1: [3, 4], 2: [5, 6], 6: [13, 14], 14: [29, 30]},
-            {0: [1, 2], 1: [3, 4], 3: [7, 8], 4: [9, 10], 7: [15, 16]},
-            {0: [1, 2], 1: [3, 4], 3: [7, 8], 4: [9, 10], 8: [17, 18]},
-            {0: [1, 2], 1: [3, 4], 3: [7, 8], 4: [9, 10], 9: [19, 20]},
-            {0: [1, 2], 1: [3, 4], 3: [7, 8], 4: [9, 10], 10: [21, 22]},
-            {0: [1, 2], 1: [3, 4], 3: [7, 8], 7: [15, 16], 8: [17, 18]},
-            {0: [1, 2], 1: [3, 4], 3: [7, 8], 7: [15, 16], 15: [31, 32]},
-            {0: [1, 2], 1: [3, 4], 3: [7, 8], 7: [15, 16], 16: [33, 34]},
-            {0: [1, 2], 1: [3, 4], 3: [7, 8], 8: [17, 18], 17: [35, 36]},
-            {0: [1, 2], 1: [3, 4], 3: [7, 8], 8: [17, 18], 18: [37, 38]},
-            {0: [1, 2], 1: [3, 4], 4: [9, 10], 9: [19, 20], 10: [21, 22]},
-            {0: [1, 2], 1: [3, 4], 4: [9, 10], 9: [19, 20], 19: [39, 40]},
-            {0: [1, 2], 1: [3, 4], 4: [9, 10], 9: [19, 20], 20: [41, 42]},
-            {0: [1, 2], 1: [3, 4], 4: [9, 10], 10: [21, 22], 21: [43, 44]},
-            {0: [1, 2], 1: [3, 4], 4: [9, 10], 10: [21, 22], 22: [45, 46]},
-            {0: [1, 2], 2: [5, 6], 5: [11, 12], 6: [13, 14], 11: [23, 24]},
-            {0: [1, 2], 2: [5, 6], 5: [11, 12], 6: [13, 14], 12: [25, 26]},
-            {0: [1, 2], 2: [5, 6], 5: [11, 12], 6: [13, 14], 13: [27, 28]},
-            {0: [1, 2], 2: [5, 6], 5: [11, 12], 6: [13, 14], 14: [29, 30]},
-            {0: [1, 2], 2: [5, 6], 5: [11, 12], 11: [23, 24], 12: [25, 26]},
-            {0: [1, 2], 2: [5, 6], 5: [11, 12], 11: [23, 24], 23: [47, 48]},
-            {0: [1, 2], 2: [5, 6], 5: [11, 12], 11: [23, 24], 24: [49, 50]},
-            {0: [1, 2], 2: [5, 6], 5: [11, 12], 12: [25, 26], 25: [51, 52]},
-            {0: [1, 2], 2: [5, 6], 5: [11, 12], 12: [25, 26], 26: [53, 54]},
-            {0: [1, 2], 2: [5, 6], 6: [13, 14], 13: [27, 28], 14: [29, 30]},
-            {0: [1, 2], 2: [5, 6], 6: [13, 14], 13: [27, 28], 27: [55, 56]},
-            {0: [1, 2], 2: [5, 6], 6: [13, 14], 13: [27, 28], 28: [57, 58]},
-            {0: [1, 2], 2: [5, 6], 6: [13, 14], 14: [29, 30], 29: [59, 60]},
-            {0: [1, 2], 2: [5, 6], 6: [13, 14], 14: [29, 30], 30: [61, 62]}
-        ]
         
 
     def reset(
@@ -77,38 +30,25 @@ class Graph:
         Reset the graph.
         """
 
-        # sample a base graph
-        self.base_graph = np.random.choice(self.possible_child_dicts)
-
         # initialize and shuffle nodes
+        self.nodes = np.arange(self.num_nodes)
         if shuffle_nodes:
-            raise ValueError('No node shuffling in this version.')
+            self.nodes = np.random.permutation(self.nodes)
 
-            # shuffle nodes
-            ordered_nodes = np.arange(self.num_nodes)
-            shuffled_nodes = np.random.permutation(ordered_nodes)
-            mapping = dict(zip(ordered_nodes, shuffled_nodes))
+        # initialize child node dict and leaf nodes
+        self.leaf_nodes = np.array([self.nodes[0]]) # initialize leaves as root node
+        self.child_dict = {} # initialize child dict
+        for idx in np.arange(1, self.num_nodes, step = 2):
+            children = self.nodes[idx : idx + 2] # pick children
+            parent = random.choice(self.leaf_nodes) # randomly pick a parent
+            self.child_dict[int(parent)] = children.tolist() # set children
 
-            # initialize nodes
-            self.nodes = shuffled_nodes
-
-            # initialize child_dicts
-            self.child_dict = {mapping[parent]: [mapping[child] for child in children] for parent, children in self.base_graph.items()}
+            # update leaf nodes
+            self.leaf_nodes = np.delete(self.leaf_nodes, np.where(np.isin(self.leaf_nodes, parent))[0]) # remove parent from leaves
+            self.leaf_nodes = np.append(self.leaf_nodes, children) # add children to leaves
         
-        else:
-            # initialize nodes
-            self.nodes = np.arange(self.num_nodes)
-
-            # initialize child_dicts
-            self.child_dict = self.base_graph
-
         # initialize parent node dict
         self.parent_dict = {v: k for k, values in self.child_dict.items() for v in values}
-
-        # get leaf nodes
-        child_keys = np.array(list(self.child_dict.keys()))
-        parent_keys = np.array(list(self.parent_dict.keys()))
-        self.leaf_nodes = parent_keys[~np.isin(parent_keys, child_keys)]
 
         # get max depth
         self.max_depth = int((self.num_nodes - 1) / 2)
@@ -246,7 +186,7 @@ if __name__ == '__main__':
     import networkx as nx
 
     graph = Graph(
-        num_nodes = 63,
+        num_nodes = 11,
         point_set = np.array([-8, -4, -2, -1, 1, 2, 4, 8])
     )
 

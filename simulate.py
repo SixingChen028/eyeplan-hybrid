@@ -27,7 +27,7 @@ if __name__ == '__main__':
 
     # set environment
     env = DecisionTreeEnv(
-        num_nodes = args.num_nodes_full_tree,
+        num_nodes = args.num_nodes,
         beta_move = args.beta_move,
         eps_move = args.eps_move,
         learning_rate = args.learning_rate,
@@ -48,7 +48,6 @@ if __name__ == '__main__':
         greedy = False,
     )
     save_data(data, os.path.join(exp_path, f'data_simulation.p'))
-
 
 
 

@@ -60,6 +60,8 @@ data_json = {
 Process data
 """
 
+# args.num_nodes = 11
+
 for i in range(len(data_pickle['child_dicts'])):
     length_ep = len(data_pickle['action_seqs'][i])
 
@@ -116,8 +118,6 @@ Save data
 
 # set ouput path
 output_path = os.path.join(args.path, f'data_json')
-if not os.path.exists(output_path):
-    os.makedirs(output_path)
 
 # save data
 with open(os.path.join(output_path, f'data_{args.learning_rate}_{args.wm_decay}_{args.jobid}.json'), 'w') as file:

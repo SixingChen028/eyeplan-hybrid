@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ep
 #SBATCH --cpus-per-task=1
-#SBATCH --time=30:00:00
+#SBATCH --time=45:00:00
 #SBATCH --mem-per-cpu=10G
 #SBATCH -e ./results/slurm-%A_%a.err
 #SBATCH -o ./results/slurm-%A_%a.out

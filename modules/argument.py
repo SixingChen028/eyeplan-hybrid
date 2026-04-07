@@ -35,20 +35,19 @@ class ArgParser:
         self.parser.add_argument('--hidden_size', type = int, default = 128, help = 'hidden size')
 
         # environment parameters
-        self.parser.add_argument('--num_nodes', type = int, default = 11, help = 'number of nodes')
-        self.parser.add_argument('--num_nodes_full_tree', type = int, default = 63, help = 'number of nodes')
+        self.parser.add_argument('--num_nodes', type = int, default = 15, help = 'number of nodes')
         self.parser.add_argument('--beta_move', type = float, default = 4.0, help = 'decision temperature')
         self.parser.add_argument('--eps_move', type = float, default = 0.02, help = 'decision lapse rate')
-        self.parser.add_argument('--learning_rate', type = float, default = 0.2, help = 'learning rate')
+        self.parser.add_argument('--learning_rate', type = float, default = 0.2, help = 'learning_rate')
         self.parser.add_argument('--wm_decay', type = float, default = 0.8, help = 'working memory decay')
         self.parser.add_argument('--t_max', type = int, default = 100, help = 'max time steps per episode')
         self.parser.add_argument('--cost', type = float, default = 0.01, help = 'cost per action')
         self.parser.add_argument('--scale_factor', type = float, default = 1 / 8, help = 'reward scale factor')
-        self.parser.add_argument('--shuffle_nodes', type = bool, default = False, help = 'if shuffle nodes') ##########
+        self.parser.add_argument('--shuffle_nodes', type = bool, default = True, help = 'if shuffle nodes')
         self.parser.add_argument('--mask_fixation', type = bool, default = True, help = 'if mask fixations')
 
         # training parameters
-        self.parser.add_argument('--num_episodes', type = int, default = 10000000, help = 'training episodes')
+        self.parser.add_argument('--num_episodes', type = int, default = 15000000, help = 'training episodes')
         self.parser.add_argument('--lr', type = float, default = 1e-3, help = 'learning rate')
         self.parser.add_argument('--batch_size', type = int, default = 40, help = 'batch_size')
         self.parser.add_argument('--max_grad_norm', type = float, default = 1.0, help = 'gradient clipping')
@@ -57,7 +56,7 @@ class ArgParser:
         self.parser.add_argument('--beta_v', type = float, default = 0.05, help = 'value loss coefficient')
         self.parser.add_argument('--beta_e', type = float, default = 0.05, help = 'entropy regularization coefficient')
         self.parser.add_argument('--beta_e_init', type = float, default = 0.05, help = 'initial entropy regularization coefficient')
-        self.parser.add_argument('--beta_e_final', type = float, default = 0.02, help = 'final entropy regularization coefficient')
+        self.parser.add_argument('--beta_e_final', type = float, default = 0.015, help = 'final entropy regularization coefficient')
 
         # parse arguments
         self.args = self.parser.parse_args()

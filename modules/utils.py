@@ -51,12 +51,12 @@ def distance(child_dict, start, end, visited = None):
     return dfs(adjacency_list, start, end, visited)
 
 
-def get_q_values(child_dict, points, num_node = 11, gamma = 1):
+def get_q_values(child_dict, points, num_nodes = 15, gamma = 1):
     """
     Get Q values (in points).
     """
 
-    q_values = np.zeros((num_node,))
+    q_values = np.zeros((num_nodes,))
 
     # helper reverse depth-first-search function
     def _rdfs(node):
@@ -79,12 +79,12 @@ def get_q_values(child_dict, points, num_node = 11, gamma = 1):
     return q_values
 
 
-def child_dict_to_adj_list(child_dict, num_node = 11):
+def child_dict_to_adj_list(child_dict, num_nodes = 15):
     """
     Transfer child dict to adjacency list.
     """
 
-    adj_list = [[] for _ in range(num_node)]
+    adj_list = [[] for _ in range(num_nodes)]
 
     for node, children in child_dict.items():
         adj_list[node] = children
@@ -219,7 +219,7 @@ def get_cum_points(child_dict, root_node, points):
     return cum_points
 
 
-def normalize_logits(child_dict, logits_seq, num_node = 11):
+def normalize_logits(child_dict, logits_seq, num_nodes = 11):
     """
     Normalize action logits between sibling nodes.
     """
@@ -233,7 +233,7 @@ def normalize_logits(child_dict, logits_seq, num_node = 11):
         normalized_logits_seq[:, child1] = logits_seq[:, child1] - logits_seq[:, child2]
         normalized_logits_seq[:, child2] = logits_seq[:, child2] - logits_seq[:, child1]
 
-        normalized_logits_seq[:, num_node + child1] = logits_seq[:, num_node + child1] - logits_seq[:, num_node + child2]
-        normalized_logits_seq[:, num_node + child2] = logits_seq[:, num_node + child2] - logits_seq[:, num_node + child1]
+        normalized_logits_seq[:, num_nodes + child1] = logits_seq[:, num_nodes + child1] - logits_seq[:, num_nodes + child2]
+        normalized_logits_seq[:, num_nodes + child2] = logits_seq[:, num_nodes + child2] - logits_seq[:, num_nodes + child1]
     
     return normalized_logits_seq

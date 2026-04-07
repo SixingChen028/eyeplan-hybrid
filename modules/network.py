@@ -136,4 +136,54 @@ class SharedFeedForwardActorCriticPolicy(nn.Module):
         value = self.value_net(hidden)
 
         return action, policy, log_prob, entropy, value
-    
+
+
+# class SharedFeedForwardActorCriticPolicy(nn.Module):
+#     """
+#     GRU recurrent actor-critic policy with shared actor and critic.
+#     """
+
+#     def __init__(
+#             self,
+#             feature_size,
+#             action_size,
+#             hidden_size = 128,
+#         ):
+#         super(SharedFeedForwardActorCriticPolicy, self).__init__()
+
+#         # network parameters
+#         self.feature_size = feature_size
+#         self.action_size = action_size
+#         self.hidden_size = hidden_size
+
+#         # input feature extractor
+#         self.features_extractor = FlattenExtractor()
+        
+#         # recurrent neural network
+#         self.fc1 = nn.Linear(feature_size, hidden_size)
+#         self.fc2 = nn.Linear(hidden_size, hidden_size)
+#         self.fc3 = nn.Linear(hidden_size, hidden_size)
+
+#         # policy and value net
+#         self.policy_net = ActionNet(hidden_size, action_size)
+#         self.value_net = ValueNet(hidden_size)
+
+
+#     def forward(self, obs, mask = None):
+#         """
+#         Forward the net.
+#         """
+
+#         # extract input features
+#         features = self.features_extractor(obs)
+
+#         # forward pass
+#         hidden = F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(features))))))
+
+#         # compute action
+#         action, policy, log_prob, entropy = self.policy_net(hidden, mask)
+
+#         # compute value
+#         value = self.value_net(hidden)
+
+#         return action, policy, log_prob, entropy, value
