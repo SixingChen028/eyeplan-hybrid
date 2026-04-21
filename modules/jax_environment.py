@@ -51,6 +51,7 @@ class JaxDecisionTreeEnv:
         if point_set is None:
             point_set = [-8, -4, -2, -1, 1, 2, 4, 8]
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
+        self.empty_path = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
 
         observation_size = (
             self.num_nodes
@@ -83,6 +84,12 @@ class JaxDecisionTreeEnv:
             p = (1.0 - self.eps_move) * p + self.eps_move * (1.0 / x.shape[0])
 
         return p
+
+    def _clear_chosen_path(self, state: JaxDecisionTreeState) -> JaxDecisionTreeState:
+        return state._replace(
+            chosen_path=self.empty_path,
+            chosen_path_len=jnp.int32(0),
+        )
 
     def _build_tree(self, key: jax.Array):
         nodes = jnp.arange(self.num_nodes, dtype=jnp.int32)
@@ -304,7 +311,7 @@ class JaxDecisionTreeEnv:
         return mask
 
     def _move(self, state: JaxDecisionTreeState):
-        path = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
+        path = self.empty_path
 
         init = (
             state.root_node,
@@ -377,7 +384,7 @@ class JaxDecisionTreeEnv:
             n_visits=jnp.zeros((self.num_nodes,), dtype=jnp.int32),
             activation=jnp.zeros((self.num_nodes,), dtype=jnp.float32),
             active_mask=jnp.zeros((self.num_nodes,), dtype=jnp.bool_),
-            chosen_path=-jnp.ones((self.num_nodes,), dtype=jnp.int32),
+            chosen_path=self.empty_path,
             chosen_path_len=jnp.int32(0),
         )
 
@@ -397,6 +404,7 @@ class JaxDecisionTreeEnv:
             state = self._look(state, action)
             state = state._replace(fixation_node=action)
             state = self._update_activation(state, action)
+            state = self._clear_chosen_path(state)
             return state, reward
 
         def move_branch(payload):
@@ -411,7 +419,9 @@ class JaxDecisionTreeEnv:
             return state, reward
 
         def noop_branch(payload):
-            return payload
+            state, reward = payload
+            state = self._clear_chosen_path(state)
+            return state, reward
 
         state, reward = jax.lax.cond(
             action < self.num_nodes,

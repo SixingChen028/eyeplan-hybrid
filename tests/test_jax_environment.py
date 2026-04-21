@@ -54,14 +54,14 @@ def _assert_state_matches_legacy(env: DecisionTreeEnv, state) -> None:
     np.testing.assert_array_equal(np.asarray(state.active_mask), env.active_mask)
 
 
-def _make_envs(seed: int = 0):
+def _make_envs(seed: int = 0, t_max: int = 20):
     kwargs = dict(
         num_nodes=3,
         beta_move=50.0,
         eps_move=0.0,
         learning_rate=1.0,
         wm_decay=1.0,
-        t_max=20,
+        t_max=t_max,
         cost=0.01,
         scale_factor=1 / 8,
         shuffle_nodes=False,
@@ -203,3 +203,33 @@ def test_compiled_rollout_matches_legacy_environment():
     np.testing.assert_array_equal(np.asarray(dones_jax), np.asarray(legacy_step_dones))
     np.testing.assert_array_equal(np.asarray(truncateds_jax), np.asarray(legacy_step_truncateds))
     np.testing.assert_array_equal(np.asarray(masks_jax), np.asarray(legacy_step_masks))
+
+
+def test_chosen_path_does_not_leak_across_trials():
+    legacy_env, jax_env, key = _make_envs(seed=7, t_max=3)
+
+    legacy_env.reset()
+    state, _, _ = jax_env.reset(key)
+
+    legacy_env.step(1)
+    state, _, _, _, _, _ = jax_env.step(state, 1)
+    move_action = legacy_env.num_nodes
+    legacy_env.step(move_action)
+    state, _, _, _, _, _ = jax_env.step(state, move_action)
+
+    assert len(legacy_env.chosen_path) > 0
+    assert int(state.chosen_path_len) > 0
+
+    legacy_env.reset()
+    state, _, _ = jax_env.reset(key)
+
+    done_legacy = False
+    done_jax = False
+    for _ in range(legacy_env.t_max):
+        _, _, done_legacy, _, _ = legacy_env.step(1)
+        state, _, _, done_jax, _, _ = jax_env.step(state, 1)
+
+    assert done_legacy
+    assert bool(done_jax)
+    np.testing.assert_array_equal(np.asarray(state.chosen_path[: int(state.chosen_path_len)]), np.asarray([], dtype=np.int32))
+    assert legacy_env.chosen_path == []
