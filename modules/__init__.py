@@ -7,3 +7,6 @@ from .replaybuffer import *
 from .argument import *
 from .simulation import *
 from .jax_environment import *
+from .jax_network import *
+from .jax_a2c import *
+from .jax_simulation import *
