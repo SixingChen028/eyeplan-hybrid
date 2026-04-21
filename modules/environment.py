@@ -153,6 +153,7 @@ class DecisionTreeEnv(gym.Env):
 
         # initialize time elapsed and stage
         self.time_elapsed = 0
+        self.chosen_path = []
 
         # initialize the tree
         self.graph.reset(shuffle_nodes = self.shuffle_nodes)
