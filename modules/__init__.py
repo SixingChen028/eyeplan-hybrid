@@ -6,3 +6,4 @@ from .a2c import *
 from .replaybuffer import *
 from .argument import *
 from .simulation import *
+from .jax_environment import *
