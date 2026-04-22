@@ -163,9 +163,9 @@ if __name__ == '__main__':
     def _fmt_num(value: float, width: int = 8, decimals: int = 3) -> str:
         return f"{value: {width}.{decimals}f}"
 
-    def _eta_hhmm(elapsed: float, completed_updates: int) -> str:
+    def _eta_hhmm(elapsed: float, completed_updates: int, total_updates: int) -> str:
         completed = max(completed_updates, 1)
-        remaining = max(run_total_updates - completed_updates, 0)
+        remaining = max(total_updates - completed_updates, 0)
         eta_seconds = elapsed * (remaining / completed)
         eta_minutes = max(int(round(eta_seconds / 60.0)), 0)
         eta_hours, eta_mins = divmod(eta_minutes, 60)
@@ -194,6 +194,8 @@ if __name__ == '__main__':
         print("metric_mode=chunk_mean_per_update (lower host sync overhead)")
 
     start_time = time.time()
+    eta_skip_elapsed = None
+    eta_skip_updates = None
     window_start_idx = 0
 
     def _next_boundary(processed_updates: int, frequency: int) -> int:
@@ -237,6 +239,7 @@ if __name__ == '__main__':
                 chunk_metrics_mean,
             )
         chunk_end_wall = time.time()
+        is_first_chunk = chunk_start == start_update
 
         chunk_elapsed = chunk_end_wall - chunk_start_wall
         avg_step_time = chunk_elapsed / chunk_updates
@@ -274,6 +277,13 @@ if __name__ == '__main__':
             if should_log:
                 elapsed = event_time - start_time
                 completed_updates = update_index + 1 - start_update
+                if is_first_chunk or eta_skip_elapsed is None or eta_skip_updates is None:
+                    eta_display = ""
+                else:
+                    eta_elapsed = max(elapsed - eta_skip_elapsed, 0.0)
+                    eta_completed = max(completed_updates - eta_skip_updates, 1)
+                    eta_total = max(run_total_updates - eta_skip_updates, 1)
+                    eta_display = _eta_hhmm(eta_elapsed, eta_completed, eta_total)
 
                 window = slice(window_start_idx, run_update_index + 1)
                 avg_episode_reward = float(np.mean(data["episode_reward"][window]))
@@ -301,11 +311,15 @@ if __name__ == '__main__':
                             _fmt_num(avg_clip_fraction),
                             _fmt_num(avg_approx_kl),
                             f"{avg_step_ms:>6d}",
-                            f"{_eta_hhmm(elapsed, completed_updates):>5}",
+                            f"{eta_display:>5}",
                         ]
                     )
                 )
                 window_start_idx = run_update_index + 1
+
+        if is_first_chunk and eta_skip_elapsed is None:
+            eta_skip_elapsed = chunk_end_wall - start_time
+            eta_skip_updates = chunk_end - start_update
 
         should_checkpoint = False
         if args.checkpoint_frequency >= 0:
