@@ -2,6 +2,7 @@ import os
 import json
 import pickle
 import time
+import jax
 import numpy as np
 
 from modules.argument import ArgParser
@@ -152,7 +153,8 @@ if __name__ == '__main__':
         f"ppo_epochs={args.ppo_epochs} "
         f"ppo_clip_eps={args.ppo_clip_eps} "
         f"print_frequency={args.print_frequency} "
-        f"checkpoint_frequency={args.checkpoint_frequency}"
+        f"checkpoint_frequency={args.checkpoint_frequency} "
+        f"log_full_metrics={args.log_full_metrics}"
     )
 
     if args.print_frequency > 0:
@@ -172,86 +174,142 @@ if __name__ == '__main__':
             f"{'since_log':>10}"
         )
         print("-" * 168)
+    if not args.log_full_metrics:
+        print("metric_mode=chunk_mean_per_update (lower host sync overhead)")
 
     start_time = time.time()
     last_log_time = time.time()
     window_start_idx = 0
-    
-    def _should_checkpoint(next_update: int) -> bool:
+    window_start_update = start_update
+
+    def _next_boundary(processed_updates: int, frequency: int) -> int:
+        return ((processed_updates // frequency) + 1) * frequency
+
+    def _next_checkpoint_boundary(processed_updates: int) -> int:
         if args.checkpoint_frequency < 0:
-            return False
-        if args.checkpoint_frequency == 0:
-            return True
-        return next_update % args.checkpoint_frequency == 0 or next_update == num_updates
+            return num_updates
+        if args.checkpoint_frequency > 0:
+            return _next_boundary(processed_updates, args.checkpoint_frequency)
+        if args.print_frequency > 0:
+            return _next_boundary(processed_updates, args.print_frequency)
+        return num_updates
 
-    for index in range(start_update, num_updates):
-        step_start = time.time()
-        state, metrics = trainer.train_step(
-            state=state,
-            beta_e=float(entropy_schedule[index]),
-        )
-        step_time = time.time() - step_start
-        cumulative_time = time.time() - start_time
+    index = start_update
+    while index < num_updates:
+        chunk_start = index
+        chunk_end = num_updates
+        if args.print_frequency > 0:
+            chunk_end = min(chunk_end, _next_boundary(chunk_start, args.print_frequency))
+        if args.checkpoint_frequency >= 0:
+            chunk_end = min(chunk_end, _next_checkpoint_boundary(chunk_start))
+        chunk_updates = chunk_end - chunk_start
+        chunk_entropy = entropy_schedule[chunk_start:chunk_end]
 
-        data["loss"].append(float(metrics.loss))
-        data["policy_loss"].append(float(metrics.policy_loss))
-        data["value_loss"].append(float(metrics.value_loss))
-        data["entropy_loss"].append(float(metrics.entropy_loss))
-        data["clip_fraction"].append(float(metrics.clip_fraction))
-        data["approx_kl"].append(float(metrics.approx_kl))
-        data["episode_length"].append(float(metrics.episode_length))
-        data["episode_reward"].append(float(metrics.episode_reward))
-        data["step_time_s"].append(step_time)
-        data["cumulative_time_s"].append(cumulative_time)
-
-        should_log = (
-            args.print_frequency > 0 and (
-                index == 0
-                or (index + 1) % args.print_frequency == 0
-                or (index + 1) == num_updates
+        chunk_start_wall = time.time()
+        if args.log_full_metrics:
+            state, chunk_metrics = trainer.train_compiled(state, chunk_entropy)
+            chunk_metrics = jax.tree_util.tree_map(
+                lambda x: np.asarray(jax.device_get(x)),
+                chunk_metrics,
             )
-        )
-        if should_log:
-            now = time.time()
-            since_log = now - last_log_time
-            last_log_time = now
-
-            window = slice(window_start_idx, index + 1)
-            avg_episode_reward = float(np.mean(data["episode_reward"][window]))
-            avg_episode_length = float(np.mean(data["episode_length"][window]))
-            avg_loss = float(np.mean(data["loss"][window]))
-            avg_policy_loss = float(np.mean(data["policy_loss"][window]))
-            avg_value_loss = float(np.mean(data["value_loss"][window]))
-            avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
-            avg_clip_fraction = float(np.mean(data["clip_fraction"][window]))
-            avg_approx_kl = float(np.mean(data["approx_kl"][window]))
-            avg_beta_e = float(np.mean(entropy_schedule[window]))
-            avg_step_time = float(np.mean(data["step_time_s"][window]))
-
-            print(
-                f"{index + 1:>8d}  "
-                f"{(index + 1) * args.batch_size:>10d}  "
-                f"{avg_episode_reward:>12.5f}  "
-                f"{avg_episode_length:>12.3f}  "
-                f"{avg_loss:>12.5f}  "
-                f"{avg_policy_loss:>12.5f}  "
-                f"{avg_value_loss:>12.5f}  "
-                f"{avg_entropy_loss:>12.5f}  "
-                f"{avg_clip_fraction:>10.5f}  "
-                f"{avg_approx_kl:>10.5f}  "
-                f"{avg_beta_e:>8.5f}  "
-                f"{avg_step_time:>10.4f}  "
-                f"{since_log:>10.4f}"
+        else:
+            state, chunk_metrics_mean = trainer.train_compiled_mean_metrics(state, chunk_entropy)
+            chunk_metrics_mean = jax.tree_util.tree_map(
+                lambda x: float(jax.device_get(x)),
+                chunk_metrics_mean,
             )
-            window_start_idx = index + 1
+            chunk_metrics = jax.tree_util.tree_map(
+                lambda x: np.full((chunk_updates,), x, dtype=np.float32),
+                chunk_metrics_mean,
+            )
+        chunk_end_wall = time.time()
 
-        if _should_checkpoint(index + 1):
+        chunk_elapsed = chunk_end_wall - chunk_start_wall
+        avg_step_time = chunk_elapsed / chunk_updates
+        chunk_cumulative_start = chunk_start_wall - start_time
+        cumulative_values = (
+            chunk_cumulative_start
+            + (np.arange(1, chunk_updates + 1, dtype=np.float64) / chunk_updates) * chunk_elapsed
+        )
+
+        data["loss"].extend(chunk_metrics.loss.tolist())
+        data["policy_loss"].extend(chunk_metrics.policy_loss.tolist())
+        data["value_loss"].extend(chunk_metrics.value_loss.tolist())
+        data["entropy_loss"].extend(chunk_metrics.entropy_loss.tolist())
+        data["clip_fraction"].extend(chunk_metrics.clip_fraction.tolist())
+        data["approx_kl"].extend(chunk_metrics.approx_kl.tolist())
+        data["episode_length"].extend(chunk_metrics.episode_length.tolist())
+        data["episode_reward"].extend(chunk_metrics.episode_reward.tolist())
+        data["step_time_s"].extend([avg_step_time] * chunk_updates)
+        data["cumulative_time_s"].extend(cumulative_values.tolist())
+
+        run_chunk_offset = chunk_start - start_update
+        for chunk_index in range(chunk_updates):
+            update_index = chunk_start + chunk_index
+            run_update_index = run_chunk_offset + chunk_index
+            progress = (chunk_index + 1) / chunk_updates
+            event_time = chunk_start_wall + progress * chunk_elapsed
+
+            should_log = (
+                args.print_frequency > 0 and (
+                    update_index == 0
+                    or (update_index + 1) % args.print_frequency == 0
+                    or (update_index + 1) == num_updates
+                )
+            )
+            if should_log:
+                since_log = event_time - last_log_time
+                last_log_time = event_time
+
+                window = slice(window_start_idx, run_update_index + 1)
+                avg_episode_reward = float(np.mean(data["episode_reward"][window]))
+                avg_episode_length = float(np.mean(data["episode_length"][window]))
+                avg_loss = float(np.mean(data["loss"][window]))
+                avg_policy_loss = float(np.mean(data["policy_loss"][window]))
+                avg_value_loss = float(np.mean(data["value_loss"][window]))
+                avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
+                avg_clip_fraction = float(np.mean(data["clip_fraction"][window]))
+                avg_approx_kl = float(np.mean(data["approx_kl"][window]))
+                entropy_window = slice(window_start_update, update_index + 1)
+                avg_beta_e = float(np.mean(entropy_schedule[entropy_window]))
+                avg_step_time = float(np.mean(data["step_time_s"][window]))
+
+                print(
+                    f"{update_index + 1:>8d}  "
+                    f"{(update_index + 1) * args.batch_size:>10d}  "
+                    f"{avg_episode_reward:>12.5f}  "
+                    f"{avg_episode_length:>12.3f}  "
+                    f"{avg_loss:>12.5f}  "
+                    f"{avg_policy_loss:>12.5f}  "
+                    f"{avg_value_loss:>12.5f}  "
+                    f"{avg_entropy_loss:>12.5f}  "
+                    f"{avg_clip_fraction:>10.5f}  "
+                    f"{avg_approx_kl:>10.5f}  "
+                    f"{avg_beta_e:>8.5f}  "
+                    f"{avg_step_time:>10.4f}  "
+                    f"{since_log:>10.4f}"
+                )
+                window_start_idx = run_update_index + 1
+                window_start_update = update_index + 1
+
+        should_checkpoint = False
+        if args.checkpoint_frequency >= 0:
+            if args.checkpoint_frequency == 0:
+                should_checkpoint = True
+            else:
+                should_checkpoint = (
+                    chunk_end % args.checkpoint_frequency == 0
+                    or chunk_end == num_updates
+                )
+        if should_checkpoint:
             _save_rolling_checkpoint(
                 state=state,
                 checkpoint_state_path=checkpoint_state_path,
                 checkpoint_meta_path=checkpoint_meta_path,
-                next_update=index + 1,
+                next_update=chunk_end,
             )
+
+        index = chunk_end
 
     print(
         "run_summary "
