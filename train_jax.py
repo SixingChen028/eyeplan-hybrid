@@ -5,6 +5,7 @@ import jax
 import numpy as np
 
 from modules.argument import ArgParser
+from modules.jax_run_dirs import create_timestamped_run_dir
 from modules.jax_environment import JaxDecisionTreeEnv
 from modules.jax_a2c import JaxBatchMaskA2C, save_jax_params
 from modules.jax_simulation import JaxSimulator
@@ -16,9 +17,8 @@ EVAL_EPISODES = 10_000
 if __name__ == '__main__':
     parser = ArgParser()
     args = parser.args
-
-    exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.lamda_backup}_{args.wm_decay}_{args.jobid}')
-    os.makedirs(exp_path, exist_ok=True)
+    exp_path = create_timestamped_run_dir(path=args.path, jobid=args.jobid)
+    print(f"run_dir={exp_path}")
 
     env = JaxDecisionTreeEnv(
         num_nodes=args.num_nodes,

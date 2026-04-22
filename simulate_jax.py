@@ -2,6 +2,7 @@ import os
 import pickle
 
 from modules.argument import ArgParser
+from modules.jax_run_dirs import resolve_timestamped_run_dir
 from modules.jax_a2c import load_jax_params
 from modules.jax_environment import JaxDecisionTreeEnv
 from modules.jax_simulation import JaxSimulator
@@ -10,8 +11,8 @@ from modules.jax_simulation import JaxSimulator
 if __name__ == '__main__':
     parser = ArgParser()
     args = parser.args
-
-    exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.lamda_backup}_{args.wm_decay}_{args.jobid}')
+    exp_path = resolve_timestamped_run_dir(path=args.path, jobid=args.jobid)
+    print(f"run_dir={exp_path}")
 
     params = load_jax_params(os.path.join(exp_path, 'net_jax.p'))
 

@@ -2,6 +2,8 @@ import argparse
 import os
 import pickle
 
+from modules.jax_run_dirs import resolve_timestamped_run_dir
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -21,13 +23,7 @@ def _to_markdown_table(df: pd.DataFrame) -> str:
 
 
 def resolve_run_dir(args: argparse.Namespace) -> str:
-    if args.run_dir is not None:
-        return args.run_dir
-
-    if args.jobid is None:
-        raise ValueError("Either --run_dir or --jobid must be provided.")
-
-    return os.path.join(args.path, f"exp_{args.learning_rate}_{args.lamda_backup}_{args.wm_decay}_{args.jobid}")
+    return resolve_timestamped_run_dir(path=args.path, run_dir=args.run_dir, jobid=args.jobid)
 
 
 def main():
