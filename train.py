@@ -1,5 +1,6 @@
 import os
 import gymnasium as gym
+import random
 
 from modules import *
 
@@ -9,6 +10,8 @@ if __name__ == '__main__':
     # parse args
     parser = ArgParser()
     args = parser.args
+
+    random.seed(args.seed)
 
     # set experiment path
     exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.wm_decay}_{args.jobid}')

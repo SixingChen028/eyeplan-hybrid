@@ -3,6 +3,25 @@ import json
 import argparse
 
 
+def parse_bool(value):
+    """
+    Parse boolean values from CLI strings.
+    """
+
+    if isinstance(value, bool):
+        return value
+
+    value = str(value).strip().lower()
+    if value in {'1', 'true', 't', 'yes', 'y'}:
+        return True
+    if value in {'0', 'false', 'f', 'no', 'n'}:
+        return False
+
+    raise argparse.ArgumentTypeError(
+        f"Invalid boolean value: {value}. Use one of true/false/1/0/yes/no."
+    )
+
+
 class ArgParser:
     """
     An ArgumentParser.
@@ -30,6 +49,7 @@ class ArgParser:
         # job parameters
         self.parser.add_argument('--jobid', type = str, default = '0', help = 'job id')
         self.parser.add_argument('--path', type = str, default = os.path.join(os.getcwd(), 'results'), help = 'path to store results')
+        self.parser.add_argument('--seed', type = int, default = 15, help = 'random seed')
 
         # nework parameters
         self.parser.add_argument('--hidden_size', type = int, default = 128, help = 'hidden size')
@@ -43,8 +63,8 @@ class ArgParser:
         self.parser.add_argument('--t_max', type = int, default = 100, help = 'max time steps per episode')
         self.parser.add_argument('--cost', type = float, default = 0.01, help = 'cost per action')
         self.parser.add_argument('--scale_factor', type = float, default = 1 / 8, help = 'reward scale factor')
-        self.parser.add_argument('--shuffle_nodes', type = bool, default = True, help = 'if shuffle nodes')
-        self.parser.add_argument('--mask_fixation', type = bool, default = True, help = 'if mask fixations')
+        self.parser.add_argument('--shuffle_nodes', type = parse_bool, default = True, help = 'if shuffle nodes')
+        self.parser.add_argument('--mask_fixation', type = parse_bool, default = True, help = 'if mask fixations')
 
         # training parameters
         self.parser.add_argument('--num_episodes', type = int, default = 15000000, help = 'training episodes')
@@ -60,7 +80,7 @@ class ArgParser:
         self.parser.add_argument('--print_frequency', type = int, default = 100, help = 'print training logs every n updates (0 to disable)')
         self.parser.add_argument('--ppo_epochs', type = int, default = 4, help = 'number of PPO epochs per rollout update')
         self.parser.add_argument('--ppo_clip_eps', type = float, default = 0.2, help = 'PPO clipping epsilon')
-        self.parser.add_argument('--ppo_normalize_advantages', type = bool, default = True, help = 'if normalize PPO advantages')
+        self.parser.add_argument('--ppo_normalize_advantages', type = parse_bool, default = True, help = 'if normalize PPO advantages')
 
         # parse arguments
         self.args = self.parser.parse_args()

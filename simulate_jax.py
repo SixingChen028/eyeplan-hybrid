@@ -30,7 +30,7 @@ if __name__ == '__main__':
     simulator = JaxSimulator(env)
     data = simulator.simulate(
         params=params,
-        seed=15,
+        seed=args.seed,
         num_trials=100000,
         greedy=False,
     )

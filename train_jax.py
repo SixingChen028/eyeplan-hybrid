@@ -45,7 +45,7 @@ if __name__ == '__main__':
         beta_e=args.beta_e,
     )
 
-    state = trainer.init_state(seed=15)
+    state = trainer.init_state(seed=args.seed)
 
     num_updates = int(args.num_episodes / args.batch_size)
     entropy_schedule = np.linspace(
@@ -161,7 +161,7 @@ if __name__ == '__main__':
     simulator = JaxSimulator(env)
     eval_stats = simulator.evaluate_policy(
         params=state.params,
-        seed=15,
+        seed=args.seed,
         num_trials=EVAL_EPISODES,
         greedy=True,
     )

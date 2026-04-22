@@ -9,15 +9,14 @@ from modules import *
 
 if __name__ == '__main__':
 
-    # set random seed
-    seed = 15
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-
     # parse args
     parser = ArgParser()
     args = parser.args
+
+    # set random seed
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
 
     # set experiment path
     exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.wm_decay}_{args.jobid}')
@@ -48,6 +47,5 @@ if __name__ == '__main__':
         greedy = False,
     )
     save_data(data, os.path.join(exp_path, f'data_simulation.p'))
-
 
 
