@@ -3,11 +3,15 @@ import re
 import json
 import sys
 import time
+import random
+import string
 import subprocess
 from datetime import datetime, timezone
 from argparse import Namespace
 
-_TIMESTAMP_PATTERN = re.compile(r"^(?:(?P<prefix>.+)_)?(?P<timestamp>\d{8}_\d{6})$")
+_TIMESTAMP_PATTERN = re.compile(
+    r"^(?:(?P<prefix>.+)_)?(?P<timestamp>\d{8}_\d{6})(?:_(?P<suffix>[a-z0-9]{4}))?$"
+)
 
 
 def _normalize_prefix(jobid: str | None) -> str | None:
@@ -19,19 +23,38 @@ def _normalize_prefix(jobid: str | None) -> str | None:
     return value
 
 
-def build_timestamped_run_dir(path: str, jobid: str | None = None, timestamp: str | None = None) -> str:
+def _random_suffix(length: int = 4) -> str:
+    alphabet = string.ascii_lowercase + string.digits
+    return "".join(random.choices(alphabet, k=length))
+
+
+def build_timestamped_run_dir(
+    path: str,
+    jobid: str | None = None,
+    timestamp: str | None = None,
+    suffix: str | None = None,
+) -> str:
     if timestamp is None:
         timestamp = time.strftime("%Y%m%d_%H%M%S")
+    if suffix is None:
+        suffix = _random_suffix()
 
     prefix = _normalize_prefix(jobid)
-    run_name = timestamp if prefix is None else f"{prefix}_{timestamp}"
+    stem = timestamp if prefix is None else f"{prefix}_{timestamp}"
+    run_name = f"{stem}_{suffix}"
     return os.path.join(path, run_name)
 
 
 def create_timestamped_run_dir(path: str, jobid: str | None = None, timestamp: str | None = None) -> str:
-    run_dir = build_timestamped_run_dir(path=path, jobid=jobid, timestamp=timestamp)
-    os.makedirs(run_dir, exist_ok=True)
-    return run_dir
+    for _ in range(16):
+        run_dir = build_timestamped_run_dir(path=path, jobid=jobid, timestamp=timestamp)
+        try:
+            os.makedirs(run_dir, exist_ok=False)
+            return run_dir
+        except FileExistsError:
+            continue
+
+    raise RuntimeError("Unable to create a unique run directory after multiple attempts.")
 
 
 def resolve_timestamped_run_dir(path: str, run_dir: str | None = None, jobid: str | None = None) -> str:
@@ -61,7 +84,7 @@ def resolve_timestamped_run_dir(path: str, run_dir: str | None = None, jobid: st
             f"No timestamped run directories found under {path} for jobid={prefix}"
         )
 
-    candidates.sort(key=lambda item: item[0])
+    candidates.sort(key=lambda item: (item[0], item[1]))
     return candidates[-1][1]
 
 
