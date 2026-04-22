@@ -37,7 +37,7 @@ def main():
     parser.add_argument("--jobid", type=str, default=None)
     parser.add_argument("--learning_rate", type=float, default=0.2)
     parser.add_argument("--wm_decay", type=float, default=0.8)
-    parser.add_argument("--batch_size", type=int, default=40)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--ma_window", type=int, default=100)
     parser.add_argument("--data_file", type=str, default="data_training_jax.p")
     parser.add_argument("--output_prefix", type=str, default="training_jax")
