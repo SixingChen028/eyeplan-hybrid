@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=ep-jax-grid
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=1
 #SBATCH --time=00:04:00
 #SBATCH --mem-per-cpu=8G
 #SBATCH -e ./results/slurm-grid-%A_%a.err
@@ -11,6 +11,13 @@ set -euo pipefail
 
 # Force CPU execution for JAX.
 export JAX_PLATFORMS=cpu
+THREADS=${SLURM_CPUS_PER_TASK:-1}
+export OMP_NUM_THREADS=${THREADS}
+export MKL_NUM_THREADS=${THREADS}
+export OPENBLAS_NUM_THREADS=${THREADS}
+export VECLIB_MAXIMUM_THREADS=${THREADS}
+export NUMEXPR_NUM_THREADS=${THREADS}
+export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=${THREADS}"
 
 RESULT_PATH=./results/jax-grid-cpu
 mkdir -p "${RESULT_PATH}"
