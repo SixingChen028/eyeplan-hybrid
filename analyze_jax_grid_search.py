@@ -6,6 +6,10 @@ import pickle
 import statistics
 from collections import defaultdict
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 
 def _rolling_mean_last(values: list[float], window: int) -> float:
     if not values:
@@ -72,6 +76,99 @@ def _write_markdown(path: str, rows: list[dict], columns: list[str]) -> None:
         lines.append("| " + " | ".join(str(row.get(col, "")) for col in columns) + " |")
     with open(path, "w") as file:
         file.write("\n".join(lines) + "\n")
+
+
+def _safe_float(value):
+    try:
+        result = float(value)
+        return result if result == result else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _plot_top_runs(rows: list[dict], score_key: str, output_path: str, top_k: int) -> None:
+    top_rows = rows[: max(1, min(top_k, len(rows)))]
+    labels = [os.path.basename(row["run_dir"]) for row in top_rows]
+    scores = [float(row[score_key]) for row in top_rows]
+
+    plt.figure(figsize=(12, 6))
+    plt.bar(range(len(top_rows)), scores)
+    plt.xticks(range(len(top_rows)), labels, rotation=60, ha="right", fontsize=8)
+    plt.ylabel(score_key)
+    plt.title(f"Top {len(top_rows)} Runs by {score_key}")
+    plt.grid(axis="y", alpha=0.25)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+
+
+def _plot_score_vs_runtime(rows: list[dict], score_key: str, output_path: str) -> None:
+    x = []
+    y = []
+    for row in rows:
+        runtime = _safe_float(row.get("total_train_time_s"))
+        score = _safe_float(row.get(score_key))
+        if runtime is None or score is None:
+            continue
+        x.append(runtime)
+        y.append(score)
+
+    if not x:
+        return
+
+    plt.figure(figsize=(7, 5))
+    plt.scatter(x, y, alpha=0.7)
+    plt.xlabel("Total Train Time (s)")
+    plt.ylabel(score_key)
+    plt.title(f"{score_key} vs Runtime")
+    plt.grid(alpha=0.25)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close()
+
+
+def _plot_param_effects(rows: list[dict], score_key: str, params: list[str], output_path: str) -> None:
+    params = [param for param in params if param]
+    params = [param for param in params if any(param in row for row in rows)]
+    if not params:
+        return
+
+    n = len(params)
+    ncols = 2
+    nrows = (n + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(12, 4.5 * nrows))
+    axes = axes.ravel() if hasattr(axes, "ravel") else [axes]
+
+    for idx, param in enumerate(params):
+        groups: dict[str, list[float]] = defaultdict(list)
+        for row in rows:
+            score = _safe_float(row.get(score_key))
+            if score is None:
+                continue
+            if param not in row:
+                continue
+            groups[str(row[param])].append(score)
+
+        keys = sorted(groups.keys(), key=lambda x: _safe_float(x) if _safe_float(x) is not None else x)
+        means = [statistics.mean(groups[key]) for key in keys]
+        stdevs = [statistics.stdev(groups[key]) if len(groups[key]) > 1 else 0.0 for key in keys]
+
+        ax = axes[idx]
+        ax.errorbar(range(len(keys)), means, yerr=stdevs, marker="o", capsize=3)
+        ax.set_title(param)
+        ax.set_xlabel("value")
+        ax.set_ylabel(score_key)
+        ax.set_xticks(range(len(keys)))
+        ax.set_xticklabels(keys, rotation=45, ha="right")
+        ax.grid(alpha=0.25)
+
+    for idx in range(len(params), len(axes)):
+        fig.delaxes(axes[idx])
+
+    fig.suptitle(f"Hyperparameter Effects on {score_key}")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
 
 
 def _run_record(
@@ -153,6 +250,7 @@ def main() -> None:
         help="Comma-separated columns for aggregation.",
     )
     parser.add_argument("--top_k", type=int, default=20)
+    parser.add_argument("--plot_params", type=str, default=None, help="Comma-separated arg columns to plot.")
     args = parser.parse_args()
 
     output_dir = args.output_dir or args.results_root
@@ -222,11 +320,27 @@ def main() -> None:
     top_columns = [col for col in top_columns if col in run_fields]
     _write_markdown(top_md, top_rows, top_columns)
 
+    default_plot_params = [key for key in group_keys if key.startswith("arg_")]
+    plot_params = (
+        [part.strip() for part in args.plot_params.split(",") if part.strip()]
+        if args.plot_params
+        else default_plot_params
+    )
+    top_plot = os.path.join(output_dir, "grid_plot_top_runs.png")
+    runtime_plot = os.path.join(output_dir, "grid_plot_score_vs_runtime.png")
+    params_plot = os.path.join(output_dir, "grid_plot_param_effects.png")
+    _plot_top_runs(rows=rows, score_key=args.score_key, output_path=top_plot, top_k=args.top_k)
+    _plot_score_vs_runtime(rows=rows, score_key=args.score_key, output_path=runtime_plot)
+    _plot_param_effects(rows=rows, score_key=args.score_key, params=plot_params, output_path=params_plot)
+
     print(f"Analyzed runs: {len(rows)}")
     print(f"Skipped (missing {args.data_file}): {skipped_no_training}")
     print(f"Wrote: {runs_csv}")
     print(f"Wrote: {summary_csv}")
     print(f"Wrote: {top_md}")
+    print(f"Wrote: {top_plot}")
+    print(f"Wrote: {runtime_plot}")
+    print(f"Wrote: {params_plot}")
 
 
 if __name__ == "__main__":
