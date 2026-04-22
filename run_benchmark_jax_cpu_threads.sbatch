@@ -79,7 +79,7 @@ python -u train_jax.py \
     --max_grad_norm=1.0 \
     --seed=$((100 + repeat_idx)) \
     --print_frequency=0 \
-    --checkpoint_frequency=0 \
+    --checkpoint_frequency=-1 \
     2>&1 | tee -a "${log_path}"
 status=${PIPESTATUS[0]}
 end_ns=$(date +%s%N)

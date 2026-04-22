@@ -64,16 +64,24 @@ def _tree_from_numpy(tree):
     return jax.tree_util.tree_map(lambda x: jnp.asarray(x), tree)
 
 
-def save_jax_params(params: Any, path: str):
+def save_jax_tree(tree: Any, path: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as file:
-        pickle.dump(_tree_to_numpy(params), file)
+        pickle.dump(_tree_to_numpy(tree), file)
+
+
+def load_jax_tree(path: str):
+    with open(path, "rb") as file:
+        tree = pickle.load(file)
+    return _tree_from_numpy(tree)
+
+
+def save_jax_params(params: Any, path: str):
+    save_jax_tree(params, path)
 
 
 def load_jax_params(path: str):
-    with open(path, "rb") as file:
-        params = pickle.load(file)
-    return _tree_from_numpy(params)
+    return load_jax_tree(path)
 
 
 def _zeros_like_tree(tree):

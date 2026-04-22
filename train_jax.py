@@ -1,34 +1,100 @@
 import os
+import json
 import pickle
 import time
 import jax
 import numpy as np
 
 from modules.argument import ArgParser
-from modules.jax_run_dirs import create_timestamped_run_dir, write_run_metadata
+from modules.jax_run_dirs import (
+    create_timestamped_run_dir,
+    resolve_timestamped_run_dir,
+    write_run_metadata,
+)
 from modules.jax_environment import JaxDecisionTreeEnv
-from modules.jax_a2c import JaxBatchMaskA2C, save_jax_params
+from modules.jax_a2c import JaxBatchMaskA2C, save_jax_params, save_jax_tree, load_jax_tree
 from modules.jax_simulation import JaxSimulator
 
 
 EVAL_EPISODES = 10_000
+CHECKPOINT_STATE_NAME = "train_state_latest.p"
+CHECKPOINT_META_NAME = "train_state_latest.json"
+
+
+def _has_resume_key(jobid: str) -> bool:
+    return str(jobid).strip() not in {"", "0"}
+
+
+def _save_rolling_checkpoint(state, checkpoint_state_path: str, checkpoint_meta_path: str, next_update: int):
+    temp_state_path = f"{checkpoint_state_path}.tmp"
+    temp_meta_path = f"{checkpoint_meta_path}.tmp"
+
+    save_jax_tree(state, temp_state_path)
+    with open(temp_meta_path, "w") as file:
+        json.dump({"next_update": int(next_update)}, file, indent=2, sort_keys=True)
+
+    os.replace(temp_state_path, checkpoint_state_path)
+    os.replace(temp_meta_path, checkpoint_meta_path)
+
+
+def _load_resume_state(checkpoint_state_path: str, checkpoint_meta_path: str):
+    if not os.path.exists(checkpoint_state_path) or not os.path.exists(checkpoint_meta_path):
+        return None, 0
+
+    with open(checkpoint_meta_path, "r") as file:
+        checkpoint_meta = json.load(file)
+    next_update = int(checkpoint_meta["next_update"])
+    state = load_jax_tree(checkpoint_state_path)
+    return state, next_update
 
 
 if __name__ == '__main__':
     parser = ArgParser()
     args = parser.args
+    num_updates = int(args.num_episodes / args.batch_size)
+
     devices = ", ".join(
         f"{device.platform}:{device.device_kind}"
         for device in jax.local_devices()
     )
     print(f"jax_backend={jax.default_backend()} jax_devices=[{devices}]")
-    exp_path = create_timestamped_run_dir(path=args.path, jobid=args.jobid)
-    metadata_path = write_run_metadata(run_dir=exp_path, args=args, cwd=os.getcwd())
+
+    state = None
+    start_update = 0
+    exp_path = None
+
+    if _has_resume_key(args.jobid):
+        try:
+            candidate_path = resolve_timestamped_run_dir(path=args.path, jobid=args.jobid)
+            candidate_checkpoint_dir = os.path.join(candidate_path, "checkpoints")
+            candidate_checkpoint_state = os.path.join(candidate_checkpoint_dir, CHECKPOINT_STATE_NAME)
+            candidate_checkpoint_meta = os.path.join(candidate_checkpoint_dir, CHECKPOINT_META_NAME)
+            state, start_update = _load_resume_state(candidate_checkpoint_state, candidate_checkpoint_meta)
+            if not (0 < start_update < num_updates):
+                state = None
+                start_update = 0
+            else:
+                exp_path = candidate_path
+        except (FileNotFoundError, KeyError, ValueError, OSError, json.JSONDecodeError, pickle.UnpicklingError):
+            state = None
+            start_update = 0
+
+    if exp_path is None:
+        exp_path = create_timestamped_run_dir(path=args.path, jobid=args.jobid)
+        metadata_path = write_run_metadata(run_dir=exp_path, args=args, cwd=os.getcwd())
+    else:
+        metadata_path = os.path.join(exp_path, "metadata.json")
+
     print(f"run_dir={exp_path}")
     print(f"run_metadata={metadata_path}")
+    if start_update > 0:
+        print(f"resuming_from_update={start_update}")
+
     checkpoint_dir = os.path.join(exp_path, "checkpoints")
-    if args.checkpoint_frequency > 0:
+    if args.checkpoint_frequency >= 0:
         os.makedirs(checkpoint_dir, exist_ok=True)
+    checkpoint_state_path = os.path.join(checkpoint_dir, CHECKPOINT_STATE_NAME)
+    checkpoint_meta_path = os.path.join(checkpoint_dir, CHECKPOINT_META_NAME)
 
     env = JaxDecisionTreeEnv(
         num_nodes=args.num_nodes,
@@ -57,9 +123,9 @@ if __name__ == '__main__':
         beta_e=args.beta_e,
     )
 
-    state = trainer.init_state(seed=args.seed)
+    if state is None:
+        state = trainer.init_state(seed=args.seed)
 
-    num_updates = int(args.num_episodes / args.batch_size)
     entropy_schedule = np.linspace(
         args.beta_e_init,
         args.beta_e_final,
@@ -118,7 +184,14 @@ if __name__ == '__main__':
     def _next_boundary(processed_updates: int, frequency: int) -> int:
         return ((processed_updates // frequency) + 1) * frequency
 
-    index = 0
+    def _should_checkpoint(next_update: int) -> bool:
+        if args.checkpoint_frequency < 0:
+            return False
+        if args.checkpoint_frequency == 0:
+            return True
+        return next_update % args.checkpoint_frequency == 0 or next_update == num_updates
+
+    index = start_update
     while index < num_updates:
         chunk_start = index
         chunk_end = num_updates
@@ -212,23 +285,14 @@ if __name__ == '__main__':
                 )
                 window_start_idx = update_index + 1
 
-            should_checkpoint = (
-                args.checkpoint_frequency > 0 and (
-                    (update_index + 1) % args.checkpoint_frequency == 0
-                    or (update_index + 1) == num_updates
-                )
+        if _should_checkpoint(chunk_end):
+            _save_rolling_checkpoint(
+                state=state,
+                checkpoint_state_path=checkpoint_state_path,
+                checkpoint_meta_path=checkpoint_meta_path,
+                next_update=chunk_end,
             )
-            if should_checkpoint:
-                if chunk_index != chunk_updates - 1:
-                    raise RuntimeError(
-                        "Checkpoint boundary must align with chunk end in compiled training."
-                    )
-                checkpoint_path = os.path.join(
-                    checkpoint_dir,
-                    f"net_jax_update_{update_index + 1:08d}.p",
-                )
-                save_jax_params(state.params, checkpoint_path)
-                print(f"checkpoint_saved update={update_index + 1} path={checkpoint_path}")
+            print(f"checkpoint_saved update={chunk_end} path={checkpoint_state_path}")
 
         index = chunk_end
 
