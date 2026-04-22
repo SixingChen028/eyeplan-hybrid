@@ -21,6 +21,9 @@ if __name__ == '__main__':
     metadata_path = write_run_metadata(run_dir=exp_path, args=args, cwd=os.getcwd())
     print(f"run_dir={exp_path}")
     print(f"run_metadata={metadata_path}")
+    checkpoint_dir = os.path.join(exp_path, "checkpoints")
+    if args.checkpoint_frequency > 0:
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
     env = JaxDecisionTreeEnv(
         num_nodes=args.num_nodes,
@@ -52,7 +55,6 @@ if __name__ == '__main__':
     state = trainer.init_state(seed=args.seed)
 
     num_updates = int(args.num_episodes / args.batch_size)
-    compiled_chunk_size = 512 if args.print_frequency <= 0 else args.print_frequency
     entropy_schedule = np.linspace(
         args.beta_e_init,
         args.beta_e_final,
@@ -78,7 +80,7 @@ if __name__ == '__main__':
         f"num_updates={num_updates} "
         f"t_max={args.t_max} "
         f"print_frequency={args.print_frequency} "
-        f"compiled_chunk_size={compiled_chunk_size}"
+        f"checkpoint_frequency={args.checkpoint_frequency}"
     )
 
     if args.print_frequency > 0:
@@ -101,10 +103,17 @@ if __name__ == '__main__':
     last_log_time = time.time()
     window_start_idx = 0
 
+    def _next_boundary(processed_updates: int, frequency: int) -> int:
+        return ((processed_updates // frequency) + 1) * frequency
+
     index = 0
     while index < num_updates:
         chunk_start = index
-        chunk_end = min(chunk_start + compiled_chunk_size, num_updates)
+        chunk_end = num_updates
+        if args.print_frequency > 0:
+            chunk_end = min(chunk_end, _next_boundary(chunk_start, args.print_frequency))
+        if args.checkpoint_frequency > 0:
+            chunk_end = min(chunk_end, _next_boundary(chunk_start, args.checkpoint_frequency))
         chunk_updates = chunk_end - chunk_start
         chunk_entropy = entropy_schedule[chunk_start:chunk_end]
 
@@ -177,6 +186,24 @@ if __name__ == '__main__':
                     f"{since_log:>10.4f}"
                 )
                 window_start_idx = update_index + 1
+
+            should_checkpoint = (
+                args.checkpoint_frequency > 0 and (
+                    (update_index + 1) % args.checkpoint_frequency == 0
+                    or (update_index + 1) == num_updates
+                )
+            )
+            if should_checkpoint:
+                if chunk_index != chunk_updates - 1:
+                    raise RuntimeError(
+                        "Checkpoint boundary must align with chunk end in compiled training."
+                    )
+                checkpoint_path = os.path.join(
+                    checkpoint_dir,
+                    f"net_jax_update_{update_index + 1:08d}.p",
+                )
+                save_jax_params(state.params, checkpoint_path)
+                print(f"checkpoint_saved update={update_index + 1} path={checkpoint_path}")
 
         index = chunk_end
 

@@ -21,6 +21,9 @@ if __name__ == '__main__':
     metadata_path = write_run_metadata(run_dir=exp_path, args=args, cwd=os.getcwd())
     print(f"run_dir={exp_path}")
     print(f"run_metadata={metadata_path}")
+    checkpoint_dir = os.path.join(exp_path, "checkpoints")
+    if args.checkpoint_frequency > 0:
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
     env = JaxDecisionTreeEnv(
         num_nodes=args.num_nodes,
@@ -168,6 +171,20 @@ if __name__ == '__main__':
                 f"{since_log:>10.4f}"
             )
             window_start_idx = index + 1
+
+        should_checkpoint = (
+            args.checkpoint_frequency > 0 and (
+                (index + 1) % args.checkpoint_frequency == 0
+                or (index + 1) == num_updates
+            )
+        )
+        if should_checkpoint:
+            checkpoint_path = os.path.join(
+                checkpoint_dir,
+                f"net_jax_ppo_update_{index + 1:08d}.p",
+            )
+            save_jax_params(state.params, checkpoint_path)
+            print(f"checkpoint_saved update={index + 1} path={checkpoint_path}")
 
     print(
         "run_summary "
