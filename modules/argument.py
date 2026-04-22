@@ -57,6 +57,7 @@ class ArgParser:
         self.parser.add_argument('--beta_e', type = float, default = 0.05, help = 'entropy regularization coefficient')
         self.parser.add_argument('--beta_e_init', type = float, default = 0.05, help = 'initial entropy regularization coefficient')
         self.parser.add_argument('--beta_e_final', type = float, default = 0.015, help = 'final entropy regularization coefficient')
+        self.parser.add_argument('--print_frequency', type = int, default = 100, help = 'print training logs every n updates (0 to disable)')
 
         # parse arguments
         self.args = self.parser.parse_args()

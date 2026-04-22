@@ -1,5 +1,6 @@
 import os
 import pickle
+import time
 import numpy as np
 
 from modules.argument import ArgParser
@@ -50,10 +51,94 @@ if __name__ == '__main__':
         dtype=np.float32,
     )
 
-    state, data = trainer.train(
-        state=state,
-        num_updates=num_updates,
-        entropy_schedule=entropy_schedule,
+    data = {
+        "loss": [],
+        "policy_loss": [],
+        "value_loss": [],
+        "entropy_loss": [],
+        "episode_length": [],
+        "episode_reward": [],
+        "step_time_s": [],
+        "cumulative_time_s": [],
+    }
+
+    print(
+        "run_config "
+        f"batch_size={args.batch_size} "
+        f"num_episodes={args.num_episodes} "
+        f"num_updates={num_updates} "
+        f"t_max={args.t_max} "
+        f"print_frequency={args.print_frequency}"
+    )
+
+    if args.print_frequency > 0:
+        print(
+            f"{'update':>8}  "
+            f"{'ep_num':>10}  "
+            f"{'ep_rew':>12}  "
+            f"{'ep_len':>12}  "
+            f"{'loss':>12}  "
+            f"{'policy':>12}  "
+            f"{'value':>12}  "
+            f"{'entropy':>12}  "
+            f"{'beta_e':>8}  "
+            f"{'step_s':>10}  "
+            f"{'since_log':>10}"
+        )
+        print("-" * 142)
+
+    start_time = time.time()
+    last_log_time = time.time()
+
+    for index in range(num_updates):
+        step_start = time.time()
+        state, metrics = trainer.train_step(
+            state=state,
+            beta_e=float(entropy_schedule[index]),
+        )
+        step_time = time.time() - step_start
+        cumulative_time = time.time() - start_time
+
+        data["loss"].append(float(metrics.loss))
+        data["policy_loss"].append(float(metrics.policy_loss))
+        data["value_loss"].append(float(metrics.value_loss))
+        data["entropy_loss"].append(float(metrics.entropy_loss))
+        data["episode_length"].append(float(metrics.episode_length))
+        data["episode_reward"].append(float(metrics.episode_reward))
+        data["step_time_s"].append(step_time)
+        data["cumulative_time_s"].append(cumulative_time)
+
+        should_log = (
+            args.print_frequency > 0 and (
+                index == 0
+                or (index + 1) % args.print_frequency == 0
+                or (index + 1) == num_updates
+            )
+        )
+        if should_log:
+            now = time.time()
+            since_log = now - last_log_time
+            last_log_time = now
+
+            print(
+                f"{index + 1:>8d}  "
+                f"{(index + 1) * args.batch_size:>10d}  "
+                f"{float(metrics.episode_reward):>12.5f}  "
+                f"{float(metrics.episode_length):>12.3f}  "
+                f"{float(metrics.loss):>12.5f}  "
+                f"{float(metrics.policy_loss):>12.5f}  "
+                f"{float(metrics.value_loss):>12.5f}  "
+                f"{float(metrics.entropy_loss):>12.5f}  "
+                f"{float(entropy_schedule[index]):>8.5f}  "
+                f"{step_time:>10.4f}  "
+                f"{since_log:>10.4f}"
+            )
+
+    print(
+        "run_summary "
+        f"updates={num_updates} "
+        f"elapsed_seconds={time.time() - start_time:.3f} "
+        f"mean_step_seconds={np.mean(data['step_time_s']):.6f}"
     )
 
     save_jax_params(state.params, os.path.join(exp_path, 'net_jax.p'))
