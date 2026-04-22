@@ -29,7 +29,7 @@ parser = ArgParser()
 args = parser.args
 
 # set experiment path
-exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.wm_decay}_{args.jobid}')
+exp_path = os.path.join(args.path, f'exp_{args.lamda_backup}_{args.wm_decay}_{args.jobid}')
 
 
 
@@ -120,5 +120,5 @@ Save data
 output_path = os.path.join(args.path, f'data_json')
 
 # save data
-with open(os.path.join(output_path, f'data_{args.learning_rate}_{args.wm_decay}_{args.jobid}.json'), 'w') as file:
+with open(os.path.join(output_path, f'data_{args.lamda_backup}_{args.wm_decay}_{args.jobid}.json'), 'w') as file:
     json.dump(data_json, file, cls = NumpyEncoder)

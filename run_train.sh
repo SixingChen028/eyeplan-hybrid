@@ -10,6 +10,6 @@
 python -u train.py \
     --jobid=$SLURM_ARRAY_TASK_ID \
     --path=./results \
-    --learning_rate=${1} \
+    --lamda_backup=${1} \
     --wm_decay=${2}
     
