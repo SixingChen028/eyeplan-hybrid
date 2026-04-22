@@ -157,28 +157,41 @@ if __name__ == '__main__':
         f"log_full_metrics={args.log_full_metrics}"
     )
 
+    col_sep = "   "
+    run_total_updates = max(num_updates - start_update, 1)
+
+    def _fmt4(value: float, width: int = 8) -> str:
+        return f"{value:>{width}.4g}"
+
+    def _progress(elapsed: float, completed_updates: int) -> str:
+        completed = max(completed_updates, 1)
+        est_total = elapsed * (run_total_updates / completed)
+        return f"{elapsed:5.1f}/{est_total:5.1f}"
+
     if args.print_frequency > 0:
-        print(
-            f"{'update':>8}  "
-            f"{'ep_num':>10}  "
-            f"{'ep_rew':>12}  "
-            f"{'ep_len':>12}  "
-            f"{'loss':>12}  "
-            f"{'policy':>12}  "
-            f"{'value':>12}  "
-            f"{'entropy':>12}  "
-            f"{'grad_n':>12}  "
-            f"{'param_n':>12}  "
-            f"{'beta_e':>8}  "
-            f"{'step_s':>10}  "
-            f"{'since_log':>10}"
+        header = col_sep.join(
+            [
+                f"{'update':>8}",
+                f"{'ep_num':>10}",
+                f"{'ep_rew':>8}",
+                f"{'ep_len':>8}",
+                f"{'loss':>8}",
+                f"{'policy':>8}",
+                f"{'value':>8}",
+                f"{'entropy':>8}",
+                f"{'grad_n':>8}",
+                f"{'param_n':>8}",
+                f"{'beta_e':>8}",
+                f"{'step_s':>8}",
+                f"{'progress':>13}",
+            ]
         )
-        print("-" * 170)
+        print(header)
+        print("-" * len(header))
     if not args.log_full_metrics:
         print("metric_mode=chunk_mean_per_update (lower host sync overhead)")
 
     start_time = time.time()
-    last_log_time = time.time()
     window_start_idx = 0
 
     def _next_boundary(processed_updates: int, frequency: int) -> int:
@@ -253,8 +266,8 @@ if __name__ == '__main__':
                 )
             )
             if should_log:
-                since_log = event_time - last_log_time
-                last_log_time = event_time
+                elapsed = event_time - start_time
+                completed_updates = update_index + 1 - start_update
 
                 window = slice(window_start_idx, update_index + 1)
                 avg_episode_reward = float(np.mean(data["episode_reward"][window]))
@@ -269,19 +282,23 @@ if __name__ == '__main__':
                 avg_step_time_window = float(np.mean(data["step_time_s"][window]))
 
                 print(
-                    f"{update_index + 1:>8d}  "
-                    f"{(update_index + 1) * args.batch_size:>10d}  "
-                    f"{avg_episode_reward:>12.5f}  "
-                    f"{avg_episode_length:>12.3f}  "
-                    f"{avg_loss:>12.5f}  "
-                    f"{avg_policy_loss:>12.5f}  "
-                    f"{avg_value_loss:>12.5f}  "
-                    f"{avg_entropy_loss:>12.5f}  "
-                    f"{avg_grad_norm:>12.5f}  "
-                    f"{avg_param_norm:>12.5f}  "
-                    f"{avg_beta_e:>8.5f}  "
-                    f"{avg_step_time_window:>10.4f}  "
-                    f"{since_log:>10.4f}"
+                    col_sep.join(
+                        [
+                            f"{update_index + 1:>8d}",
+                            f"{(update_index + 1) * args.batch_size:>10d}",
+                            _fmt4(avg_episode_reward),
+                            _fmt4(avg_episode_length),
+                            _fmt4(avg_loss),
+                            _fmt4(avg_policy_loss),
+                            _fmt4(avg_value_loss),
+                            _fmt4(avg_entropy_loss),
+                            _fmt4(avg_grad_norm),
+                            _fmt4(avg_param_norm),
+                            _fmt4(avg_beta_e),
+                            _fmt4(avg_step_time_window),
+                            f"{_progress(elapsed, completed_updates):>13}",
+                        ]
+                    )
                 )
                 window_start_idx = update_index + 1
 
