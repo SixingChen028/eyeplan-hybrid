@@ -1,14 +1,6 @@
-from .environment import *
-from .graph import *
-from .planner import *
-from .network import *
-from .a2c import *
-from .replaybuffer import *
-from .argument import *
-from .simulation import *
-from .jax_environment import *
-from .jax_network import *
-from .jax_a2c import *
-from .jax_ppo import *
-from .jax_simulation import *
-from .jax_baselines import *
+"""
+Module package.
+
+Keep this file import-light so optional dependencies (for example torch)
+are only required when importing the corresponding submodules directly.
+"""
