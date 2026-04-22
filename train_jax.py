@@ -6,6 +6,10 @@ import numpy as np
 from modules.argument import ArgParser
 from modules.jax_environment import JaxDecisionTreeEnv
 from modules.jax_a2c import JaxBatchMaskA2C, save_jax_params
+from modules.jax_simulation import JaxSimulator
+
+
+EVAL_EPISODES = 10_000
 
 
 if __name__ == '__main__':
@@ -151,6 +155,26 @@ if __name__ == '__main__':
         f"updates={num_updates} "
         f"elapsed_seconds={time.time() - start_time:.3f} "
         f"mean_step_seconds={np.mean(data['step_time_s']):.6f}"
+    )
+
+    eval_start = time.time()
+    simulator = JaxSimulator(env)
+    eval_stats = simulator.evaluate_policy(
+        params=state.params,
+        seed=15,
+        num_trials=EVAL_EPISODES,
+        greedy=True,
+    )
+    print(
+        "eval_summary "
+        f"episodes={eval_stats['num_trials']} "
+        f"reward_mean={eval_stats['reward_mean']:.6f} "
+        f"reward_sd={eval_stats['reward_sd']:.6f} "
+        f"reward_no_cost_mean={eval_stats['reward_no_cost_mean']:.6f} "
+        f"reward_no_cost_sd={eval_stats['reward_no_cost_sd']:.6f} "
+        f"n_steps_mean={eval_stats['n_steps_mean']:.3f} "
+        f"n_steps_sd={eval_stats['n_steps_sd']:.3f} "
+        f"elapsed_seconds={time.time() - eval_start:.3f}"
     )
 
     save_jax_params(state.params, os.path.join(exp_path, 'net_jax.p'))
