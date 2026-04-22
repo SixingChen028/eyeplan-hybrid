@@ -160,13 +160,16 @@ if __name__ == '__main__':
     col_sep = "   "
     run_total_updates = max(num_updates - start_update, 1)
 
-    def _fmt4(value: float, width: int = 8) -> str:
-        return f"{value:>{width}.4g}"
+    def _fmt_num(value: float, width: int = 8, decimals: int = 3) -> str:
+        return f"{value: {width}.{decimals}f}"
 
-    def _progress(elapsed: float, completed_updates: int) -> str:
+    def _eta_hhmm(elapsed: float, completed_updates: int) -> str:
         completed = max(completed_updates, 1)
-        est_total = elapsed * (run_total_updates / completed)
-        return f"{elapsed:5.1f}/{est_total:5.1f}"
+        remaining = max(run_total_updates - completed_updates, 0)
+        eta_seconds = elapsed * (remaining / completed)
+        eta_minutes = max(int(round(eta_seconds / 60.0)), 0)
+        eta_hours, eta_mins = divmod(eta_minutes, 60)
+        return f"{eta_hours:02d}:{eta_mins:02d}"
 
     if args.print_frequency > 0:
         header = col_sep.join(
@@ -181,9 +184,8 @@ if __name__ == '__main__':
                 f"{'entropy':>8}",
                 f"{'clipfrac':>8}",
                 f"{'approx_kl':>8}",
-                f"{'beta_e':>8}",
-                f"{'step_s':>8}",
-                f"{'progress':>13}",
+                f"{'ms':>6}",
+                f"{'ETA':>5}",
             ]
         )
         print(header)
@@ -193,7 +195,6 @@ if __name__ == '__main__':
 
     start_time = time.time()
     window_start_idx = 0
-    window_start_update = start_update
 
     def _next_boundary(processed_updates: int, frequency: int) -> int:
         return ((processed_updates // frequency) + 1) * frequency
@@ -283,31 +284,28 @@ if __name__ == '__main__':
                 avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
                 avg_clip_fraction = float(np.mean(data["clip_fraction"][window]))
                 avg_approx_kl = float(np.mean(data["approx_kl"][window]))
-                entropy_window = slice(window_start_update, update_index + 1)
-                avg_beta_e = float(np.mean(entropy_schedule[entropy_window]))
                 avg_step_time = float(np.mean(data["step_time_s"][window]))
+                avg_step_ms = int(round(avg_step_time * 1000.0))
 
                 print(
                     col_sep.join(
                         [
                             f"{update_index + 1:>8d}",
                             f"{(update_index + 1) * args.batch_size:>10d}",
-                            _fmt4(avg_episode_reward),
-                            _fmt4(avg_episode_length),
-                            _fmt4(avg_loss),
-                            _fmt4(avg_policy_loss),
-                            _fmt4(avg_value_loss),
-                            _fmt4(avg_entropy_loss),
-                            _fmt4(avg_clip_fraction),
-                            _fmt4(avg_approx_kl),
-                            _fmt4(avg_beta_e),
-                            _fmt4(avg_step_time),
-                            f"{_progress(elapsed, completed_updates):>13}",
+                            _fmt_num(avg_episode_reward),
+                            _fmt_num(avg_episode_length),
+                            _fmt_num(avg_loss),
+                            _fmt_num(avg_policy_loss),
+                            _fmt_num(avg_value_loss),
+                            _fmt_num(avg_entropy_loss),
+                            _fmt_num(avg_clip_fraction),
+                            _fmt_num(avg_approx_kl),
+                            f"{avg_step_ms:>6d}",
+                            f"{_eta_hhmm(elapsed, completed_updates):>5}",
                         ]
                     )
                 )
                 window_start_idx = run_update_index + 1
-                window_start_update = update_index + 1
 
         should_checkpoint = False
         if args.checkpoint_frequency >= 0:
