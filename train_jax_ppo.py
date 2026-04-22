@@ -252,7 +252,6 @@ if __name__ == '__main__':
                 checkpoint_meta_path=checkpoint_meta_path,
                 next_update=index + 1,
             )
-            print(f"checkpoint_saved update={index + 1} path={checkpoint_state_path}")
 
     print(
         "run_summary "

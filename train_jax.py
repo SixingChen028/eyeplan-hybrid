@@ -292,7 +292,6 @@ if __name__ == '__main__':
                 checkpoint_meta_path=checkpoint_meta_path,
                 next_update=chunk_end,
             )
-            print(f"checkpoint_saved update={chunk_end} path={checkpoint_state_path}")
 
         index = chunk_end
 
