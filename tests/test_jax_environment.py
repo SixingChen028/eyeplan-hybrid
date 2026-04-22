@@ -6,6 +6,41 @@ from modules.environment import DecisionTreeEnv
 from modules.jax_environment import JaxDecisionTreeEnv
 
 
+def _bfs_visit_order(child_nodes: np.ndarray, root: int) -> list[int]:
+    order: list[int] = []
+    queue: list[int] = [int(root)]
+    seen: set[int] = set()
+
+    while queue:
+        node = queue.pop(0)
+        if node in seen:
+            continue
+
+        seen.add(node)
+        order.append(node)
+
+        left = int(child_nodes[node, 0])
+        right = int(child_nodes[node, 1])
+        if left >= 0:
+            queue.append(left)
+        if right >= 0:
+            queue.append(right)
+
+    return order
+
+
+def _optimal_path_reward_raw(child_nodes: np.ndarray, points: np.ndarray, root: int) -> float:
+    def dfs(node: int) -> float:
+        left = int(child_nodes[node, 0])
+        if left < 0:
+            return float(points[node])
+
+        right = int(child_nodes[node, 1])
+        return float(points[node]) + max(dfs(left), dfs(right))
+
+    return dfs(int(root))
+
+
 def _legacy_children_array(env: DecisionTreeEnv) -> np.ndarray:
     children = -np.ones((env.num_nodes, 2), dtype=np.int32)
     for parent, child_list in env.graph.child_dict.items():
@@ -235,3 +270,85 @@ def test_chosen_path_does_not_leak_across_trials():
     assert bool(done_jax)
     np.testing.assert_array_equal(np.asarray(state.chosen_path[: int(state.chosen_path_len)]), np.asarray([], dtype=np.int32))
     assert legacy_env.chosen_path == []
+
+
+def test_visit_all_once_then_terminate_is_optimal_legacy():
+    env = DecisionTreeEnv(
+        num_nodes=7,
+        beta_move=100.0,
+        eps_move=0.0,
+        learning_rate=1.0,
+        lamda_backup=1.0,
+        wm_decay=1.0,
+        t_max=8,
+        cost=0.0,
+        shuffle_nodes=True,
+        mask_fixation=True,
+        seed=19,
+    )
+
+    _, info = env.reset()
+    child_nodes = _legacy_children_array(env)
+    points = env.graph.points
+    root = int(env.graph.root_node)
+
+    visit_order = _bfs_visit_order(child_nodes, root)
+    assert len(visit_order) == env.num_nodes
+    assert len(set(visit_order)) == env.num_nodes
+
+    for action in visit_order:
+        assert bool(info["mask"][action])
+        _, _, done, truncated, info = env.step(action)
+        assert not done
+        assert not truncated
+
+    _, reward, done, truncated, _ = env.step(env.num_nodes)
+    assert done
+    assert not truncated
+
+    optimal_scaled = _optimal_path_reward_raw(child_nodes, points, root) * env.scale_factor
+    np.testing.assert_allclose(reward, optimal_scaled, atol=1e-6)
+
+    chosen_path = np.asarray(env.chosen_path, dtype=np.int32)
+    chosen_scaled = float(points[chosen_path].sum()) * env.scale_factor
+    np.testing.assert_allclose(chosen_scaled, optimal_scaled, atol=1e-6)
+
+
+def test_visit_all_once_then_terminate_is_optimal_jax():
+    env = JaxDecisionTreeEnv(
+        num_nodes=7,
+        beta_move=100.0,
+        eps_move=0.0,
+        learning_rate=1.0,
+        lamda_backup=1.0,
+        wm_decay=1.0,
+        t_max=8,
+        cost=0.0,
+        shuffle_nodes=True,
+    )
+
+    state, _, info = env.reset(jax.random.PRNGKey(19))
+    child_nodes = np.asarray(state.child_nodes)
+    points = np.asarray(state.points)
+    root = int(state.root_node)
+
+    visit_order = _bfs_visit_order(child_nodes, root)
+    assert len(visit_order) == env.num_nodes
+    assert len(set(visit_order)) == env.num_nodes
+
+    for action in visit_order:
+        assert bool(np.asarray(info["mask"])[action])
+        state, _, _, done, truncated, info = env.step(state, action)
+        assert not bool(done)
+        assert not bool(truncated)
+
+    state, _, reward, done, truncated, _ = env.step(state, env.num_nodes)
+    assert bool(done)
+    assert not bool(truncated)
+
+    optimal_scaled = _optimal_path_reward_raw(child_nodes, points, root) * env.scale_factor
+    np.testing.assert_allclose(float(reward), optimal_scaled, atol=1e-6)
+
+    chosen_path = np.asarray(state.chosen_path)[: int(state.chosen_path_len)]
+    chosen_scaled = float(points[chosen_path].sum()) * env.scale_factor
+    np.testing.assert_allclose(chosen_scaled, optimal_scaled, atol=1e-6)
