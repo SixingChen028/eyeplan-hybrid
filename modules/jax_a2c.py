@@ -140,43 +140,67 @@ class JaxBatchMaskA2C:
         env_state, obs, info = jax.vmap(self.env.reset)(reset_keys)
         action_mask = info["mask"]
         done = jnp.zeros((self.batch_size,), dtype=jnp.bool_)
+        zero_output = jnp.zeros((self.batch_size,), dtype=jnp.float32)
 
         def body_fn(carry, _):
             env_state, obs, action_mask, done, rng_key = carry
 
-            mask = 1.0 - done.astype(jnp.float32)
+            def done_branch(carry):
+                env_state, obs, action_mask, done, rng_key = carry
+                rng_key, _ = jax.random.split(rng_key)
 
-            logits, values = actor_critic_forward(params, obs)
+                output = RolloutBatch(
+                    masks=zero_output,
+                    rewards=zero_output,
+                    log_probs=zero_output,
+                    entropies=zero_output,
+                    values=zero_output,
+                )
+                return (env_state, obs, action_mask, done, rng_key), output
 
-            rng_key, action_key = jax.random.split(rng_key)
-            actions, log_probs, entropies = sample_actions(action_key, logits, action_mask)
+            def active_branch(carry):
+                env_state, obs, action_mask, done, rng_key = carry
 
-            next_env_state, next_obs, rewards, dones, _, info = jax.vmap(self.env.step)(env_state, actions)
-            next_action_mask = info["mask"]
+                mask = 1.0 - done.astype(jnp.float32)
 
-            env_state = jax.tree_util.tree_map(
-                lambda new, old: _select_not_done(done, new, old),
-                next_env_state,
-                env_state,
+                logits, values = actor_critic_forward(params, obs)
+
+                rng_key, action_key = jax.random.split(rng_key)
+                actions, log_probs, entropies = sample_actions(action_key, logits, action_mask)
+
+                next_env_state, next_obs, rewards, dones, _, info = jax.vmap(self.env.step)(env_state, actions)
+                next_action_mask = info["mask"]
+
+                env_state = jax.tree_util.tree_map(
+                    lambda new, old: _select_not_done(done, new, old),
+                    next_env_state,
+                    env_state,
+                )
+                obs = _select_not_done(done, next_obs, obs)
+                action_mask = _select_not_done(done, next_action_mask, action_mask)
+                done = jnp.logical_or(done, dones)
+
+                rewards = rewards.astype(jnp.float32) * mask
+                log_probs = log_probs * mask
+                entropies = entropies * mask
+                values = values * mask
+
+                output = RolloutBatch(
+                    masks=mask,
+                    rewards=rewards,
+                    log_probs=log_probs,
+                    entropies=entropies,
+                    values=values,
+                )
+
+                return (env_state, obs, action_mask, done, rng_key), output
+
+            return jax.lax.cond(
+                jnp.all(done),
+                done_branch,
+                active_branch,
+                carry,
             )
-            obs = _select_not_done(done, next_obs, obs)
-            action_mask = _select_not_done(done, next_action_mask, action_mask)
-            done = jnp.logical_or(done, dones)
-
-            rewards = rewards.astype(jnp.float32) * mask
-            log_probs = log_probs * mask
-            entropies = entropies * mask
-            values = values * mask
-
-            output = RolloutBatch(
-                masks=mask,
-                rewards=rewards,
-                log_probs=log_probs,
-                entropies=entropies,
-                values=values,
-            )
-
-            return (env_state, obs, action_mask, done, rng_key), output
 
         carry, rollout = jax.lax.scan(
             body_fn,

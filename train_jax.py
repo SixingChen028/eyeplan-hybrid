@@ -17,6 +17,11 @@ EVAL_EPISODES = 10_000
 if __name__ == '__main__':
     parser = ArgParser()
     args = parser.args
+    devices = ", ".join(
+        f"{device.platform}:{device.device_kind}"
+        for device in jax.local_devices()
+    )
+    print(f"jax_backend={jax.default_backend()} jax_devices=[{devices}]")
     exp_path = create_timestamped_run_dir(path=args.path, jobid=args.jobid)
     metadata_path = write_run_metadata(run_dir=exp_path, args=args, cwd=os.getcwd())
     print(f"run_dir={exp_path}")
