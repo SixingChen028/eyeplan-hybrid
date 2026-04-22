@@ -162,39 +162,94 @@ def _visit_all_then_bestg_then_parent_chain_action(
     num_nodes: int,
 ) -> Tuple[int, Dict[str, Any]]:
     phase = policy_state["phase"]
+    current = obs_view.fixation_node
+    root = obs_view.root_node if obs_view.root_node is not None else policy_state["root_node"]
+
+    if current is not None:
+        policy_state["discovered"][current] = True
+
+    if obs_view.parent_node is not None and current is not None:
+        parent = obs_view.parent_node
+        policy_state["discovered"][parent] = True
+        policy_state["parent_map"][current] = parent
+
+    for child in (obs_view.child1_node, obs_view.child2_node):
+        if child is not None and current is not None:
+            policy_state["discovered"][child] = True
+            policy_state["parent_map"][child] = current
 
     if phase == "visit_all":
+        discovered = policy_state["discovered"]
         visited = policy_state["visited"]
-        legal = np.where(action_mask[:num_nodes])[0]
-        unvisited_legal = [idx for idx in legal if not visited[idx]]
+        parent_map = policy_state["parent_map"]
 
-        if len(unvisited_legal) > 0:
-            action = int(unvisited_legal[0])
-        else:
-            action = _choose_legal_fixation(None, action_mask, obs_view.root_node, num_nodes)
-
-        if action < num_nodes:
-            visited[action] = True
-
-        if visited.all():
+        unvisited_discovered = np.where(discovered & (~visited))[0]
+        if unvisited_discovered.size == 0 and discovered.all():
             policy_state["phase"] = "best_g"
+        elif policy_state["visit_steps"] >= policy_state["max_visit_steps"]:
+            policy_state["phase"] = "best_g"
+        else:
+            legal = np.where(action_mask[:num_nodes])[0]
 
-        return action, policy_state
+            legal_unvisited = [node for node in legal if discovered[node] and (not visited[node])]
+            if len(legal_unvisited) > 0:
+                action = int(legal_unvisited[0])
+            else:
+                parent_candidates = []
+                for node in unvisited_discovered:
+                    parent = int(parent_map[node])
+                    if parent >= 0 and action_mask[parent]:
+                        parent_candidates.append(parent)
+
+                if len(parent_candidates) > 0:
+                    action = int(parent_candidates[0])
+                else:
+                    legal_discovered = [node for node in legal if discovered[node]]
+                    if len(legal_discovered) > 0:
+                        action = int(legal_discovered[0])
+                    else:
+                        action = _choose_legal_fixation(None, action_mask, root, num_nodes)
+
+            if action < num_nodes:
+                visited[action] = True
+
+            policy_state["visit_steps"] += 1
+            return action, policy_state
 
     if phase == "best_g":
-        g_values = obs_view.g_values
-        target = int(np.argmax(g_values))
-        action = _choose_legal_fixation(target, action_mask, obs_view.root_node, num_nodes)
+        if policy_state["target_node"] is None:
+            candidate_mask = policy_state["discovered"] | policy_state["visited"]
+            if np.any(candidate_mask):
+                candidate_g = np.where(candidate_mask, obs_view.g_values, -np.inf)
+                policy_state["target_node"] = int(np.argmax(candidate_g))
+            else:
+                policy_state["target_node"] = root
 
-        policy_state["phase"] = "climb"
+        target = int(policy_state["target_node"])
+
+        if current == target:
+            policy_state["phase"] = "climb"
+        else:
+            parent_map = policy_state["parent_map"]
+            target_ancestor = target
+            while target_ancestor >= 0 and (not action_mask[target_ancestor]):
+                target_ancestor = int(parent_map[target_ancestor])
+
+            if target_ancestor >= 0:
+                action = int(target_ancestor)
+            else:
+                action = _choose_legal_fixation(None, action_mask, root, num_nodes)
+            return action, policy_state
+
+    if phase == "climb":
+        parent = obs_view.parent_node
+        if parent is None:
+            return num_nodes, policy_state
+
+        action = _choose_legal_fixation(parent, action_mask, root, num_nodes)
         return action, policy_state
 
-    parent = obs_view.parent_node
-    if parent is None:
-        return num_nodes, policy_state
-
-    action = _choose_legal_fixation(parent, action_mask, obs_view.root_node, num_nodes)
-    return action, policy_state
+    return num_nodes, policy_state
 
 
 def _immediate_move_action(
@@ -252,9 +307,28 @@ def _init_policy_state(policy_name: str, obs_view: ObsView, num_nodes: int) -> D
         }
 
     if policy_name == "visit_all_then_bestg_then_parent_chain":
+        root = obs_view.root_node if obs_view.root_node is not None else 0
+        discovered = np.zeros((num_nodes,), dtype=bool)
+        visited = np.zeros((num_nodes,), dtype=bool)
+        parent_map = -np.ones((num_nodes,), dtype=int)
+
+        discovered[root] = True
+        visited[root] = True
+
+        for child in (obs_view.child1_node, obs_view.child2_node):
+            if child is not None:
+                discovered[child] = True
+                parent_map[child] = root
+
         return {
             "phase": "visit_all",
-            "visited": np.zeros((num_nodes,), dtype=bool),
+            "root_node": root,
+            "visited": visited,
+            "discovered": discovered,
+            "parent_map": parent_map,
+            "visit_steps": 0,
+            "max_visit_steps": int(2 * num_nodes),
+            "target_node": None,
         }
 
     return {}
