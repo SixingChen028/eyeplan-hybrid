@@ -99,6 +99,7 @@ if __name__ == '__main__':
 
     start_time = time.time()
     last_log_time = time.time()
+    window_start_idx = 0
 
     for index in range(num_updates):
         step_start = time.time()
@@ -132,21 +133,34 @@ if __name__ == '__main__':
             since_log = now - last_log_time
             last_log_time = now
 
+            window = slice(window_start_idx, index + 1)
+            avg_episode_reward = float(np.mean(data["episode_reward"][window]))
+            avg_episode_length = float(np.mean(data["episode_length"][window]))
+            avg_loss = float(np.mean(data["loss"][window]))
+            avg_policy_loss = float(np.mean(data["policy_loss"][window]))
+            avg_value_loss = float(np.mean(data["value_loss"][window]))
+            avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
+            avg_clip_fraction = float(np.mean(data["clip_fraction"][window]))
+            avg_approx_kl = float(np.mean(data["approx_kl"][window]))
+            avg_beta_e = float(np.mean(entropy_schedule[window]))
+            avg_step_time = float(np.mean(data["step_time_s"][window]))
+
             print(
                 f"{index + 1:>8d}  "
                 f"{(index + 1) * args.batch_size:>10d}  "
-                f"{float(metrics.episode_reward):>12.5f}  "
-                f"{float(metrics.episode_length):>12.3f}  "
-                f"{float(metrics.loss):>12.5f}  "
-                f"{float(metrics.policy_loss):>12.5f}  "
-                f"{float(metrics.value_loss):>12.5f}  "
-                f"{float(metrics.entropy_loss):>12.5f}  "
-                f"{float(metrics.clip_fraction):>10.5f}  "
-                f"{float(metrics.approx_kl):>10.5f}  "
-                f"{float(entropy_schedule[index]):>8.5f}  "
-                f"{step_time:>10.4f}  "
+                f"{avg_episode_reward:>12.5f}  "
+                f"{avg_episode_length:>12.3f}  "
+                f"{avg_loss:>12.5f}  "
+                f"{avg_policy_loss:>12.5f}  "
+                f"{avg_value_loss:>12.5f}  "
+                f"{avg_entropy_loss:>12.5f}  "
+                f"{avg_clip_fraction:>10.5f}  "
+                f"{avg_approx_kl:>10.5f}  "
+                f"{avg_beta_e:>8.5f}  "
+                f"{avg_step_time:>10.4f}  "
                 f"{since_log:>10.4f}"
             )
+            window_start_idx = index + 1
 
     print(
         "run_summary "
