@@ -85,7 +85,8 @@ if __name__ == '__main__':
         f"num_updates={num_updates} "
         f"t_max={args.t_max} "
         f"print_frequency={args.print_frequency} "
-        f"checkpoint_frequency={args.checkpoint_frequency}"
+        f"checkpoint_frequency={args.checkpoint_frequency} "
+        f"log_full_metrics={args.log_full_metrics}"
     )
 
     if args.print_frequency > 0:
@@ -103,6 +104,8 @@ if __name__ == '__main__':
             f"{'since_log':>10}"
         )
         print("-" * 142)
+    if not args.log_full_metrics:
+        print("metric_mode=chunk_mean_per_update (lower host sync overhead)")
 
     start_time = time.time()
     last_log_time = time.time()
@@ -123,38 +126,45 @@ if __name__ == '__main__':
         chunk_entropy = entropy_schedule[chunk_start:chunk_end]
 
         chunk_start_wall = time.time()
-        state, chunk_metrics = trainer.train_compiled(state, chunk_entropy)
-        chunk_metrics = jax.tree_util.tree_map(
-            lambda x: np.asarray(jax.device_get(x)),
-            chunk_metrics,
-        )
+        if args.log_full_metrics:
+            state, chunk_metrics = trainer.train_compiled(state, chunk_entropy)
+            chunk_metrics = jax.tree_util.tree_map(
+                lambda x: np.asarray(jax.device_get(x)),
+                chunk_metrics,
+            )
+        else:
+            state, chunk_metrics_mean = trainer.train_compiled_mean_metrics(state, chunk_entropy)
+            chunk_metrics_mean = jax.tree_util.tree_map(
+                lambda x: float(jax.device_get(x)),
+                chunk_metrics_mean,
+            )
+            chunk_metrics = jax.tree_util.tree_map(
+                lambda x: np.full((chunk_updates,), x, dtype=np.float32),
+                chunk_metrics_mean,
+            )
         chunk_end_wall = time.time()
 
         chunk_elapsed = chunk_end_wall - chunk_start_wall
         avg_step_time = chunk_elapsed / chunk_updates
         chunk_cumulative_start = chunk_start_wall - start_time
 
+        cumulative_values = (
+            chunk_cumulative_start
+            + (np.arange(1, chunk_updates + 1, dtype=np.float64) / chunk_updates) * chunk_elapsed
+        )
+        data["loss"].extend(chunk_metrics.loss.tolist())
+        data["policy_loss"].extend(chunk_metrics.policy_loss.tolist())
+        data["value_loss"].extend(chunk_metrics.value_loss.tolist())
+        data["entropy_loss"].extend(chunk_metrics.entropy_loss.tolist())
+        data["episode_length"].extend(chunk_metrics.episode_length.tolist())
+        data["episode_reward"].extend(chunk_metrics.episode_reward.tolist())
+        data["step_time_s"].extend([avg_step_time] * chunk_updates)
+        data["cumulative_time_s"].extend(cumulative_values.tolist())
+
         for chunk_index in range(chunk_updates):
             update_index = chunk_start + chunk_index
             progress = (chunk_index + 1) / chunk_updates
             event_time = chunk_start_wall + progress * chunk_elapsed
-            cumulative_time = chunk_cumulative_start + progress * chunk_elapsed
-
-            metrics_loss = float(chunk_metrics.loss[chunk_index])
-            metrics_policy_loss = float(chunk_metrics.policy_loss[chunk_index])
-            metrics_value_loss = float(chunk_metrics.value_loss[chunk_index])
-            metrics_entropy_loss = float(chunk_metrics.entropy_loss[chunk_index])
-            metrics_episode_length = float(chunk_metrics.episode_length[chunk_index])
-            metrics_episode_reward = float(chunk_metrics.episode_reward[chunk_index])
-
-            data["loss"].append(metrics_loss)
-            data["policy_loss"].append(metrics_policy_loss)
-            data["value_loss"].append(metrics_value_loss)
-            data["entropy_loss"].append(metrics_entropy_loss)
-            data["episode_length"].append(metrics_episode_length)
-            data["episode_reward"].append(metrics_episode_reward)
-            data["step_time_s"].append(avg_step_time)
-            data["cumulative_time_s"].append(cumulative_time)
 
             should_log = (
                 args.print_frequency > 0 and (

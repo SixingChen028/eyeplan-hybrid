@@ -40,6 +40,18 @@ class RolloutBatch(NamedTuple):
     values: jax.Array
 
 
+def _zero_step_metrics(dtype=jnp.float32):
+    zero = jnp.array(0.0, dtype=dtype)
+    return StepMetrics(
+        loss=zero,
+        policy_loss=zero,
+        value_loss=zero,
+        entropy_loss=zero,
+        episode_reward=zero,
+        episode_length=zero,
+    )
+
+
 def _tree_to_numpy(tree):
     return jax.tree_util.tree_map(lambda x: np.asarray(jax.device_get(x)), tree)
 
@@ -113,6 +125,7 @@ class JaxBatchMaskA2C:
 
         self._train_step_jit = jax.jit(self._train_step)
         self._train_many_jit = jax.jit(self._train_many)
+        self._train_many_mean_metrics_jit = jax.jit(self._train_many_mean_metrics)
 
     def init_state(self, seed: int = 0) -> JaxTrainState:
         key = jax.random.PRNGKey(seed)
@@ -333,6 +346,19 @@ class JaxBatchMaskA2C:
 
         return jax.lax.scan(body_fn, state, entropy_schedule)
 
+    def _train_many_mean_metrics(self, state: JaxTrainState, entropy_schedule: jax.Array):
+        def body_fn(carry, beta_e):
+            state, metric_sums = carry
+            state, metrics = self._train_step(state, beta_e)
+            metric_sums = jax.tree_util.tree_map(jnp.add, metric_sums, metrics)
+            return (state, metric_sums), None
+
+        init = (state, _zero_step_metrics(dtype=jnp.float32))
+        (state, metric_sums), _ = jax.lax.scan(body_fn, init, entropy_schedule)
+        num_steps = jnp.asarray(entropy_schedule.shape[0], dtype=jnp.float32)
+        mean_metrics = jax.tree_util.tree_map(lambda x: x / num_steps, metric_sums)
+        return state, mean_metrics
+
     def train_step(self, state: JaxTrainState, beta_e: float | None = None):
         if beta_e is None:
             beta_e = self.beta_e
@@ -379,3 +405,7 @@ class JaxBatchMaskA2C:
     def train_compiled(self, state: JaxTrainState, entropy_schedule):
         entropy_schedule = jnp.asarray(entropy_schedule, dtype=jnp.float32)
         return self._train_many_jit(state, entropy_schedule)
+
+    def train_compiled_mean_metrics(self, state: JaxTrainState, entropy_schedule):
+        entropy_schedule = jnp.asarray(entropy_schedule, dtype=jnp.float32)
+        return self._train_many_mean_metrics_jit(state, entropy_schedule)
