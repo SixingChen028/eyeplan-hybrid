@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ep-jax-grid
 #SBATCH --cpus-per-task=4
-#SBATCH --time=24:00:00
+#SBATCH --time=00:04:00
 #SBATCH --mem-per-cpu=8G
 #SBATCH -e ./results/slurm-grid-%A_%a.err
 #SBATCH -o ./results/slurm-grid-%A_%a.out
@@ -61,7 +61,7 @@ python -u train_jax.py \
     --learning_rate=1.0 \
     --wm_decay=1.0 \
     --lamda_backup=1.0 \
-    --num_episodes=4000000 \
+    --num_episodes=4_000_000 \
     --batch_size="${BATCH_SIZE}" \
     --hidden_size=256 \
     --lr="${LR}" \
