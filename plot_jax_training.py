@@ -27,7 +27,7 @@ def resolve_run_dir(args: argparse.Namespace) -> str:
     if args.jobid is None:
         raise ValueError("Either --run_dir or --jobid must be provided.")
 
-    return os.path.join(args.path, f"exp_{args.learning_rate}_{args.wm_decay}_{args.jobid}")
+    return os.path.join(args.path, f"exp_{args.learning_rate}_{args.lamda_backup}_{args.wm_decay}_{args.jobid}")
 
 
 def main():
@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--path", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--jobid", type=str, default=None)
     parser.add_argument("--learning_rate", type=float, default=0.2)
+    parser.add_argument("--lamda_backup", type=float, default=0.0)
     parser.add_argument("--wm_decay", type=float, default=0.8)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--ma_window", type=int, default=100)

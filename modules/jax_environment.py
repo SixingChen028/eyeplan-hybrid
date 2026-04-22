@@ -31,6 +31,7 @@ class JaxDecisionTreeEnv:
         beta_move: float = 4.0,
         eps_move: float = 0.02,
         learning_rate: float = 0.2,
+        lamda_backup: float = 0.0,
         wm_decay: float = 0.8,
         t_max: int = 100,
         cost: float = 0.01,
@@ -42,6 +43,7 @@ class JaxDecisionTreeEnv:
         self.beta_move = float(beta_move)
         self.eps_move = float(eps_move)
         self.learning_rate = float(learning_rate)
+        self.lamda_backup = float(lamda_backup)
         self.wm_decay = float(wm_decay)
         self.t_max = int(t_max)
         self.cost = float(cost)
@@ -183,21 +185,46 @@ class JaxDecisionTreeEnv:
 
         return planner_known, planner_expanded, g_values
 
-    def _update_q(self, q_values, planner_expanded, child_nodes, points, node):
+    def _bellman_target(self, q_values, child_nodes, points, node):
+        children = child_nodes[node]
+        has_child = children[0] >= 0
+
+        def leaf_target(_):
+            return points[node]
+
+        def non_leaf_target(_):
+            child_q = q_values[children]
+            return points[node] + jnp.max(child_q)
+
+        return jax.lax.cond(has_child, non_leaf_target, leaf_target, operand=None)
+
+    def _update_q(self, q_values, planner_expanded, child_nodes, parent_nodes, root_node, points, node):
         def do_update(q_values):
-            children = child_nodes[node]
-            has_child = children[0] >= 0
+            target = self._bellman_target(q_values, child_nodes, points, node)
+            node_step = self.learning_rate * (target - q_values[node])
+            q_values = q_values.at[node].add(node_step)
 
-            def leaf_target(_):
-                return points[node]
+            def cond_fn(carry):
+                current, weight, _ = carry
+                parent = parent_nodes[current]
+                has_parent = parent >= 0
+                return (weight > 1e-6) & (current != root_node) & has_parent
 
-            def non_leaf_target(_):
-                child_q = q_values[children]
-                return points[node] + jnp.max(child_q)
+            def body_fn(carry):
+                current, weight, q_values = carry
+                ancestor = parent_nodes[current]
+                target = self._bellman_target(q_values, child_nodes, points, ancestor)
+                step_size = self.learning_rate * weight
+                new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
+                q_values = q_values.at[ancestor].set(new_value)
+                return ancestor, weight * self.lamda_backup, q_values
 
-            target = jax.lax.cond(has_child, non_leaf_target, leaf_target, operand=None)
-            new_value = q_values[node] + self.learning_rate * (target - q_values[node])
-            return q_values.at[node].set(new_value)
+            _, _, q_values = jax.lax.while_loop(
+                cond_fn,
+                body_fn,
+                (node, jnp.asarray(self.lamda_backup, dtype=q_values.dtype), q_values),
+            )
+            return q_values
 
         return jax.lax.cond(planner_expanded[node], do_update, lambda x: x, q_values)
 
@@ -226,7 +253,15 @@ class JaxDecisionTreeEnv:
             (planner_known, planner_expanded, g_values),
         )
 
-        q_values = self._update_q(state.q_values, planner_expanded, state.child_nodes, state.points, node)
+        q_values = self._update_q(
+            state.q_values,
+            planner_expanded,
+            state.child_nodes,
+            state.parent_nodes,
+            state.root_node,
+            state.points,
+            node,
+        )
 
         return state._replace(
             planner_known=planner_known,

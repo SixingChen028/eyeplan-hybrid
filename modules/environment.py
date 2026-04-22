@@ -23,6 +23,7 @@ class DecisionTreeEnv(gym.Env):
             beta_move = 4.0,
             eps_move = 0.02,
             learning_rate = 0.2,
+            lamda_backup = 0.0,
             wm_decay = 0.8,
             t_max = 100,
             cost = 0.01,
@@ -52,6 +53,7 @@ class DecisionTreeEnv(gym.Env):
             beta_move = beta_move,
             eps_move = eps_move,
             learning_rate = learning_rate,
+            lamda_backup = lamda_backup,
         )
 
         # set random seed

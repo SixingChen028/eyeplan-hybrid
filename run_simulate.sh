@@ -11,5 +11,6 @@ python -u simulate.py \
     --jobid=$SLURM_ARRAY_TASK_ID \
     --path=./results \
     --learning_rate=${1} \
-    --wm_decay=${2}
+    --lamda_backup=${2} \
+    --wm_decay=${3}
     

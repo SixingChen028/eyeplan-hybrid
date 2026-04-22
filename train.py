@@ -14,7 +14,7 @@ if __name__ == '__main__':
     random.seed(args.seed)
 
     # set experiment path
-    exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.wm_decay}_{args.jobid}')
+    exp_path = os.path.join(args.path, f'exp_{args.learning_rate}_{args.lamda_backup}_{args.wm_decay}_{args.jobid}')
     if not os.path.exists(exp_path):
         os.makedirs(exp_path)
 
@@ -26,6 +26,7 @@ if __name__ == '__main__':
             beta_move = args.beta_move,
             eps_move = args.eps_move,
             learning_rate = args.learning_rate,
+            lamda_backup = args.lamda_backup,
             wm_decay = args.wm_decay,
             t_max = args.t_max,
             cost = args.cost,

@@ -14,6 +14,7 @@ class Planner:
             beta_move: float = 4.0,
             eps_move: float = 0.02,
             learning_rate: float = 0.1,
+            lamda_backup: float = 0.0,
         ):
         """
         Args:
@@ -21,12 +22,15 @@ class Planner:
                 inverse temperature and lapse for sampling moves from action values.
             learning_rate
                 learning rate for Q-value updates during backpropagation.
+            lamda_backup
+                ancestor backup strength. 0 = one-step, 1 = full backup to root.
         """
 
         # initialize parameters
         self.beta_move = beta_move
         self.eps_move = eps_move
         self.learning_rate = learning_rate
+        self.lamda_backup = lamda_backup
 
         # internal per-problem state (initialized at simulate(...) start)
         self.root = 0
@@ -52,12 +56,26 @@ class Planner:
 
 
     # ---------- q value backpropagation ----------
+    def _bellman_target(self, node: int) -> float:
+        """
+        Compute one-step Bellman target for a node.
+        """
+
+        children = self.children.get(node, [])
+        reward = self.rewards.get(node, 0.0)
+
+        if not children:
+            return reward
+
+        return reward + max(self.q.get(child, 0.0) for child in children)
+
+
     def update_q(
             self,
             node: int,
         ):
         """
-        Backpropagate value along a path using MCTS-style updates.
+        Backpropagate value with one-step update plus lambda ancestor backup.
         """
 
         # make sure expanded
@@ -68,19 +86,26 @@ class Planner:
         if node not in self.q:
             self.q[node] = 0.0
 
-        # eligible children = expanded children only (strong info gating)
-        children = self.children.get(node, []) # [c for c in self.children.get(node, []) if c in self.expanded]
-
-        # get reward
-        r = self.rewards.get(node, 0.0)
-
-        if not children:
-            target = r
-        else:
-            best_child_q = max(self.q.get(c, 0.0) for c in children)
-            target = r + best_child_q
-
+        # update fixated node
+        target = self._bellman_target(node)
         self.q[node] += self.learning_rate * (target - self.q[node])
+
+        # backup ancestors with exponentially decaying weight
+        weight = self.lamda_backup
+        current = node
+
+        while weight > 1e-6 and current != self.root:
+            ancestor = self.parents.get(current)
+            if ancestor is None:
+                break
+
+            old_q = self.q.get(ancestor, 0.0)
+            target = self._bellman_target(ancestor)
+            step_size = self.learning_rate * weight
+            self.q[ancestor] = old_q + step_size * (target - old_q)
+
+            weight *= self.lamda_backup
+            current = ancestor
 
 
 
