@@ -74,6 +74,8 @@ if __name__ == '__main__':
         "entropy_loss": [],
         "episode_length": [],
         "episode_reward": [],
+        "grad_norm": [],
+        "param_norm": [],
         "step_time_s": [],
         "cumulative_time_s": [],
     }
@@ -99,11 +101,13 @@ if __name__ == '__main__':
             f"{'policy':>12}  "
             f"{'value':>12}  "
             f"{'entropy':>12}  "
+            f"{'grad_n':>12}  "
+            f"{'param_n':>12}  "
             f"{'beta_e':>8}  "
             f"{'step_s':>10}  "
             f"{'since_log':>10}"
         )
-        print("-" * 142)
+        print("-" * 170)
     if not args.log_full_metrics:
         print("metric_mode=chunk_mean_per_update (lower host sync overhead)")
 
@@ -158,6 +162,8 @@ if __name__ == '__main__':
         data["entropy_loss"].extend(chunk_metrics.entropy_loss.tolist())
         data["episode_length"].extend(chunk_metrics.episode_length.tolist())
         data["episode_reward"].extend(chunk_metrics.episode_reward.tolist())
+        data["grad_norm"].extend(chunk_metrics.grad_norm.tolist())
+        data["param_norm"].extend(chunk_metrics.param_norm.tolist())
         data["step_time_s"].extend([avg_step_time] * chunk_updates)
         data["cumulative_time_s"].extend(cumulative_values.tolist())
 
@@ -184,6 +190,8 @@ if __name__ == '__main__':
                 avg_policy_loss = float(np.mean(data["policy_loss"][window]))
                 avg_value_loss = float(np.mean(data["value_loss"][window]))
                 avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
+                avg_grad_norm = float(np.mean(data["grad_norm"][window]))
+                avg_param_norm = float(np.mean(data["param_norm"][window]))
                 avg_beta_e = float(np.mean(entropy_schedule[window]))
                 avg_step_time_window = float(np.mean(data["step_time_s"][window]))
 
@@ -196,6 +204,8 @@ if __name__ == '__main__':
                     f"{avg_policy_loss:>12.5f}  "
                     f"{avg_value_loss:>12.5f}  "
                     f"{avg_entropy_loss:>12.5f}  "
+                    f"{avg_grad_norm:>12.5f}  "
+                    f"{avg_param_norm:>12.5f}  "
                     f"{avg_beta_e:>8.5f}  "
                     f"{avg_step_time_window:>10.4f}  "
                     f"{since_log:>10.4f}"

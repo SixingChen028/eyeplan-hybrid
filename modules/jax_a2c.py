@@ -30,6 +30,8 @@ class StepMetrics(NamedTuple):
     entropy_loss: jax.Array
     episode_reward: jax.Array
     episode_length: jax.Array
+    grad_norm: jax.Array
+    param_norm: jax.Array
 
 
 class RolloutBatch(NamedTuple):
@@ -49,6 +51,8 @@ def _zero_step_metrics(dtype=jnp.float32):
         entropy_loss=zero,
         episode_reward=zero,
         episode_length=zero,
+        grad_norm=zero,
+        param_norm=zero,
     )
 
 
@@ -288,12 +292,15 @@ class JaxBatchMaskA2C:
             entropy_loss=entropy_loss,
             episode_reward=jnp.mean(jnp.sum(rollout.rewards, axis=0)),
             episode_length=jnp.mean(jnp.sum(rollout.masks, axis=0)),
+            grad_norm=jnp.array(0.0, dtype=jnp.float32),
+            param_norm=jnp.array(0.0, dtype=jnp.float32),
         )
 
         return loss, (metrics, new_key)
 
-    def _optimizer_update(self, params: Any, grads: Any, optimizer: AdamState):
-        grad_norm = _global_norm(grads)
+    def _optimizer_update(self, params: Any, grads: Any, optimizer: AdamState, grad_norm: jax.Array | None = None):
+        if grad_norm is None:
+            grad_norm = _global_norm(grads)
         clip_coef = jnp.minimum(1.0, self.max_grad_norm / (grad_norm + 1e-6))
         grads = jax.tree_util.tree_map(lambda g: g * clip_coef, grads)
 
@@ -334,7 +341,18 @@ class JaxBatchMaskA2C:
 
         del loss
 
-        params, optimizer = self._optimizer_update(state.params, grads, state.optimizer)
+        grad_norm = _global_norm(grads)
+        param_norm = _global_norm(state.params)
+        params, optimizer = self._optimizer_update(
+            state.params,
+            grads,
+            state.optimizer,
+            grad_norm=grad_norm,
+        )
+        metrics = metrics._replace(
+            grad_norm=grad_norm,
+            param_norm=param_norm,
+        )
         new_state = JaxTrainState(params=params, optimizer=optimizer, rng_key=new_key)
 
         return new_state, metrics
@@ -381,6 +399,8 @@ class JaxBatchMaskA2C:
             "entropy_loss": [],
             "episode_length": [],
             "episode_reward": [],
+            "grad_norm": [],
+            "param_norm": [],
             "step_time_s": [],
             "cumulative_time_s": [],
         }
@@ -397,6 +417,8 @@ class JaxBatchMaskA2C:
             data["entropy_loss"].append(float(metrics.entropy_loss))
             data["episode_length"].append(float(metrics.episode_length))
             data["episode_reward"].append(float(metrics.episode_reward))
+            data["grad_norm"].append(float(metrics.grad_norm))
+            data["param_norm"].append(float(metrics.param_norm))
             data["step_time_s"].append(step_time)
             data["cumulative_time_s"].append(time.perf_counter() - start_time)
 
