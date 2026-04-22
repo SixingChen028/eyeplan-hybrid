@@ -77,7 +77,7 @@ class ArgParser:
         self.parser.add_argument('--beta_v', type = float, default = 0.05, help = 'value loss coefficient')
         self.parser.add_argument('--beta_e', type = float, default = 0.05, help = 'entropy regularization coefficient')
         self.parser.add_argument('--beta_e_init', type = float, default = 0.05, help = 'initial entropy regularization coefficient')
-        self.parser.add_argument('--beta_e_final', type = float, default = 0.015, help = 'final entropy regularization coefficient')
+        self.parser.add_argument('--beta_e_final', type = float, default = 0.001, help = 'final entropy regularization coefficient')
         self.parser.add_argument('--print_frequency', type = int, default = 100, help = 'print training logs every n updates (0 to disable)')
         self.parser.add_argument('--checkpoint_frequency', type = int, default = 0, help = 'save model checkpoints every n updates (0 to disable)')
         self.parser.add_argument('--log_full_metrics', type = parse_bool, default = True, help = 'if collect per-update metrics on host (set false to reduce host sync overhead)')
