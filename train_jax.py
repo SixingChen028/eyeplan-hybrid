@@ -1,6 +1,7 @@
 import os
 import pickle
 import time
+import jax
 import numpy as np
 
 from modules.argument import ArgParser
@@ -48,6 +49,7 @@ if __name__ == '__main__':
     state = trainer.init_state(seed=args.seed)
 
     num_updates = int(args.num_episodes / args.batch_size)
+    compiled_chunk_size = 512 if args.print_frequency <= 0 else args.print_frequency
     entropy_schedule = np.linspace(
         args.beta_e_init,
         args.beta_e_final,
@@ -72,7 +74,8 @@ if __name__ == '__main__':
         f"num_episodes={args.num_episodes} "
         f"num_updates={num_updates} "
         f"t_max={args.t_max} "
-        f"print_frequency={args.print_frequency}"
+        f"print_frequency={args.print_frequency} "
+        f"compiled_chunk_size={compiled_chunk_size}"
     )
 
     if args.print_frequency > 0:
@@ -95,60 +98,84 @@ if __name__ == '__main__':
     last_log_time = time.time()
     window_start_idx = 0
 
-    for index in range(num_updates):
-        step_start = time.time()
-        state, metrics = trainer.train_step(
-            state=state,
-            beta_e=float(entropy_schedule[index]),
+    index = 0
+    while index < num_updates:
+        chunk_start = index
+        chunk_end = min(chunk_start + compiled_chunk_size, num_updates)
+        chunk_updates = chunk_end - chunk_start
+        chunk_entropy = entropy_schedule[chunk_start:chunk_end]
+
+        chunk_start_wall = time.time()
+        state, chunk_metrics = trainer.train_compiled(state, chunk_entropy)
+        chunk_metrics = jax.tree_util.tree_map(
+            lambda x: np.asarray(jax.device_get(x)),
+            chunk_metrics,
         )
-        step_time = time.time() - step_start
-        cumulative_time = time.time() - start_time
+        chunk_end_wall = time.time()
 
-        data["loss"].append(float(metrics.loss))
-        data["policy_loss"].append(float(metrics.policy_loss))
-        data["value_loss"].append(float(metrics.value_loss))
-        data["entropy_loss"].append(float(metrics.entropy_loss))
-        data["episode_length"].append(float(metrics.episode_length))
-        data["episode_reward"].append(float(metrics.episode_reward))
-        data["step_time_s"].append(step_time)
-        data["cumulative_time_s"].append(cumulative_time)
+        chunk_elapsed = chunk_end_wall - chunk_start_wall
+        avg_step_time = chunk_elapsed / chunk_updates
+        chunk_cumulative_start = chunk_start_wall - start_time
 
-        should_log = (
-            args.print_frequency > 0 and (
-                index == 0
-                or (index + 1) % args.print_frequency == 0
-                or (index + 1) == num_updates
+        for chunk_index in range(chunk_updates):
+            update_index = chunk_start + chunk_index
+            progress = (chunk_index + 1) / chunk_updates
+            event_time = chunk_start_wall + progress * chunk_elapsed
+            cumulative_time = chunk_cumulative_start + progress * chunk_elapsed
+
+            metrics_loss = float(chunk_metrics.loss[chunk_index])
+            metrics_policy_loss = float(chunk_metrics.policy_loss[chunk_index])
+            metrics_value_loss = float(chunk_metrics.value_loss[chunk_index])
+            metrics_entropy_loss = float(chunk_metrics.entropy_loss[chunk_index])
+            metrics_episode_length = float(chunk_metrics.episode_length[chunk_index])
+            metrics_episode_reward = float(chunk_metrics.episode_reward[chunk_index])
+
+            data["loss"].append(metrics_loss)
+            data["policy_loss"].append(metrics_policy_loss)
+            data["value_loss"].append(metrics_value_loss)
+            data["entropy_loss"].append(metrics_entropy_loss)
+            data["episode_length"].append(metrics_episode_length)
+            data["episode_reward"].append(metrics_episode_reward)
+            data["step_time_s"].append(avg_step_time)
+            data["cumulative_time_s"].append(cumulative_time)
+
+            should_log = (
+                args.print_frequency > 0 and (
+                    update_index == 0
+                    or (update_index + 1) % args.print_frequency == 0
+                    or (update_index + 1) == num_updates
+                )
             )
-        )
-        if should_log:
-            now = time.time()
-            since_log = now - last_log_time
-            last_log_time = now
+            if should_log:
+                since_log = event_time - last_log_time
+                last_log_time = event_time
 
-            window = slice(window_start_idx, index + 1)
-            avg_episode_reward = float(np.mean(data["episode_reward"][window]))
-            avg_episode_length = float(np.mean(data["episode_length"][window]))
-            avg_loss = float(np.mean(data["loss"][window]))
-            avg_policy_loss = float(np.mean(data["policy_loss"][window]))
-            avg_value_loss = float(np.mean(data["value_loss"][window]))
-            avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
-            avg_beta_e = float(np.mean(entropy_schedule[window]))
-            avg_step_time = float(np.mean(data["step_time_s"][window]))
+                window = slice(window_start_idx, update_index + 1)
+                avg_episode_reward = float(np.mean(data["episode_reward"][window]))
+                avg_episode_length = float(np.mean(data["episode_length"][window]))
+                avg_loss = float(np.mean(data["loss"][window]))
+                avg_policy_loss = float(np.mean(data["policy_loss"][window]))
+                avg_value_loss = float(np.mean(data["value_loss"][window]))
+                avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
+                avg_beta_e = float(np.mean(entropy_schedule[window]))
+                avg_step_time_window = float(np.mean(data["step_time_s"][window]))
 
-            print(
-                f"{index + 1:>8d}  "
-                f"{(index + 1) * args.batch_size:>10d}  "
-                f"{avg_episode_reward:>12.5f}  "
-                f"{avg_episode_length:>12.3f}  "
-                f"{avg_loss:>12.5f}  "
-                f"{avg_policy_loss:>12.5f}  "
-                f"{avg_value_loss:>12.5f}  "
-                f"{avg_entropy_loss:>12.5f}  "
-                f"{avg_beta_e:>8.5f}  "
-                f"{avg_step_time:>10.4f}  "
-                f"{since_log:>10.4f}"
-            )
-            window_start_idx = index + 1
+                print(
+                    f"{update_index + 1:>8d}  "
+                    f"{(update_index + 1) * args.batch_size:>10d}  "
+                    f"{avg_episode_reward:>12.5f}  "
+                    f"{avg_episode_length:>12.3f}  "
+                    f"{avg_loss:>12.5f}  "
+                    f"{avg_policy_loss:>12.5f}  "
+                    f"{avg_value_loss:>12.5f}  "
+                    f"{avg_entropy_loss:>12.5f}  "
+                    f"{avg_beta_e:>8.5f}  "
+                    f"{avg_step_time_window:>10.4f}  "
+                    f"{since_log:>10.4f}"
+                )
+                window_start_idx = update_index + 1
+
+        index = chunk_end
 
     print(
         "run_summary "
