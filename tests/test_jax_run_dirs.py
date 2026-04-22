@@ -1,6 +1,11 @@
 from pathlib import Path
+from argparse import Namespace
 
-from modules.jax_run_dirs import build_timestamped_run_dir, resolve_timestamped_run_dir
+from modules.jax_run_dirs import (
+    build_timestamped_run_dir,
+    resolve_timestamped_run_dir,
+    write_run_metadata,
+)
 
 
 def test_build_timestamped_run_dir_without_jobid():
@@ -47,3 +52,17 @@ def test_resolve_timestamped_run_dir_filters_by_jobid(tmp_path: Path):
     resolved = resolve_timestamped_run_dir(path=str(results_dir), jobid="2")
 
     assert resolved == str(latest)
+
+
+def test_write_run_metadata_writes_args_and_git_sha_field(tmp_path: Path):
+    run_dir = tmp_path / "results" / "20260422_101500"
+    run_dir.mkdir(parents=True)
+    args = Namespace(jobid="7", learning_rate=0.2, seed=15)
+
+    metadata_path = write_run_metadata(run_dir=str(run_dir), args=args, cwd=str(tmp_path))
+
+    assert metadata_path == str(run_dir / "metadata.json")
+    content = (run_dir / "metadata.json").read_text()
+    assert '"args"' in content
+    assert '"jobid": "7"' in content
+    assert '"git_sha": null' in content

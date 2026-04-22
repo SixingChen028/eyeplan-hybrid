@@ -1,6 +1,11 @@
 import os
 import re
+import json
+import sys
 import time
+import subprocess
+from datetime import datetime, timezone
+from argparse import Namespace
 
 _TIMESTAMP_PATTERN = re.compile(r"^(?:(?P<prefix>.+)_)?(?P<timestamp>\d{8}_\d{6})$")
 
@@ -58,3 +63,33 @@ def resolve_timestamped_run_dir(path: str, run_dir: str | None = None, jobid: st
 
     candidates.sort(key=lambda item: item[0])
     return candidates[-1][1]
+
+
+def _get_git_sha(cwd: str | None = None) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return None
+
+
+def write_run_metadata(run_dir: str, args: Namespace, cwd: str | None = None) -> str:
+    timestamp_utc = datetime.now(timezone.utc).isoformat()
+    metadata = {
+        "started_at_utc": timestamp_utc,
+        "git_sha": _get_git_sha(cwd=cwd),
+        "argv": sys.argv,
+        "args": vars(args),
+    }
+
+    metadata_path = os.path.join(run_dir, "metadata.json")
+    with open(metadata_path, "w") as file:
+        json.dump(metadata, file, indent=2, sort_keys=True)
+
+    return metadata_path

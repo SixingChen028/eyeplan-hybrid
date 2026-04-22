@@ -5,7 +5,7 @@ import jax
 import numpy as np
 
 from modules.argument import ArgParser
-from modules.jax_run_dirs import create_timestamped_run_dir
+from modules.jax_run_dirs import create_timestamped_run_dir, write_run_metadata
 from modules.jax_environment import JaxDecisionTreeEnv
 from modules.jax_a2c import JaxBatchMaskA2C, save_jax_params
 from modules.jax_simulation import JaxSimulator
@@ -18,7 +18,9 @@ if __name__ == '__main__':
     parser = ArgParser()
     args = parser.args
     exp_path = create_timestamped_run_dir(path=args.path, jobid=args.jobid)
+    metadata_path = write_run_metadata(run_dir=exp_path, args=args, cwd=os.getcwd())
     print(f"run_dir={exp_path}")
+    print(f"run_metadata={metadata_path}")
 
     env = JaxDecisionTreeEnv(
         num_nodes=args.num_nodes,
