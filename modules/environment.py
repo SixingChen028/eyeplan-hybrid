@@ -106,6 +106,8 @@ class DecisionTreeEnv(gym.Env):
         action = int(action)
 
         self.time_elapsed += 1
+        if self.time_elapsed == self.t_max:
+            action = self.num_nodes
         done = False
         reward = -self.cost # initialize reward as cost
 

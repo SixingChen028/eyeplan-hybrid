@@ -262,14 +262,35 @@ def test_chosen_path_does_not_leak_across_trials():
 
     done_legacy = False
     done_jax = False
-    for _ in range(legacy_env.t_max):
+    for _ in range(legacy_env.t_max - 1):
         _, _, done_legacy, _, _ = legacy_env.step(1)
         state, _, _, done_jax, _, _ = jax_env.step(state, 1)
 
-    assert done_legacy
-    assert bool(done_jax)
+    assert not done_legacy
+    assert not bool(done_jax)
     np.testing.assert_array_equal(np.asarray(state.chosen_path[: int(state.chosen_path_len)]), np.asarray([], dtype=np.int32))
     assert legacy_env.chosen_path == []
+
+
+def test_timeout_forces_move_action():
+    legacy_env, jax_env, key = _make_envs(seed=11, t_max=3)
+
+    legacy_env.reset()
+    state, _, _ = jax_env.reset(key)
+
+    for _ in range(legacy_env.t_max - 1):
+        legacy_env.step(1)
+        state, _, _, _, _, _ = jax_env.step(state, 1)
+
+    _, legacy_reward, legacy_done, _, _ = legacy_env.step(1)
+    state, _, reward_jax, done_jax, _, _ = jax_env.step(state, 1)
+
+    assert legacy_done
+    assert bool(done_jax)
+    assert legacy_reward > 0.0
+    assert float(reward_jax) > 0.0
+    assert len(legacy_env.chosen_path) > 0
+    assert int(state.chosen_path_len) > 0
 
 
 def test_visit_all_once_then_terminate_is_optimal_legacy():
