@@ -2,7 +2,7 @@
 #SBATCH --job-name=ep-jax-grid
 #SBATCH --cpus-per-task=1
 #SBATCH --time=04:00:00
-#SBATCH --mem-per-cpu=8G
+#SBATCH --mem-per-cpu=2G
 #SBATCH -e ./log/grid-%A_%a.err
 #SBATCH -o ./log/grid-%A_%a.out
 #SBATCH --array=0-242
