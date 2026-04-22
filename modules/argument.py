@@ -58,6 +58,9 @@ class ArgParser:
         self.parser.add_argument('--beta_e_init', type = float, default = 0.05, help = 'initial entropy regularization coefficient')
         self.parser.add_argument('--beta_e_final', type = float, default = 0.015, help = 'final entropy regularization coefficient')
         self.parser.add_argument('--print_frequency', type = int, default = 100, help = 'print training logs every n updates (0 to disable)')
+        self.parser.add_argument('--ppo_epochs', type = int, default = 4, help = 'number of PPO epochs per rollout update')
+        self.parser.add_argument('--ppo_clip_eps', type = float, default = 0.2, help = 'PPO clipping epsilon')
+        self.parser.add_argument('--ppo_normalize_advantages', type = bool, default = True, help = 'if normalize PPO advantages')
 
         # parse arguments
         self.args = self.parser.parse_args()
