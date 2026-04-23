@@ -120,18 +120,23 @@ if __name__ == '__main__':
 
     state = None
     start_update = 0
+    resume_matched_run = False
     if args.resume:
         if not _has_resume_key(args.jobid):
             raise ValueError("--resume requires a non-empty --jobid.")
 
-        exp_path = resolve_timestamped_run_dir(
-            path=args.path,
-            experiment=args.experiment,
-            jobid=args.jobid,
-        )
-        metadata_path = os.path.join(exp_path, "metadata.json")
-        if not os.path.exists(metadata_path):
-            raise FileNotFoundError(f"Missing metadata for resumed run: {metadata_path}")
+        try:
+            exp_path = resolve_timestamped_run_dir(
+                path=args.path,
+                experiment=args.experiment,
+                jobid=args.jobid,
+            )
+            metadata_path = os.path.join(exp_path, "metadata.json")
+            if not os.path.exists(metadata_path):
+                raise FileNotFoundError(f"Missing metadata for resumed run: {metadata_path}")
+            resume_matched_run = True
+        except FileNotFoundError:
+            exp_path = None
     else:
         exp_path = None
 
@@ -171,6 +176,8 @@ if __name__ == '__main__':
     print(f"run_metadata={metadata_path}")
     if args.resume:
         print(f"resume_mode=true")
+    if args.resume and not resume_matched_run:
+        print("resume_checkpoint_not_found=true (starting new run)")
     if start_update > 0 and start_update < num_updates:
         print(f"resuming_from_update={start_update}")
     if start_update == num_updates:
