@@ -1,0 +1,44 @@
+[sbatch]
+job_name = "grid"
+cpus_per_task = 1
+time = "08:00:00"
+mem_per_cpu = "1G"
+error = "./log/%A_%a.err"
+output = "./log/%A_%a.out"
+
+[runtime]
+set_euo_pipefail = true
+force_jax_cpu = true
+threads_from_slurm = true
+
+[train]
+python = "python -u"
+entrypoint = "train_jax.py"
+result_path = "./results"
+experiment = "hpgrid-dyna"
+resume = true
+jobid_from_task_id = true
+
+[grid.fixed]
+num_nodes = 15
+t_max = 30
+cost = 0.02
+beta_move = 100.0
+eps_move = 0.0
+learning_rate = 1.0
+wm_decay = 0.8
+lamda_backup = 0.0
+num_episodes = 16000000
+hidden_size = 256
+gamma = 1.0
+beta_v = 0.05
+beta_e = 0.02
+beta_e_final = 0.0001
+max_grad_norm = 2.0
+
+[grid.vary]
+batch_size = [64, 128]
+lr = [0.0001, 0.0005, 0.001]
+lamda = [0.9, 0.95]
+beta_e_init = [0.05, 0.02]
+seed = [1, 2, 3]
