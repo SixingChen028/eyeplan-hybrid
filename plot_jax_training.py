@@ -16,17 +16,6 @@ import numpy as np
 import pandas as pd
 
 
-def _to_markdown_table(df: pd.DataFrame) -> str:
-    cols = list(df.columns)
-    lines = [
-        "| " + " | ".join(cols) + " |",
-        "| " + " | ".join(["---"] * len(cols)) + " |",
-    ]
-    for _, row in df.iterrows():
-        lines.append("| " + " | ".join(str(row[col]) for col in cols) + " |")
-    return "\n".join(lines)
-
-
 def _read_batch_size(run_dir: str) -> int:
     metadata_path = os.path.join(run_dir, "metadata.json")
     if not os.path.exists(metadata_path):
@@ -78,34 +67,28 @@ def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, 
     df["episode_length_ma"] = df["episode_length"].rolling(ma_window, min_periods=1).mean()
     df["loss_ma"] = df["loss"].rolling(ma_window, min_periods=1).mean()
 
-    summary = pd.DataFrame(
-        [
-            {
-                "run_dir": run_dir,
-                "num_updates": int(num_updates),
-                "num_episodes": int(df["episodes"].iloc[-1]) if num_updates > 0 else 0,
-                "final_episode_reward": round(float(df["episode_reward"].iloc[-1]), 6) if num_updates > 0 else np.nan,
-                "final_episode_reward_ma": round(float(df["episode_reward_ma"].iloc[-1]), 6) if num_updates > 0 else np.nan,
-                "final_episode_length": round(float(df["episode_length"].iloc[-1]), 6) if num_updates > 0 else np.nan,
-                "final_loss": round(float(df["loss"].iloc[-1]), 6) if num_updates > 0 else np.nan,
-                "mean_step_time_ms": round(float(df["step_time_s"].mean() * 1000.0), 6) if num_updates > 0 else np.nan,
-                "total_train_time_s": round(float(df["cumulative_time_s"].iloc[-1]), 6) if num_updates > 0 else np.nan,
-                "updates_per_s": round(float(num_updates / max(df["cumulative_time_s"].iloc[-1], 1e-9)), 6) if num_updates > 0 else np.nan,
-            }
-        ]
-    )
+    summary = {
+        "run_dir": run_dir,
+        "num_updates": int(num_updates),
+        "num_episodes": int(df["episodes"].iloc[-1]) if num_updates > 0 else 0,
+        "final_episode_reward": round(float(df["episode_reward"].iloc[-1]), 6) if num_updates > 0 else np.nan,
+        "final_episode_reward_ma": round(float(df["episode_reward_ma"].iloc[-1]), 6) if num_updates > 0 else np.nan,
+        "final_episode_length": round(float(df["episode_length"].iloc[-1]), 6) if num_updates > 0 else np.nan,
+        "final_loss": round(float(df["loss"].iloc[-1]), 6) if num_updates > 0 else np.nan,
+        "mean_step_time_ms": round(float(df["step_time_s"].mean() * 1000.0), 6) if num_updates > 0 else np.nan,
+        "total_train_time_s": round(float(df["cumulative_time_s"].iloc[-1]), 6) if num_updates > 0 else np.nan,
+        "updates_per_s": round(float(num_updates / max(df["cumulative_time_s"].iloc[-1], 1e-9)), 6) if num_updates > 0 else np.nan,
+    }
 
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, f"{output_prefix}_curves.csv")
-    summary_csv_path = os.path.join(output_dir, f"{output_prefix}_summary.csv")
-    summary_md_path = os.path.join(output_dir, f"{output_prefix}_summary.md")
+    summary_json_path = os.path.join(output_dir, f"{output_prefix}_summary.json")
     fig_path = os.path.join(output_dir, f"{output_prefix}_curves.png")
 
     df.to_csv(csv_path, index=False)
-    summary.to_csv(summary_csv_path, index=False)
-
-    with open(summary_md_path, "w") as file:
-        file.write(_to_markdown_table(summary) + "\n")
+    with open(summary_json_path, "w") as file:
+        json.dump(summary, file, indent=2)
+        file.write("\n")
 
     plt.figure(figsize=(12, 9))
 
@@ -152,10 +135,9 @@ def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, 
         "run_dir": run_dir,
         "analysis_dir": output_dir,
         "csv_path": csv_path,
-        "summary_csv_path": summary_csv_path,
-        "summary_md_path": summary_md_path,
+        "summary_json_path": summary_json_path,
         "fig_path": fig_path,
-        "summary_table": summary.to_string(index=False),
+        "summary_json": json.dumps(summary, indent=2),
     }
     return result
 
@@ -196,10 +178,9 @@ def main():
         )
         print("Saved:")
         print(" ", result["csv_path"])
-        print(" ", result["summary_csv_path"])
-        print(" ", result["summary_md_path"])
+        print(" ", result["summary_json_path"])
         print(" ", result["fig_path"])
-        print(result["summary_table"])
+        print(result["summary_json"])
 
 
 if __name__ == "__main__":
