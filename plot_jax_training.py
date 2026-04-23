@@ -145,9 +145,10 @@ def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "target",
+        "targets",
+        nargs="+",
         type=str,
-        help="Required target: <experiment>, <experiment>/<run_id>, <experiment>/*, or full path in runs/analysis.",
+        help="One or more targets: <experiment>, <experiment>/<run_id>, <experiment>/*, or full path in runs/analysis.",
     )
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--ma_window", type=int, default=100)
@@ -155,18 +156,28 @@ def main():
     parser.add_argument("--output_prefix", type=str, default="training_jax")
     args = parser.parse_args()
 
-    target = resolve_analysis_target(args.target, results_root=args.results_root)
-    if target.kind == "experiment":
-        run_dirs = [select_most_recent_run(target.run_dirs)]
-    else:
-        run_dirs = target.run_dirs
+    runs_to_analyze: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for target_arg in args.targets:
+        target = resolve_analysis_target(target_arg, results_root=args.results_root)
+        if target.kind == "experiment":
+            run_dirs = [select_most_recent_run(target.run_dirs)]
+        else:
+            run_dirs = target.run_dirs
 
-    print(f"target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
-    for run_dir in run_dirs:
+        print(f"target={target_arg} target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
+        for run_dir in run_dirs:
+            run_key = (target.experiment, run_dir)
+            if run_key in seen:
+                continue
+            seen.add(run_key)
+            runs_to_analyze.append(run_key)
+
+    for experiment, run_dir in runs_to_analyze:
         run_id = os.path.basename(run_dir)
         output_dir = get_run_analysis_dir(
             results_root=args.results_root,
-            experiment=target.experiment,
+            experiment=experiment,
             run_id=run_id,
         )
         result = _analyze_run(
