@@ -18,6 +18,19 @@ import numpy as np
 import pandas as pd
 
 
+def _output_paths(output_dir: str, output_prefix: str) -> dict[str, str]:
+    return {
+        "csv_path": os.path.join(output_dir, f"{output_prefix}_curves.csv"),
+        "summary_json_path": os.path.join(output_dir, f"{output_prefix}_summary.json"),
+        "fig_path": os.path.join(output_dir, f"{output_prefix}_curves.png"),
+    }
+
+
+def _run_is_processed(output_dir: str, output_prefix: str) -> bool:
+    paths = _output_paths(output_dir, output_prefix)
+    return all(os.path.exists(path) for path in paths.values())
+
+
 def _read_batch_size(run_dir: str) -> int:
     metadata_path = os.path.join(run_dir, "metadata.json")
     if not os.path.exists(metadata_path):
@@ -83,9 +96,10 @@ def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, 
     }
 
     os.makedirs(output_dir, exist_ok=True)
-    csv_path = os.path.join(output_dir, f"{output_prefix}_curves.csv")
-    summary_json_path = os.path.join(output_dir, f"{output_prefix}_summary.json")
-    fig_path = os.path.join(output_dir, f"{output_prefix}_curves.png")
+    output_paths = _output_paths(output_dir, output_prefix)
+    csv_path = output_paths["csv_path"]
+    summary_json_path = output_paths["summary_json_path"]
+    fig_path = output_paths["fig_path"]
 
     df.to_csv(csv_path, index=False)
     with open(summary_json_path, "w") as file:
@@ -156,6 +170,7 @@ def main():
     parser.add_argument("--ma_window", type=int, default=100)
     parser.add_argument("--data_file", type=str, default="data_training_jax.p")
     parser.add_argument("--output_prefix", type=str, default="training_jax")
+    parser.add_argument("--resume", action="store_true", help="Skip runs that already have output files.")
     args = parser.parse_args()
 
     runs_to_analyze: list[tuple[str, str]] = []
@@ -190,6 +205,9 @@ def main():
                 experiment=experiment,
                 run_id=run_id,
             )
+            if args.resume and _run_is_processed(output_dir=output_dir, output_prefix=args.output_prefix):
+                print(f"Skipping (already processed): {run_dir}")
+                continue
             result = _analyze_run(
                 run_dir=run_dir,
                 output_dir=output_dir,
