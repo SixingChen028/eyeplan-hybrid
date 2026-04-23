@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import pickle
 
@@ -26,21 +27,36 @@ def resolve_run_dir(args: argparse.Namespace) -> str:
     return resolve_timestamped_run_dir(path=args.path, run_dir=args.run_dir, jobid=args.jobid)
 
 
+def _read_batch_size(run_dir: str) -> int:
+    metadata_path = os.path.join(run_dir, "metadata.json")
+    if not os.path.exists(metadata_path):
+        raise FileNotFoundError(f"Run metadata not found: {metadata_path}")
+
+    with open(metadata_path, "r") as file:
+        metadata = json.load(file)
+
+    metadata_args = metadata.get("args", {})
+    if "batch_size" not in metadata_args:
+        raise KeyError(f"batch_size not found in metadata args: {metadata_path}")
+
+    batch_size = int(metadata_args["batch_size"])
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be positive in metadata: {metadata_path}")
+    return batch_size
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_dir", type=str, default=None)
     parser.add_argument("--path", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--jobid", type=str, default=None)
-    parser.add_argument("--learning_rate", type=float, default=0.2)
-    parser.add_argument("--lamda_backup", type=float, default=0.0)
-    parser.add_argument("--wm_decay", type=float, default=0.8)
-    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--ma_window", type=int, default=100)
     parser.add_argument("--data_file", type=str, default="data_training_jax.p")
     parser.add_argument("--output_prefix", type=str, default="training_jax")
     args = parser.parse_args()
 
     run_dir = resolve_run_dir(args)
+    batch_size = _read_batch_size(run_dir)
     data_path = os.path.join(run_dir, args.data_file)
 
     if not os.path.exists(data_path):
@@ -51,7 +67,7 @@ def main():
 
     num_updates = len(data["episode_reward"])
     updates = np.arange(1, num_updates + 1)
-    episodes = updates * args.batch_size
+    episodes = updates * batch_size
 
     df = pd.DataFrame(
         {
