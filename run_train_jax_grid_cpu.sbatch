@@ -60,6 +60,7 @@ echo "grid_task task_id=${TASK_ID} batch_size=${BATCH_SIZE} lr=${LR} lamda=${LAM
 python -u train_jax.py \
     --jobid="${TASK_ID}" \
     --path="${RESULT_PATH}" \
+    --resume=true \
     --num_nodes=15 \
     --t_max=30 \
     --cost=0.01 \

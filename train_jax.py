@@ -2,6 +2,7 @@ import os
 import json
 import pickle
 import time
+import math
 import jax
 import numpy as np
 
@@ -20,6 +21,7 @@ EVAL_EPISODES = 512 * 100
 CHECKPOINT_STATE_NAME = "train_state_latest.p"
 CHECKPOINT_META_NAME = "train_state_latest.json"
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
+TRAINING_DATA_NAME = "data_training_jax.p"
 
 
 def _has_resume_key(jobid: str) -> bool:
@@ -49,6 +51,62 @@ def _load_resume_state(checkpoint_state_path: str, checkpoint_meta_path: str):
     return state, next_update
 
 
+def _args_match(saved_value, current_value) -> bool:
+    if isinstance(saved_value, bool) or isinstance(current_value, bool):
+        return bool(saved_value) == bool(current_value)
+
+    numeric_types = (int, float)
+    if isinstance(saved_value, numeric_types) and isinstance(current_value, numeric_types):
+        return math.isclose(float(saved_value), float(current_value), rel_tol=1e-9, abs_tol=1e-12)
+
+    return saved_value == current_value
+
+
+def _validate_resume_metadata(metadata_args: dict, current_args) -> None:
+    ignored_keys = {"resume"}
+    mismatches: list[str] = []
+    missing_keys: list[str] = []
+
+    for key, current_value in vars(current_args).items():
+        if key in ignored_keys:
+            continue
+        if key not in metadata_args:
+            missing_keys.append(key)
+            continue
+
+        saved_value = metadata_args[key]
+        if not _args_match(saved_value, current_value):
+            mismatches.append(
+                f"{key}: metadata={saved_value!r}, current={current_value!r}"
+            )
+
+    if missing_keys or mismatches:
+        issues: list[str] = []
+        if missing_keys:
+            issues.append("missing keys in metadata: " + ", ".join(sorted(missing_keys)))
+        if mismatches:
+            issues.append("mismatched values: " + "; ".join(mismatches))
+        raise ValueError(
+            "Resume metadata check failed. Passed arguments must match metadata for the selected run. "
+            + " | ".join(issues)
+        )
+
+
+def _load_existing_training_data(path: str, keys: list[str], max_updates: int) -> dict[str, list[float]]:
+    with open(path, "rb") as file:
+        loaded = pickle.load(file)
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Training data at {path} must be a dictionary.")
+
+    restored: dict[str, list[float]] = {}
+    for key in keys:
+        values = loaded.get(key, [])
+        if not isinstance(values, list):
+            raise ValueError(f"Training data key '{key}' in {path} must be a list.")
+        restored[key] = list(values[:max_updates])
+    return restored
+
+
 if __name__ == '__main__':
     parser = ArgParser()
     args = parser.args
@@ -62,34 +120,53 @@ if __name__ == '__main__':
 
     state = None
     start_update = 0
-    exp_path = None
+    if args.resume:
+        if not _has_resume_key(args.jobid):
+            raise ValueError("--resume requires a non-empty --jobid (jobid must not be '0').")
 
-    if _has_resume_key(args.jobid):
-        try:
-            candidate_path = resolve_timestamped_run_dir(path=args.path, jobid=args.jobid)
-            candidate_checkpoint_dir = os.path.join(candidate_path, "checkpoints")
-            candidate_checkpoint_state = os.path.join(candidate_checkpoint_dir, CHECKPOINT_STATE_NAME)
-            candidate_checkpoint_meta = os.path.join(candidate_checkpoint_dir, CHECKPOINT_META_NAME)
-            state, start_update = _load_resume_state(candidate_checkpoint_state, candidate_checkpoint_meta)
-            if not (0 < start_update < num_updates):
-                state = None
-                start_update = 0
-            else:
-                exp_path = candidate_path
-        except (FileNotFoundError, KeyError, ValueError, OSError, json.JSONDecodeError, pickle.UnpicklingError):
-            state = None
-            start_update = 0
+        exp_path = resolve_timestamped_run_dir(path=args.path, jobid=args.jobid)
+        metadata_path = os.path.join(exp_path, "metadata.json")
+        if not os.path.exists(metadata_path):
+            raise FileNotFoundError(f"Missing metadata for resumed run: {metadata_path}")
+    else:
+        exp_path = None
 
     if exp_path is None:
         exp_path = create_timestamped_run_dir(path=args.path, jobid=args.jobid)
         metadata_path = write_run_metadata(run_dir=exp_path, args=args, cwd=os.getcwd())
     else:
         metadata_path = os.path.join(exp_path, "metadata.json")
+        with open(metadata_path, "r") as file:
+            metadata = json.load(file)
+        metadata_args = metadata.get("args", {})
+        if not isinstance(metadata_args, dict):
+            raise ValueError(f"Invalid metadata args format in: {metadata_path}")
+        _validate_resume_metadata(metadata_args, args)
+
+        checkpoint_dir = os.path.join(exp_path, "checkpoints")
+        checkpoint_state_path = os.path.join(checkpoint_dir, CHECKPOINT_STATE_NAME)
+        checkpoint_meta_path = os.path.join(checkpoint_dir, CHECKPOINT_META_NAME)
+        state, start_update = _load_resume_state(checkpoint_state_path, checkpoint_meta_path)
+        if state is None:
+            raise FileNotFoundError(
+                "Resume requested but no checkpoint was found at "
+                f"{checkpoint_state_path} and {checkpoint_meta_path}"
+            )
+        if start_update < 0:
+            raise ValueError(f"Invalid checkpoint next_update={start_update} (must be >= 0).")
+        if start_update > num_updates:
+            raise ValueError(
+                f"Checkpoint next_update={start_update} exceeds requested num_updates={num_updates}."
+            )
 
     print(f"run_dir={exp_path}")
     print(f"run_metadata={metadata_path}")
-    if start_update > 0:
+    if args.resume:
+        print(f"resume_mode=true")
+    if start_update > 0 and start_update < num_updates:
         print(f"resuming_from_update={start_update}")
+    if start_update == num_updates:
+        print("resume_checkpoint_already_complete=true")
 
     checkpoint_dir = os.path.join(exp_path, "checkpoints")
     if args.checkpoint_frequency >= 0:
@@ -146,6 +223,15 @@ if __name__ == '__main__':
         "step_time_s": [],
         "cumulative_time_s": [],
     }
+    training_data_path = os.path.join(exp_path, TRAINING_DATA_NAME)
+    data_keys = list(data.keys())
+    if args.resume and start_update > 0 and os.path.exists(training_data_path):
+        restored_data = _load_existing_training_data(
+            path=training_data_path,
+            keys=data_keys,
+            max_updates=start_update,
+        )
+        data.update(restored_data)
 
     print(
         "run_config "
@@ -197,7 +283,12 @@ if __name__ == '__main__':
     start_time = time.time()
     eta_skip_elapsed = None
     eta_skip_updates = None
-    window_start_idx = 0
+    window_start_idx = start_update
+    resume_cumulative_time_offset = (
+        float(data["cumulative_time_s"][start_update - 1])
+        if start_update > 0 and len(data["cumulative_time_s"]) >= start_update
+        else 0.0
+    )
 
     def _next_boundary(processed_updates: int, frequency: int) -> int:
         return ((processed_updates // frequency) + 1) * frequency
@@ -242,7 +333,7 @@ if __name__ == '__main__':
 
         chunk_elapsed = chunk_end_wall - chunk_start_wall
         avg_step_time = chunk_elapsed / chunk_updates
-        chunk_cumulative_start = chunk_start_wall - start_time
+        chunk_cumulative_start = resume_cumulative_time_offset + (chunk_start_wall - start_time)
 
         cumulative_values = (
             chunk_cumulative_start
@@ -329,11 +420,16 @@ if __name__ == '__main__':
         index = chunk_end
 
     train_elapsed_seconds = time.time() - start_time
+    mean_step_seconds = (
+        float(np.mean(data["step_time_s"]))
+        if len(data["step_time_s"]) > 0
+        else float("nan")
+    )
     print(
         "run_summary "
         f"updates={num_updates} "
         f"elapsed_seconds={train_elapsed_seconds:.3f} "
-        f"mean_step_seconds={np.mean(data['step_time_s']):.6f}"
+        f"mean_step_seconds={mean_step_seconds:.6f}"
     )
 
     eval_start = time.time()
@@ -376,5 +472,5 @@ if __name__ == '__main__':
     print(f"eval_summary_path={eval_summary_path}")
 
     save_jax_params(state.params, os.path.join(exp_path, 'net_jax.p'))
-    with open(os.path.join(exp_path, 'data_training_jax.p'), 'wb') as file:
+    with open(training_data_path, 'wb') as file:
         pickle.dump(data, file)

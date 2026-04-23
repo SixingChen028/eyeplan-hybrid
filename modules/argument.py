@@ -49,6 +49,7 @@ class ArgParser:
         # job parameters
         self.parser.add_argument('--jobid', type = str, default = '0', help = 'job id')
         self.parser.add_argument('--path', type = str, default = os.path.join(os.getcwd(), 'results'), help = 'path to store results')
+        self.parser.add_argument('--resume', type = parse_bool, default = False, help = 'resume from most recent matching run (requires jobid)')
         self.parser.add_argument('--seed', type = int, default = 15, help = 'random seed')
 
         # nework parameters

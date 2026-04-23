@@ -48,6 +48,7 @@ echo "grid_test_task task_id=${TASK_ID} batch_size=${BATCH_SIZE} seed=${SEED}"
 python -u train_jax.py \
     --jobid="test_${TASK_ID}" \
     --path="${RESULT_PATH}" \
+    --resume=true \
     --num_nodes=15 \
     --t_max=30 \
     --cost=0.01 \
