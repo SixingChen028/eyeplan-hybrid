@@ -58,7 +58,7 @@ def _render_sbatch_script(config: dict) -> str:
         if key not in sbatch:
             raise ValueError(f"Missing required key sbatch.{key}")
 
-    for key in ("entrypoint",):
+    for key in ("entrypoint", "experiment"):
         if key not in train:
             raise ValueError(f"Missing required key train.{key}")
 
@@ -70,7 +70,8 @@ def _render_sbatch_script(config: dict) -> str:
     python_cmd = str(train.get("python", "python -u"))
     entrypoint = str(train["entrypoint"])
     result_path = str(train.get("result_path", "./results"))
-    experiment = str(train.get("experiment", "default"))
+
+    experiment = str(train["experiment"])
     resume = bool(train.get("resume", False))
     jobid_from_task_id = bool(train.get("jobid_from_task_id", True))
 
