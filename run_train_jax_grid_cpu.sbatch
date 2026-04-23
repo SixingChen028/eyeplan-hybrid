@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ep-jax-grid
 #SBATCH --cpus-per-task=1
-#SBATCH --time=04:00:00
+#SBATCH --time=08:00:00
 #SBATCH --mem-per-cpu=2G
 #SBATCH -e ./log/grid-%A_%a.err
 #SBATCH -o ./log/grid-%A_%a.out
