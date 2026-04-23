@@ -3,7 +3,11 @@ import json
 import os
 import pickle
 
-from modules.jax_run_dirs import resolve_timestamped_run_dir
+from modules.analysis_targets import (
+    get_run_analysis_dir,
+    resolve_analysis_target,
+    select_most_recent_run,
+)
 
 import matplotlib
 matplotlib.use("Agg")
@@ -21,10 +25,6 @@ def _to_markdown_table(df: pd.DataFrame) -> str:
     for _, row in df.iterrows():
         lines.append("| " + " | ".join(str(row[col]) for col in cols) + " |")
     return "\n".join(lines)
-
-
-def resolve_run_dir(args: argparse.Namespace) -> str:
-    return resolve_timestamped_run_dir(path=args.path, run_dir=args.run_dir, jobid=args.jobid)
 
 
 def _read_batch_size(run_dir: str) -> int:
@@ -45,19 +45,9 @@ def _read_batch_size(run_dir: str) -> int:
     return batch_size
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("run_dir", type=str, nargs="?", default=None)
-    parser.add_argument("--path", type=str, default=os.path.join(os.getcwd(), "results"))
-    parser.add_argument("--jobid", type=str, default=None)
-    parser.add_argument("--ma_window", type=int, default=100)
-    parser.add_argument("--data_file", type=str, default="data_training_jax.p")
-    parser.add_argument("--output_prefix", type=str, default="training_jax")
-    args = parser.parse_args()
-
-    run_dir = resolve_run_dir(args)
+def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, output_prefix: str) -> dict:
     batch_size = _read_batch_size(run_dir)
-    data_path = os.path.join(run_dir, args.data_file)
+    data_path = os.path.join(run_dir, data_file)
 
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"Training data not found: {data_path}")
@@ -84,9 +74,9 @@ def main():
         }
     )
 
-    df["episode_reward_ma"] = df["episode_reward"].rolling(args.ma_window, min_periods=1).mean()
-    df["episode_length_ma"] = df["episode_length"].rolling(args.ma_window, min_periods=1).mean()
-    df["loss_ma"] = df["loss"].rolling(args.ma_window, min_periods=1).mean()
+    df["episode_reward_ma"] = df["episode_reward"].rolling(ma_window, min_periods=1).mean()
+    df["episode_length_ma"] = df["episode_length"].rolling(ma_window, min_periods=1).mean()
+    df["loss_ma"] = df["loss"].rolling(ma_window, min_periods=1).mean()
 
     summary = pd.DataFrame(
         [
@@ -105,10 +95,11 @@ def main():
         ]
     )
 
-    csv_path = os.path.join(run_dir, f"{args.output_prefix}_curves.csv")
-    summary_csv_path = os.path.join(run_dir, f"{args.output_prefix}_summary.csv")
-    summary_md_path = os.path.join(run_dir, f"{args.output_prefix}_summary.md")
-    fig_path = os.path.join(run_dir, f"{args.output_prefix}_curves.png")
+    os.makedirs(output_dir, exist_ok=True)
+    csv_path = os.path.join(output_dir, f"{output_prefix}_curves.csv")
+    summary_csv_path = os.path.join(output_dir, f"{output_prefix}_summary.csv")
+    summary_md_path = os.path.join(output_dir, f"{output_prefix}_summary.md")
+    fig_path = os.path.join(output_dir, f"{output_prefix}_curves.png")
 
     df.to_csv(csv_path, index=False)
     summary.to_csv(summary_csv_path, index=False)
@@ -120,7 +111,7 @@ def main():
 
     ax = plt.subplot(2, 2, 1)
     ax.plot(df["episodes"], df["episode_reward"], alpha=0.35, linewidth=1, label="reward")
-    ax.plot(df["episodes"], df["episode_reward_ma"], linewidth=2, label=f"reward ma({args.ma_window})")
+    ax.plot(df["episodes"], df["episode_reward_ma"], linewidth=2, label=f"reward ma({ma_window})")
     ax.set_title("Episode Reward")
     ax.set_xlabel("Episodes")
     ax.set_ylabel("Reward")
@@ -129,7 +120,7 @@ def main():
 
     ax = plt.subplot(2, 2, 2)
     ax.plot(df["episodes"], df["episode_length"], alpha=0.35, linewidth=1, label="length")
-    ax.plot(df["episodes"], df["episode_length_ma"], linewidth=2, label=f"length ma({args.ma_window})")
+    ax.plot(df["episodes"], df["episode_length_ma"], linewidth=2, label=f"length ma({ma_window})")
     ax.set_title("Episode Length")
     ax.set_xlabel("Episodes")
     ax.set_ylabel("Steps")
@@ -138,7 +129,7 @@ def main():
 
     ax = plt.subplot(2, 2, 3)
     ax.plot(df["episodes"], df["loss"], alpha=0.35, linewidth=1, label="loss")
-    ax.plot(df["episodes"], df["loss_ma"], linewidth=2, label=f"loss ma({args.ma_window})")
+    ax.plot(df["episodes"], df["loss_ma"], linewidth=2, label=f"loss ma({ma_window})")
     ax.set_title("Training Loss")
     ax.set_xlabel("Episodes")
     ax.set_ylabel("Loss")
@@ -157,12 +148,58 @@ def main():
     plt.savefig(fig_path, dpi=220)
     plt.close()
 
-    print("Saved:")
-    print(" ", csv_path)
-    print(" ", summary_csv_path)
-    print(" ", summary_md_path)
-    print(" ", fig_path)
-    print(summary.to_string(index=False))
+    result = {
+        "run_dir": run_dir,
+        "analysis_dir": output_dir,
+        "csv_path": csv_path,
+        "summary_csv_path": summary_csv_path,
+        "summary_md_path": summary_md_path,
+        "fig_path": fig_path,
+        "summary_table": summary.to_string(index=False),
+    }
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "target",
+        type=str,
+        help="Required target: <experiment>, <experiment>/<run_id>, <experiment>/*, or full path in runs/analysis.",
+    )
+    parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
+    parser.add_argument("--ma_window", type=int, default=100)
+    parser.add_argument("--data_file", type=str, default="data_training_jax.p")
+    parser.add_argument("--output_prefix", type=str, default="training_jax")
+    args = parser.parse_args()
+
+    target = resolve_analysis_target(args.target, results_root=args.results_root)
+    if target.kind == "experiment":
+        run_dirs = [select_most_recent_run(target.run_dirs)]
+    else:
+        run_dirs = target.run_dirs
+
+    print(f"target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
+    for run_dir in run_dirs:
+        run_id = os.path.basename(run_dir)
+        output_dir = get_run_analysis_dir(
+            results_root=args.results_root,
+            experiment=target.experiment,
+            run_id=run_id,
+        )
+        result = _analyze_run(
+            run_dir=run_dir,
+            output_dir=output_dir,
+            ma_window=args.ma_window,
+            data_file=args.data_file,
+            output_prefix=args.output_prefix,
+        )
+        print("Saved:")
+        print(" ", result["csv_path"])
+        print(" ", result["summary_csv_path"])
+        print(" ", result["summary_md_path"])
+        print(" ", result["fig_path"])
+        print(result["summary_table"])
 
 
 if __name__ == "__main__":

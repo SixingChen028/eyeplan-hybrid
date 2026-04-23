@@ -8,15 +8,10 @@ from collections import defaultdict
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
-
-def _find_run_dirs(root: str) -> list[str]:
-    run_dirs: list[str] = []
-    for dirpath, _, filenames in os.walk(root):
-        if "metadata.json" in filenames:
-            run_dirs.append(dirpath)
-    run_dirs.sort()
-    return run_dirs
+from modules.analysis_targets import (
+    get_summary_analysis_dir,
+    resolve_analysis_target,
+)
 
 
 def _read_json(path: str) -> dict:
@@ -192,8 +187,12 @@ def _aggregate_by_group(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Analyze JAX grid-search runs from saved final eval summaries.")
-    parser.add_argument("--results_root", type=str, default=os.path.join("results", "jax-grid-cpu"))
-    parser.add_argument("--output_dir", type=str, default=None)
+    parser.add_argument(
+        "target",
+        type=str,
+        help="Required target: <experiment>, <experiment>/<run_id>, <experiment>/*, or full path in runs/analysis.",
+    )
+    parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--eval_file", type=str, default="eval_summary_jax.json")
     parser.add_argument("--score_key", type=str, default="eval_reward_mean")
     parser.add_argument("--runtime_key", type=str, default="eval_train_elapsed_seconds")
@@ -207,10 +206,14 @@ def main() -> None:
     parser.add_argument("--plot_params", type=str, default=None, help="Comma-separated arg columns to plot.")
     args = parser.parse_args()
 
-    output_dir = args.output_dir or args.results_root
+    target = resolve_analysis_target(args.target, results_root=args.results_root)
+    output_dir = get_summary_analysis_dir(
+        results_root=args.results_root,
+        experiment=target.experiment,
+    )
     os.makedirs(output_dir, exist_ok=True)
 
-    run_dirs = _find_run_dirs(args.results_root)
+    run_dirs = target.run_dirs
     rows: list[dict] = []
     skipped_no_eval = 0
 
@@ -244,7 +247,7 @@ def main() -> None:
 
     if not rows:
         raise FileNotFoundError(
-            f"No runs with metadata.json and {args.eval_file} (and valid {args.score_key}) found under {args.results_root}"
+            f"No runs with metadata.json and {args.eval_file} (and valid {args.score_key}) found for target {args.target!r}"
         )
 
     rows.sort(key=lambda row: float(row["_score"]), reverse=True)
@@ -304,6 +307,7 @@ def main() -> None:
     _plot_param_effects(rows=rows, score_key=args.score_key, params=plot_params, output_path=params_plot)
 
     print(f"Analyzed runs: {len(rows)}")
+    print(f"target_kind={target.kind} experiment={target.experiment}")
     print(f"Skipped (missing {args.eval_file}): {skipped_no_eval}")
     print(f"Skipped (missing/invalid {args.score_key}): {skipped_no_score}")
     print(f"Wrote: {runs_csv}")
