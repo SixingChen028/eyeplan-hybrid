@@ -16,7 +16,7 @@ from modules.jax_a2c import JaxBatchMaskA2C, save_jax_params, save_jax_tree, loa
 from modules.jax_simulation import JaxSimulator
 
 
-EVAL_EPISODES = 10_000
+EVAL_EPISODES = 512 * 100
 CHECKPOINT_STATE_NAME = "train_state_latest.p"
 CHECKPOINT_META_NAME = "train_state_latest.json"
 
