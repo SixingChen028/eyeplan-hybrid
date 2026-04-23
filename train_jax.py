@@ -25,7 +25,7 @@ TRAINING_DATA_NAME = "data_training_jax.p"
 
 
 def _has_resume_key(jobid: str) -> bool:
-    return str(jobid).strip() not in {"", "0"}
+    return str(jobid).strip() != ""
 
 
 def _save_rolling_checkpoint(state, checkpoint_state_path: str, checkpoint_meta_path: str, next_update: int):
@@ -122,7 +122,7 @@ if __name__ == '__main__':
     start_update = 0
     if args.resume:
         if not _has_resume_key(args.jobid):
-            raise ValueError("--resume requires a non-empty --jobid (jobid must not be '0').")
+            raise ValueError("--resume requires a non-empty --jobid.")
 
         exp_path = resolve_timestamped_run_dir(
             path=args.path,
