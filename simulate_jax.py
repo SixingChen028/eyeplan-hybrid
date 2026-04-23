@@ -11,7 +11,11 @@ from modules.jax_simulation import JaxSimulator
 if __name__ == '__main__':
     parser = ArgParser()
     args = parser.args
-    exp_path = resolve_timestamped_run_dir(path=args.path, jobid=args.jobid)
+    exp_path = resolve_timestamped_run_dir(
+        path=args.path,
+        experiment=args.experiment,
+        jobid=args.jobid,
+    )
     print(f"run_dir={exp_path}")
 
     params = load_jax_params(os.path.join(exp_path, 'net_jax.p'))

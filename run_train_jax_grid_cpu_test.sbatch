@@ -19,7 +19,8 @@ export VECLIB_MAXIMUM_THREADS=${THREADS}
 export NUMEXPR_NUM_THREADS=${THREADS}
 export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=${THREADS}"
 
-RESULT_PATH=./results/jax-grid-cpu-test
+RESULT_PATH=./results
+EXPERIMENT=jax-grid-cpu-test
 mkdir -p "${RESULT_PATH}"
 
 # Test sweep: vary only batch size and seed (3 x 3 = 9 jobs).
@@ -48,6 +49,7 @@ echo "grid_test_task task_id=${TASK_ID} batch_size=${BATCH_SIZE} seed=${SEED}"
 python -u train_jax.py \
     --jobid="test_${TASK_ID}" \
     --path="${RESULT_PATH}" \
+    --experiment="${EXPERIMENT}" \
     --resume=true \
     --num_nodes=15 \
     --t_max=30 \

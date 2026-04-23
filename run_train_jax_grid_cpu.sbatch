@@ -19,7 +19,8 @@ export VECLIB_MAXIMUM_THREADS=${THREADS}
 export NUMEXPR_NUM_THREADS=${THREADS}
 export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=${THREADS}"
 
-RESULT_PATH=./results/jax-grid-cpu
+RESULT_PATH=./results
+EXPERIMENT=jax-grid-cpu
 mkdir -p "${RESULT_PATH}"
 
 # Three values for each hyperparameter requested as VARY.
@@ -60,6 +61,7 @@ echo "grid_task task_id=${TASK_ID} batch_size=${BATCH_SIZE} lr=${LR} lamda=${LAM
 python -u train_jax.py \
     --jobid="${TASK_ID}" \
     --path="${RESULT_PATH}" \
+    --experiment="${EXPERIMENT}" \
     --resume=true \
     --num_nodes=15 \
     --t_max=30 \

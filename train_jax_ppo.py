@@ -60,7 +60,11 @@ if __name__ == '__main__':
 
     if _has_resume_key(args.jobid):
         try:
-            candidate_path = resolve_timestamped_run_dir(path=args.path, jobid=args.jobid)
+            candidate_path = resolve_timestamped_run_dir(
+                path=args.path,
+                experiment=args.experiment,
+                jobid=args.jobid,
+            )
             candidate_checkpoint_dir = os.path.join(candidate_path, "checkpoints")
             candidate_checkpoint_state = os.path.join(candidate_checkpoint_dir, CHECKPOINT_STATE_NAME)
             candidate_checkpoint_meta = os.path.join(candidate_checkpoint_dir, CHECKPOINT_META_NAME)
@@ -75,7 +79,11 @@ if __name__ == '__main__':
             start_update = 0
 
     if exp_path is None:
-        exp_path = create_timestamped_run_dir(path=args.path, jobid=args.jobid)
+        exp_path = create_timestamped_run_dir(
+            path=args.path,
+            experiment=args.experiment,
+            jobid=args.jobid,
+        )
         metadata_path = write_run_metadata(run_dir=exp_path, args=args, cwd=os.getcwd())
     else:
         metadata_path = os.path.join(exp_path, "metadata.json")

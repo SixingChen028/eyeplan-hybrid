@@ -63,7 +63,7 @@ def _args_match(saved_value, current_value) -> bool:
 
 
 def _validate_resume_metadata(metadata_args: dict, current_args) -> None:
-    ignored_keys = {"resume"}
+    ignored_keys = {"resume", "path", "jobid", "experiment"}
     mismatches: list[str] = []
     missing_keys: list[str] = []
 
@@ -124,7 +124,11 @@ if __name__ == '__main__':
         if not _has_resume_key(args.jobid):
             raise ValueError("--resume requires a non-empty --jobid (jobid must not be '0').")
 
-        exp_path = resolve_timestamped_run_dir(path=args.path, jobid=args.jobid)
+        exp_path = resolve_timestamped_run_dir(
+            path=args.path,
+            experiment=args.experiment,
+            jobid=args.jobid,
+        )
         metadata_path = os.path.join(exp_path, "metadata.json")
         if not os.path.exists(metadata_path):
             raise FileNotFoundError(f"Missing metadata for resumed run: {metadata_path}")
@@ -132,7 +136,11 @@ if __name__ == '__main__':
         exp_path = None
 
     if exp_path is None:
-        exp_path = create_timestamped_run_dir(path=args.path, jobid=args.jobid)
+        exp_path = create_timestamped_run_dir(
+            path=args.path,
+            experiment=args.experiment,
+            jobid=args.jobid,
+        )
         metadata_path = write_run_metadata(run_dir=exp_path, args=args, cwd=os.getcwd())
     else:
         metadata_path = os.path.join(exp_path, "metadata.json")

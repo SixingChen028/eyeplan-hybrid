@@ -11,28 +11,31 @@ from modules.jax_run_dirs import (
 def test_build_timestamped_run_dir_without_jobid():
     run_dir = build_timestamped_run_dir(
         path="/tmp/results",
+        experiment="default",
         jobid="0",
         timestamp="20260422_101500",
         suffix="a1b2",
     )
 
-    assert run_dir == "/tmp/results/20260422_101500_a1b2"
+    assert run_dir == "/tmp/results/runs/default/20260422_101500_a1b2"
 
 
 def test_build_timestamped_run_dir_with_jobid():
     run_dir = build_timestamped_run_dir(
         path="/tmp/results",
+        experiment="default",
         jobid="42",
         timestamp="20260422_101500",
         suffix="z9x8",
     )
 
-    assert run_dir == "/tmp/results/42_20260422_101500_z9x8"
+    assert run_dir == "/tmp/results/runs/default/42_20260422_101500_z9x8"
 
 
 def test_build_timestamped_run_dir_generates_4_char_suffix():
     run_dir = build_timestamped_run_dir(
         path="/tmp/results",
+        experiment="default",
         jobid="0",
         timestamp="20260422_101500",
     )
@@ -44,38 +47,53 @@ def test_build_timestamped_run_dir_generates_4_char_suffix():
 
 def test_resolve_timestamped_run_dir_picks_latest(tmp_path: Path):
     results_dir = tmp_path / "results"
-    results_dir.mkdir()
-    (results_dir / "20260422_090000_ab12").mkdir()
-    latest = results_dir / "20260422_101500_cd34"
+    runs_dir = results_dir / "runs" / "default"
+    runs_dir.mkdir(parents=True)
+    (runs_dir / "20260422_090000_ab12").mkdir()
+    latest = runs_dir / "20260422_101500_cd34"
     latest.mkdir()
-    (results_dir / "abc").mkdir()
+    (runs_dir / "abc").mkdir()
 
-    resolved = resolve_timestamped_run_dir(path=str(results_dir))
+    resolved = resolve_timestamped_run_dir(path=str(results_dir), experiment="default")
 
     assert resolved == str(latest)
 
 
 def test_resolve_timestamped_run_dir_filters_by_jobid(tmp_path: Path):
     results_dir = tmp_path / "results"
-    results_dir.mkdir()
-    (results_dir / "1_20260422_090000_ab12").mkdir()
-    latest = results_dir / "2_20260422_101500_cd34"
+    runs_dir = results_dir / "runs" / "default"
+    runs_dir.mkdir(parents=True)
+    (runs_dir / "1_20260422_090000_ab12").mkdir()
+    latest = runs_dir / "2_20260422_101500_cd34"
     latest.mkdir()
-    (results_dir / "2_20260422_091000_ef56").mkdir()
+    (runs_dir / "2_20260422_091000_ef56").mkdir()
 
-    resolved = resolve_timestamped_run_dir(path=str(results_dir), jobid="2")
+    resolved = resolve_timestamped_run_dir(path=str(results_dir), experiment="default", jobid="2")
 
     assert resolved == str(latest)
 
 
 def test_resolve_timestamped_run_dir_supports_legacy_without_suffix(tmp_path: Path):
     results_dir = tmp_path / "results"
-    results_dir.mkdir()
-    latest = results_dir / "3_20260422_101500"
+    legacy_dir = results_dir / "default"
+    legacy_dir.mkdir(parents=True)
+    latest = legacy_dir / "3_20260422_101500"
     latest.mkdir()
-    (results_dir / "3_20260422_091000").mkdir()
+    (legacy_dir / "3_20260422_091000").mkdir()
 
-    resolved = resolve_timestamped_run_dir(path=str(results_dir), jobid="3")
+    resolved = resolve_timestamped_run_dir(path=str(results_dir), experiment="default", jobid="3")
+
+    assert resolved == str(latest)
+
+
+def test_resolve_timestamped_run_dir_with_custom_experiment(tmp_path: Path):
+    results_dir = tmp_path / "results"
+    runs_dir = results_dir / "runs" / "exp-x"
+    runs_dir.mkdir(parents=True)
+    latest = runs_dir / "9_20260422_101500_a1b2"
+    latest.mkdir()
+
+    resolved = resolve_timestamped_run_dir(path=str(results_dir), experiment="exp-x", jobid="9")
 
     assert resolved == str(latest)
 

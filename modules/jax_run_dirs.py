@@ -9,6 +9,8 @@ import subprocess
 from datetime import datetime, timezone
 from argparse import Namespace
 
+from .analysis_targets import get_experiment_runs_dir, list_experiment_candidate_dirs
+
 _TIMESTAMP_PATTERN = re.compile(
     r"^(?:(?P<prefix>.+)_)?(?P<timestamp>\d{8}_\d{6})(?:_(?P<suffix>[a-z0-9]{4}))?$"
 )
@@ -30,6 +32,7 @@ def _random_suffix(length: int = 4) -> str:
 
 def build_timestamped_run_dir(
     path: str,
+    experiment: str = "default",
     jobid: str | None = None,
     timestamp: str | None = None,
     suffix: str | None = None,
@@ -42,12 +45,25 @@ def build_timestamped_run_dir(
     prefix = _normalize_prefix(jobid)
     stem = timestamp if prefix is None else f"{prefix}_{timestamp}"
     run_name = f"{stem}_{suffix}"
-    return os.path.join(path, run_name)
+    experiment_runs_dir = get_experiment_runs_dir(path, experiment)
+    return os.path.join(experiment_runs_dir, run_name)
 
 
-def create_timestamped_run_dir(path: str, jobid: str | None = None, timestamp: str | None = None) -> str:
+def create_timestamped_run_dir(
+    path: str,
+    experiment: str = "default",
+    jobid: str | None = None,
+    timestamp: str | None = None,
+) -> str:
+    experiment_runs_dir = get_experiment_runs_dir(path, experiment)
+    os.makedirs(experiment_runs_dir, exist_ok=True)
     for _ in range(16):
-        run_dir = build_timestamped_run_dir(path=path, jobid=jobid, timestamp=timestamp)
+        run_dir = build_timestamped_run_dir(
+            path=path,
+            experiment=experiment,
+            jobid=jobid,
+            timestamp=timestamp,
+        )
         try:
             os.makedirs(run_dir, exist_ok=False)
             return run_dir
@@ -57,16 +73,19 @@ def create_timestamped_run_dir(path: str, jobid: str | None = None, timestamp: s
     raise RuntimeError("Unable to create a unique run directory after multiple attempts.")
 
 
-def resolve_timestamped_run_dir(path: str, run_dir: str | None = None, jobid: str | None = None) -> str:
+def resolve_timestamped_run_dir(
+    path: str,
+    experiment: str = "default",
+    run_dir: str | None = None,
+    jobid: str | None = None,
+) -> str:
     if run_dir is not None:
         return run_dir
 
     prefix = _normalize_prefix(jobid)
     candidates: list[tuple[str, str]] = []
-    for name in os.listdir(path):
-        full_path = os.path.join(path, name)
-        if not os.path.isdir(full_path):
-            continue
+    for full_path in list_experiment_candidate_dirs(path, experiment):
+        name = os.path.basename(full_path)
 
         match = _TIMESTAMP_PATTERN.match(name)
         if match is None:
@@ -79,9 +98,12 @@ def resolve_timestamped_run_dir(path: str, run_dir: str | None = None, jobid: st
 
     if not candidates:
         if prefix is None:
-            raise FileNotFoundError(f"No timestamped run directories found under: {path}")
+            raise FileNotFoundError(
+                f"No timestamped run directories found under: {get_experiment_runs_dir(path, experiment)}"
+            )
         raise FileNotFoundError(
-            f"No timestamped run directories found under {path} for jobid={prefix}"
+            f"No timestamped run directories found under {get_experiment_runs_dir(path, experiment)} "
+            f"for jobid={prefix}"
         )
 
     candidates.sort(key=lambda item: (item[0], item[1]))

@@ -28,6 +28,17 @@ def _list_direct_run_dirs(root: str) -> list[str]:
     return run_dirs
 
 
+def _list_direct_dirs(root: str) -> list[str]:
+    if not os.path.isdir(root):
+        return []
+    dirs: list[str] = []
+    for entry in os.scandir(root):
+        if entry.is_dir():
+            dirs.append(_to_abs(entry.path))
+    dirs.sort()
+    return dirs
+
+
 def _infer_experiment_from_rel_parts(rel_parts: list[str], fallback: str) -> str:
     if len(rel_parts) >= 2 and rel_parts[0] == "runs":
         return rel_parts[1]
@@ -67,11 +78,22 @@ def _experiment_roots(results_root: str, experiment: str) -> list[str]:
     return deduped
 
 
+def get_experiment_runs_dir(results_root: str, experiment: str) -> str:
+    return _to_abs(os.path.join(results_root, "runs", experiment))
+
+
 def list_experiment_run_dirs(results_root: str, experiment: str) -> list[str]:
     run_dirs: list[str] = []
     for root in _experiment_roots(results_root, experiment):
         run_dirs.extend(_list_direct_run_dirs(root))
     return _dedupe_sorted(run_dirs)
+
+
+def list_experiment_candidate_dirs(results_root: str, experiment: str) -> list[str]:
+    dirs: list[str] = []
+    for root in _experiment_roots(results_root, experiment):
+        dirs.extend(_list_direct_dirs(root))
+    return _dedupe_sorted(dirs)
 
 
 def _find_run_dir(results_root: str, experiment: str, run_id: str) -> str | None:
