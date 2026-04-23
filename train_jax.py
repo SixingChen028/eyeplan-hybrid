@@ -258,13 +258,17 @@ if __name__ == '__main__':
     def _fmt_num(value: float, width: int = 8, decimals: int = 3) -> str:
         return f"{value: {width}.{decimals}f}"
 
-    def _eta_hhmm(elapsed: float, completed_updates: int, total_updates: int) -> str:
+    def _hhmmss(total_seconds: float) -> str:
+        total_rounded = max(int(round(total_seconds)), 0)
+        hours, remainder = divmod(total_rounded, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    def _eta_hhmmss(elapsed: float, completed_updates: int, total_updates: int) -> str:
         completed = max(completed_updates, 1)
         remaining = max(total_updates - completed_updates, 0)
         eta_seconds = elapsed * (remaining / completed)
-        eta_minutes = max(int(round(eta_seconds / 60.0)), 0)
-        eta_hours, eta_mins = divmod(eta_minutes, 60)
-        return f"{eta_hours:02d}:{eta_mins:02d}"
+        return _hhmmss(eta_seconds)
 
     if args.print_frequency > 0:
         header = col_sep.join(
@@ -279,8 +283,8 @@ if __name__ == '__main__':
                 f"{'entropy':>8}",
                 f"{'grad_n':>8}",
                 f"{'param_n':>8}",
-                f"{'ms':>6}",
-                f"{'ETA':>5}",
+                f"{'elpased':>8}",
+                f"{'ETA':>8}",
             ]
         )
         print(header)
@@ -379,7 +383,8 @@ if __name__ == '__main__':
                     eta_elapsed = max(elapsed - eta_skip_elapsed, 0.0)
                     eta_completed = max(completed_updates - eta_skip_updates, 1)
                     eta_total = max(run_total_updates - eta_skip_updates, 1)
-                    eta_display = _eta_hhmm(eta_elapsed, eta_completed, eta_total)
+                    eta_display = _eta_hhmmss(eta_elapsed, eta_completed, eta_total)
+                elapsed_display = _hhmmss(elapsed)
 
                 window = slice(window_start_idx, update_index + 1)
                 avg_episode_reward = float(np.mean(data["episode_reward"][window]))
@@ -390,8 +395,6 @@ if __name__ == '__main__':
                 avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
                 avg_grad_norm = float(np.mean(data["grad_norm"][window]))
                 avg_param_norm = float(np.mean(data["param_norm"][window]))
-                avg_step_time_window = float(np.mean(data["step_time_s"][window]))
-                avg_step_ms = int(round(avg_step_time_window * 1000.0))
 
                 print(
                     col_sep.join(
@@ -406,8 +409,8 @@ if __name__ == '__main__':
                             _fmt_num(avg_entropy_loss),
                             _fmt_num(avg_grad_norm),
                             _fmt_num(avg_param_norm),
-                            f"{avg_step_ms:>6d}",
-                            f"{eta_display:>5}",
+                            f"{elapsed_display:>8}",
+                            f"{eta_display:>8}",
                         ]
                     )
                 )
