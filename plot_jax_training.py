@@ -47,7 +47,7 @@ def _read_batch_size(run_dir: str) -> int:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_dir", type=str, default=None)
+    parser.add_argument("run_dir", type=str, nargs="?", default=None)
     parser.add_argument("--path", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--jobid", type=str, default=None)
     parser.add_argument("--ma_window", type=int, default=100)
