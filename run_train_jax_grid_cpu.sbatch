@@ -20,7 +20,7 @@ export NUMEXPR_NUM_THREADS=${THREADS}
 export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=${THREADS}"
 
 RESULT_PATH=./results
-EXPERIMENT=hpgrid-wm
+EXPERIMENT=hpgrid-dyna
 mkdir -p "${RESULT_PATH}"
 
 # Three values for each hyperparameter requested as VARY.
@@ -65,12 +65,12 @@ python -u train_jax.py \
     --resume=true \
     --num_nodes=15 \
     --t_max=30 \
-    --cost=0.05 \
+    --cost=0.02 \
     --beta_move=100.0 \
     --eps_move=0.0 \
     --learning_rate=1.0 \
     --wm_decay=0.8 \
-    --lamda_backup=1.0 \
+    --lamda_backup=0.0 \
     --num_episodes=16_000_000 \
     --batch_size="${BATCH_SIZE}" \
     --hidden_size=256 \
