@@ -19,6 +19,7 @@ from modules.jax_simulation import JaxSimulator
 EVAL_EPISODES = 512 * 100
 CHECKPOINT_STATE_NAME = "train_state_latest.p"
 CHECKPOINT_META_NAME = "train_state_latest.json"
+EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 
 
 def _has_resume_key(jobid: str) -> bool:
@@ -327,10 +328,11 @@ if __name__ == '__main__':
 
         index = chunk_end
 
+    train_elapsed_seconds = time.time() - start_time
     print(
         "run_summary "
         f"updates={num_updates} "
-        f"elapsed_seconds={time.time() - start_time:.3f} "
+        f"elapsed_seconds={train_elapsed_seconds:.3f} "
         f"mean_step_seconds={np.mean(data['step_time_s']):.6f}"
     )
 
@@ -342,6 +344,7 @@ if __name__ == '__main__':
         num_trials=EVAL_EPISODES,
         greedy=True,
     )
+    eval_elapsed_seconds = time.time() - eval_start
     print(
         "eval_summary "
         f"episodes={eval_stats['num_trials']} "
@@ -351,8 +354,26 @@ if __name__ == '__main__':
         f"reward_no_cost_sd={eval_stats['reward_no_cost_sd']:.6f} "
         f"n_steps_mean={eval_stats['n_steps_mean']:.3f} "
         f"n_steps_sd={eval_stats['n_steps_sd']:.3f} "
-        f"elapsed_seconds={time.time() - eval_start:.3f}"
+        f"elapsed_seconds={eval_elapsed_seconds:.3f}"
     )
+
+    eval_summary = {
+        "num_trials": int(eval_stats["num_trials"]),
+        "reward_mean": float(eval_stats["reward_mean"]),
+        "reward_sd": float(eval_stats["reward_sd"]),
+        "reward_no_cost_mean": float(eval_stats["reward_no_cost_mean"]),
+        "reward_no_cost_sd": float(eval_stats["reward_no_cost_sd"]),
+        "n_steps_mean": float(eval_stats["n_steps_mean"]),
+        "n_steps_sd": float(eval_stats["n_steps_sd"]),
+        "train_elapsed_seconds": float(train_elapsed_seconds),
+        "eval_elapsed_seconds": float(eval_elapsed_seconds),
+        "num_updates": int(num_updates),
+        "num_episodes": int(args.num_episodes),
+    }
+    eval_summary_path = os.path.join(exp_path, EVAL_SUMMARY_NAME)
+    with open(eval_summary_path, "w") as file:
+        json.dump(eval_summary, file, indent=2, sort_keys=True)
+    print(f"eval_summary_path={eval_summary_path}")
 
     save_jax_params(state.params, os.path.join(exp_path, 'net_jax.p'))
     with open(os.path.join(exp_path, 'data_training_jax.p'), 'wb') as file:

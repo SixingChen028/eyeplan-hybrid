@@ -2,33 +2,12 @@ import argparse
 import csv
 import json
 import os
-import pickle
 import statistics
 from collections import defaultdict
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
-
-def _rolling_mean_last(values: list[float], window: int) -> float:
-    if not values:
-        return float("nan")
-    window = max(1, min(window, len(values)))
-    return float(sum(values[-window:]) / window)
-
-
-def _rolling_mean_best(values: list[float], window: int) -> float:
-    if not values:
-        return float("nan")
-    window = max(1, min(window, len(values)))
-    best = float("-inf")
-    running = sum(values[:window])
-    best = max(best, running / window)
-    for idx in range(window, len(values)):
-        running += values[idx] - values[idx - window]
-        best = max(best, running / window)
-    return float(best)
 
 
 def _find_run_dirs(root: str) -> list[str]:
@@ -45,19 +24,19 @@ def _read_json(path: str) -> dict:
         return json.load(file)
 
 
-def _read_pickle(path: str) -> dict:
-    with open(path, "rb") as file:
-        return pickle.load(file)
-
-
-def _to_float_list(values) -> list[float]:
-    return [float(v) for v in values]
+def _safe_float(value):
+    try:
+        result = float(value)
+        return result if result == result else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _safe_round(value: float, digits: int = 6):
-    if value != value:
+    safe = _safe_float(value)
+    if safe is None:
         return value
-    return round(float(value), digits)
+    return round(float(safe), digits)
 
 
 def _write_csv(path: str, rows: list[dict], fieldnames: list[str]) -> None:
@@ -78,14 +57,6 @@ def _write_markdown(path: str, rows: list[dict], columns: list[str]) -> None:
         file.write("\n".join(lines) + "\n")
 
 
-def _safe_float(value):
-    try:
-        result = float(value)
-        return result if result == result else None
-    except (TypeError, ValueError):
-        return None
-
-
 def _plot_top_runs(rows: list[dict], score_key: str, output_path: str, top_k: int) -> None:
     top_rows = rows[: max(1, min(top_k, len(rows)))]
     labels = [os.path.basename(row["run_dir"]) for row in top_rows]
@@ -102,11 +73,11 @@ def _plot_top_runs(rows: list[dict], score_key: str, output_path: str, top_k: in
     plt.close()
 
 
-def _plot_score_vs_runtime(rows: list[dict], score_key: str, output_path: str) -> None:
+def _plot_score_vs_runtime(rows: list[dict], score_key: str, runtime_key: str, output_path: str) -> None:
     x = []
     y = []
     for row in rows:
-        runtime = _safe_float(row.get("total_train_time_s"))
+        runtime = _safe_float(row.get(runtime_key))
         score = _safe_float(row.get(score_key))
         if runtime is None or score is None:
             continue
@@ -118,9 +89,9 @@ def _plot_score_vs_runtime(rows: list[dict], score_key: str, output_path: str) -
 
     plt.figure(figsize=(7, 5))
     plt.scatter(x, y, alpha=0.7)
-    plt.xlabel("Total Train Time (s)")
+    plt.xlabel(runtime_key)
     plt.ylabel(score_key)
-    plt.title(f"{score_key} vs Runtime")
+    plt.title(f"{score_key} vs {runtime_key}")
     plt.grid(alpha=0.25)
     plt.tight_layout()
     plt.savefig(output_path, dpi=200)
@@ -171,37 +142,17 @@ def _plot_param_effects(rows: list[dict], score_key: str, params: list[str], out
     plt.close(fig)
 
 
-def _run_record(
-    run_dir: str,
-    metadata: dict,
-    training: dict,
-    ma_window: int,
-    score_key: str,
-) -> dict:
+def _run_record(run_dir: str, metadata: dict, eval_summary: dict, score_key: str) -> dict:
     args = metadata.get("args", {})
-    rewards = _to_float_list(training.get("episode_reward", []))
-    losses = _to_float_list(training.get("loss", []))
-    step_time_s = _to_float_list(training.get("step_time_s", []))
-    cumulative_time_s = _to_float_list(training.get("cumulative_time_s", []))
-
-    num_updates = len(rewards)
-    total_train_time_s = cumulative_time_s[-1] if cumulative_time_s else sum(step_time_s)
-    mean_step_time_ms = (sum(step_time_s) / len(step_time_s) * 1000.0) if step_time_s else float("nan")
 
     record = {
         "run_dir": run_dir,
         "started_at_utc": metadata.get("started_at_utc"),
         "git_sha": metadata.get("git_sha"),
-        "num_updates": num_updates,
-        "total_train_time_s": _safe_round(total_train_time_s),
-        "updates_per_s": _safe_round(num_updates / max(total_train_time_s, 1e-9)) if num_updates > 0 else float("nan"),
-        "mean_step_time_ms": _safe_round(mean_step_time_ms),
-        "final_episode_reward": _safe_round(rewards[-1]) if rewards else float("nan"),
-        "best_episode_reward": _safe_round(max(rewards)) if rewards else float("nan"),
-        "final_reward_ma": _safe_round(_rolling_mean_last(rewards, ma_window)),
-        "best_reward_ma": _safe_round(_rolling_mean_best(rewards, ma_window)),
-        "final_loss": _safe_round(losses[-1]) if losses else float("nan"),
     }
+
+    for key, value in eval_summary.items():
+        record[f"eval_{key}"] = value
 
     for key, value in args.items():
         record[f"arg_{key}"] = value
@@ -212,7 +163,12 @@ def _run_record(
     return record
 
 
-def _aggregate_by_group(rows: list[dict], group_keys: list[str], score_key: str) -> list[dict]:
+def _aggregate_by_group(
+    rows: list[dict],
+    group_keys: list[str],
+    score_key: str,
+    runtime_key: str,
+) -> list[dict]:
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for row in rows:
         group_id = tuple(row.get(key) for key in group_keys)
@@ -221,15 +177,13 @@ def _aggregate_by_group(rows: list[dict], group_keys: list[str], score_key: str)
     summary_rows: list[dict] = []
     for group_id, group_rows in groups.items():
         score_values = [float(row[score_key]) for row in group_rows]
-        runtime_values = [float(row["total_train_time_s"]) for row in group_rows if row["total_train_time_s"] == row["total_train_time_s"]]
-        updates_per_s_values = [float(row["updates_per_s"]) for row in group_rows if row["updates_per_s"] == row["updates_per_s"]]
+        runtime_values = [float(row[runtime_key]) for row in group_rows if _safe_float(row.get(runtime_key)) is not None]
 
         summary = {key: value for key, value in zip(group_keys, group_id)}
         summary["n_runs"] = len(group_rows)
         summary[f"{score_key}_mean"] = _safe_round(statistics.mean(score_values))
         summary[f"{score_key}_stdev"] = _safe_round(statistics.stdev(score_values)) if len(score_values) > 1 else 0.0
-        summary["runtime_mean_s"] = _safe_round(statistics.mean(runtime_values)) if runtime_values else float("nan")
-        summary["updates_per_s_mean"] = _safe_round(statistics.mean(updates_per_s_values)) if updates_per_s_values else float("nan")
+        summary[f"{runtime_key}_mean"] = _safe_round(statistics.mean(runtime_values)) if runtime_values else float("nan")
         summary_rows.append(summary)
 
     summary_rows.sort(key=lambda row: float(row[f"{score_key}_mean"]), reverse=True)
@@ -237,12 +191,12 @@ def _aggregate_by_group(rows: list[dict], group_keys: list[str], score_key: str)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Analyze JAX grid-search runs.")
+    parser = argparse.ArgumentParser(description="Analyze JAX grid-search runs from saved final eval summaries.")
     parser.add_argument("--results_root", type=str, default=os.path.join("results", "jax-grid-cpu"))
     parser.add_argument("--output_dir", type=str, default=None)
-    parser.add_argument("--data_file", type=str, default="data_training_jax.p")
-    parser.add_argument("--ma_window", type=int, default=100)
-    parser.add_argument("--score_key", type=str, default="final_reward_ma")
+    parser.add_argument("--eval_file", type=str, default="eval_summary_jax.json")
+    parser.add_argument("--score_key", type=str, default="eval_reward_mean")
+    parser.add_argument("--runtime_key", type=str, default="eval_train_elapsed_seconds")
     parser.add_argument(
         "--group_by",
         type=str,
@@ -258,59 +212,74 @@ def main() -> None:
 
     run_dirs = _find_run_dirs(args.results_root)
     rows: list[dict] = []
-    skipped_no_training = 0
+    skipped_no_eval = 0
 
     for run_dir in run_dirs:
         metadata_path = os.path.join(run_dir, "metadata.json")
-        training_path = os.path.join(run_dir, args.data_file)
-        if not os.path.exists(training_path):
-            skipped_no_training += 1
+        eval_path = os.path.join(run_dir, args.eval_file)
+        if not os.path.exists(eval_path):
+            skipped_no_eval += 1
             continue
 
         metadata = _read_json(metadata_path)
-        training = _read_pickle(training_path)
+        eval_summary = _read_json(eval_path)
         row = _run_record(
             run_dir=run_dir,
             metadata=metadata,
-            training=training,
-            ma_window=args.ma_window,
+            eval_summary=eval_summary,
             score_key=args.score_key,
         )
         rows.append(row)
 
+    rows_with_score = []
+    skipped_no_score = 0
+    for row in rows:
+        score = _safe_float(row.get(args.score_key))
+        if score is None:
+            skipped_no_score += 1
+            continue
+        row["_score"] = score
+        rows_with_score.append(row)
+    rows = rows_with_score
+
     if not rows:
         raise FileNotFoundError(
-            f"No runs with metadata.json and {args.data_file} found under {args.results_root}"
+            f"No runs with metadata.json and {args.eval_file} (and valid {args.score_key}) found under {args.results_root}"
         )
 
-    rows.sort(key=lambda row: float(row[args.score_key]), reverse=True)
+    rows.sort(key=lambda row: float(row["_score"]), reverse=True)
     group_keys = [part.strip() for part in args.group_by.split(",") if part.strip()]
-    summary_rows = _aggregate_by_group(rows, group_keys=group_keys, score_key=args.score_key)
+    summary_rows = _aggregate_by_group(
+        rows,
+        group_keys=group_keys,
+        score_key=args.score_key,
+        runtime_key=args.runtime_key,
+    )
 
     runs_csv = os.path.join(output_dir, "grid_analysis_runs.csv")
     summary_csv = os.path.join(output_dir, "grid_analysis_summary.csv")
     top_md = os.path.join(output_dir, "grid_analysis_top.md")
 
-    run_fields = sorted({key for row in rows for key in row.keys()})
+    run_fields = sorted({key for row in rows for key in row.keys() if key != "_score"})
     summary_fields = list(dict.fromkeys(group_keys + [
         "n_runs",
         f"{args.score_key}_mean",
         f"{args.score_key}_stdev",
-        "runtime_mean_s",
-        "updates_per_s_mean",
+        f"{args.runtime_key}_mean",
     ]))
 
-    _write_csv(runs_csv, rows, run_fields)
+    rows_clean = [{key: value for key, value in row.items() if key != "_score"} for row in rows]
+    _write_csv(runs_csv, rows_clean, run_fields)
     _write_csv(summary_csv, summary_rows, summary_fields)
 
-    top_rows = rows[: max(1, args.top_k)]
+    top_rows = rows_clean[: max(1, args.top_k)]
     top_columns = [
         "run_dir",
         args.score_key,
-        "final_episode_reward",
-        "best_episode_reward",
-        "num_updates",
-        "total_train_time_s",
+        "eval_reward_mean",
+        "eval_reward_no_cost_mean",
+        "eval_n_steps_mean",
+        args.runtime_key,
         "arg_batch_size",
         "arg_lr",
         "arg_lamda",
@@ -318,6 +287,7 @@ def main() -> None:
         "arg_seed",
     ]
     top_columns = [col for col in top_columns if col in run_fields]
+    top_columns = list(dict.fromkeys(top_columns))
     _write_markdown(top_md, top_rows, top_columns)
 
     default_plot_params = [key for key in group_keys if key.startswith("arg_")]
@@ -330,11 +300,12 @@ def main() -> None:
     runtime_plot = os.path.join(output_dir, "grid_plot_score_vs_runtime.png")
     params_plot = os.path.join(output_dir, "grid_plot_param_effects.png")
     _plot_top_runs(rows=rows, score_key=args.score_key, output_path=top_plot, top_k=args.top_k)
-    _plot_score_vs_runtime(rows=rows, score_key=args.score_key, output_path=runtime_plot)
+    _plot_score_vs_runtime(rows=rows, score_key=args.score_key, runtime_key=args.runtime_key, output_path=runtime_plot)
     _plot_param_effects(rows=rows, score_key=args.score_key, params=plot_params, output_path=params_plot)
 
     print(f"Analyzed runs: {len(rows)}")
-    print(f"Skipped (missing {args.data_file}): {skipped_no_training}")
+    print(f"Skipped (missing {args.eval_file}): {skipped_no_eval}")
+    print(f"Skipped (missing/invalid {args.score_key}): {skipped_no_score}")
     print(f"Wrote: {runs_csv}")
     print(f"Wrote: {summary_csv}")
     print(f"Wrote: {top_md}")
