@@ -283,7 +283,7 @@ if __name__ == '__main__':
                 f"{'entropy':>8}",
                 f"{'grad_n':>8}",
                 f"{'param_n':>8}",
-                f"{'elpased':>8}",
+                f"{'elapsed':>8}",
                 f"{'ETA':>8}",
             ]
         )
@@ -295,7 +295,7 @@ if __name__ == '__main__':
     start_time = time.time()
     eta_skip_elapsed = None
     eta_skip_updates = None
-    window_start_idx = start_update
+    window_start_idx = len(data["loss"])
     resume_cumulative_time_offset = (
         float(data["cumulative_time_s"][start_update - 1])
         if start_update > 0 and len(data["cumulative_time_s"]) >= start_update
@@ -351,6 +351,7 @@ if __name__ == '__main__':
             chunk_cumulative_start
             + (np.arange(1, chunk_updates + 1, dtype=np.float64) / chunk_updates) * chunk_elapsed
         )
+        chunk_data_start = len(data["loss"])
         data["loss"].extend(chunk_metrics.loss.tolist())
         data["policy_loss"].extend(chunk_metrics.policy_loss.tolist())
         data["value_loss"].extend(chunk_metrics.value_loss.tolist())
@@ -386,7 +387,8 @@ if __name__ == '__main__':
                     eta_display = _eta_hhmmss(eta_elapsed, eta_completed, eta_total)
                 elapsed_display = _hhmmss(elapsed)
 
-                window = slice(window_start_idx, update_index + 1)
+                data_index = chunk_data_start + chunk_index
+                window = slice(window_start_idx, data_index + 1)
                 avg_episode_reward = float(np.mean(data["episode_reward"][window]))
                 avg_episode_length = float(np.mean(data["episode_length"][window]))
                 avg_loss = float(np.mean(data["loss"][window]))
@@ -414,7 +416,7 @@ if __name__ == '__main__':
                         ]
                     )
                 )
-                window_start_idx = update_index + 1
+                window_start_idx = data_index + 1
 
         if is_first_chunk and eta_skip_elapsed is None:
             eta_skip_elapsed = chunk_end_wall - start_time
