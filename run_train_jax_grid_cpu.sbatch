@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=ep-jax-grid
+#SBATCH --job-name=grid
 #SBATCH --cpus-per-task=1
 #SBATCH --time=08:00:00
-#SBATCH --mem-per-cpu=2G
-#SBATCH -e ./log/grid-%A_%a.err
-#SBATCH -o ./log/grid-%A_%a.out
-#SBATCH --array=0-242
+#SBATCH --mem-per-cpu=1G
+#SBATCH -e ./log/%A_%a.err
+#SBATCH -o ./log/%A_%a.out
+#SBATCH --array=0-71
 
 set -euo pipefail
 
@@ -20,14 +20,14 @@ export NUMEXPR_NUM_THREADS=${THREADS}
 export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=${THREADS}"
 
 RESULT_PATH=./results
-EXPERIMENT=jax-grid-cpu
+EXPERIMENT=hpgrid-wm
 mkdir -p "${RESULT_PATH}"
 
 # Three values for each hyperparameter requested as VARY.
-BATCH_SIZES=(32 64 128)
-LRS=(0.0003 0.001 0.003)
-LAMDAS=(0.90 0.95 1.00)
-BETA_E_INITS=(0.02 0.05 0.10)
+BATCH_SIZES=(64 128)
+LRS=(0.0001 0.0005 0.001)
+LAMDAS=(0.90 0.95)
+BETA_E_INITS=(0.05 0.02)
 SEEDS=(1 2 3)
 
 N_BATCH=${#BATCH_SIZES[@]}
@@ -65,11 +65,11 @@ python -u train_jax.py \
     --resume=true \
     --num_nodes=15 \
     --t_max=30 \
-    --cost=0.01 \
+    --cost=0.05 \
     --beta_move=100.0 \
     --eps_move=0.0 \
     --learning_rate=1.0 \
-    --wm_decay=1.0 \
+    --wm_decay=0.8 \
     --lamda_backup=1.0 \
     --num_episodes=16_000_000 \
     --batch_size="${BATCH_SIZE}" \
