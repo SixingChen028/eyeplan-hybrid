@@ -131,12 +131,13 @@ if __name__ == '__main__':
                 experiment=args.experiment,
                 jobid=args.jobid,
             )
+        except FileNotFoundError:
+            exp_path = None
+        if exp_path is not None:
             metadata_path = os.path.join(exp_path, "metadata.json")
             if not os.path.exists(metadata_path):
                 raise FileNotFoundError(f"Missing metadata for resumed run: {metadata_path}")
             resume_matched_run = True
-        except FileNotFoundError:
-            exp_path = None
     else:
         exp_path = None
 
