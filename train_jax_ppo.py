@@ -196,7 +196,7 @@ if __name__ == '__main__':
                 f"{'entropy':>8}",
                 f"{'clipfrac':>8}",
                 f"{'approx_kl':>8}",
-                f"{'elpased':>8}",
+                f"{'elapsed':>8}",
                 f"{'ETA':>8}",
             ]
         )
@@ -208,7 +208,7 @@ if __name__ == '__main__':
     start_time = time.time()
     eta_skip_elapsed = None
     eta_skip_updates = None
-    window_start_idx = 0
+    window_start_idx = len(data["loss"])
 
     def _next_boundary(processed_updates: int, frequency: int) -> int:
         return ((processed_updates // frequency) + 1) * frequency
@@ -261,6 +261,7 @@ if __name__ == '__main__':
             + (np.arange(1, chunk_updates + 1, dtype=np.float64) / chunk_updates) * chunk_elapsed
         )
 
+        chunk_data_start = len(data["loss"])
         data["loss"].extend(chunk_metrics.loss.tolist())
         data["policy_loss"].extend(chunk_metrics.policy_loss.tolist())
         data["value_loss"].extend(chunk_metrics.value_loss.tolist())
@@ -272,10 +273,8 @@ if __name__ == '__main__':
         data["step_time_s"].extend([avg_step_time] * chunk_updates)
         data["cumulative_time_s"].extend(cumulative_values.tolist())
 
-        run_chunk_offset = chunk_start - start_update
         for chunk_index in range(chunk_updates):
             update_index = chunk_start + chunk_index
-            run_update_index = run_chunk_offset + chunk_index
             progress = (chunk_index + 1) / chunk_updates
             event_time = chunk_start_wall + progress * chunk_elapsed
 
@@ -298,7 +297,8 @@ if __name__ == '__main__':
                     eta_display = _eta_hhmmss(eta_elapsed, eta_completed, eta_total)
                 elapsed_display = _hhmmss(elapsed)
 
-                window = slice(window_start_idx, run_update_index + 1)
+                data_index = chunk_data_start + chunk_index
+                window = slice(window_start_idx, data_index + 1)
                 avg_episode_reward = float(np.mean(data["episode_reward"][window]))
                 avg_episode_length = float(np.mean(data["episode_length"][window]))
                 avg_loss = float(np.mean(data["loss"][window]))
@@ -326,7 +326,7 @@ if __name__ == '__main__':
                         ]
                     )
                 )
-                window_start_idx = run_update_index + 1
+                window_start_idx = data_index + 1
 
         if is_first_chunk and eta_skip_elapsed is None:
             eta_skip_elapsed = chunk_end_wall - start_time
