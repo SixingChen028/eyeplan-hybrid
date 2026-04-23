@@ -2,6 +2,8 @@ import argparse
 import json
 import os
 import pickle
+import sys
+import traceback
 
 from modules.analysis_targets import (
     get_run_analysis_dir,
@@ -158,40 +160,56 @@ def main():
 
     runs_to_analyze: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
+    had_error = False
     for target_arg in args.targets:
-        target = resolve_analysis_target(target_arg, results_root=args.results_root)
-        if target.kind == "experiment":
-            run_dirs = [select_most_recent_run(target.run_dirs)]
-        else:
-            run_dirs = target.run_dirs
+        try:
+            target = resolve_analysis_target(target_arg, results_root=args.results_root)
+            if target.kind == "experiment":
+                run_dirs = [select_most_recent_run(target.run_dirs)]
+            else:
+                run_dirs = target.run_dirs
 
-        print(f"target={target_arg} target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
-        for run_dir in run_dirs:
-            run_key = (target.experiment, run_dir)
-            if run_key in seen:
-                continue
-            seen.add(run_key)
-            runs_to_analyze.append(run_key)
+            print(f"target={target_arg} target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
+            for run_dir in run_dirs:
+                run_key = (target.experiment, run_dir)
+                if run_key in seen:
+                    continue
+                seen.add(run_key)
+                runs_to_analyze.append(run_key)
+        except Exception:
+            had_error = True
+            print(f"Error resolving target: {target_arg}", file=sys.stderr)
+            traceback.print_exc()
+            continue
 
     for experiment, run_dir in runs_to_analyze:
-        run_id = os.path.basename(run_dir)
-        output_dir = get_run_analysis_dir(
-            results_root=args.results_root,
-            experiment=experiment,
-            run_id=run_id,
-        )
-        result = _analyze_run(
-            run_dir=run_dir,
-            output_dir=output_dir,
-            ma_window=args.ma_window,
-            data_file=args.data_file,
-            output_prefix=args.output_prefix,
-        )
-        print("Saved:")
-        print(" ", result["csv_path"])
-        print(" ", result["summary_json_path"])
-        print(" ", result["fig_path"])
-        print(result["summary_json"])
+        try:
+            run_id = os.path.basename(run_dir)
+            output_dir = get_run_analysis_dir(
+                results_root=args.results_root,
+                experiment=experiment,
+                run_id=run_id,
+            )
+            result = _analyze_run(
+                run_dir=run_dir,
+                output_dir=output_dir,
+                ma_window=args.ma_window,
+                data_file=args.data_file,
+                output_prefix=args.output_prefix,
+            )
+            print("Saved:")
+            print(" ", result["csv_path"])
+            print(" ", result["summary_json_path"])
+            print(" ", result["fig_path"])
+            print(result["summary_json"])
+        except Exception:
+            had_error = True
+            print(f"Error analyzing run: {run_dir}", file=sys.stderr)
+            traceback.print_exc()
+            continue
+
+    if had_error:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
