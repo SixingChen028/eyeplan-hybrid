@@ -70,12 +70,12 @@ class ArgParser:
         self.parser.add_argument('--mask_fixation', type = parse_bool, default = True, help = 'if mask fixations')
 
         # training parameters
-        self.parser.add_argument('--num_episodes', type = int, default = 15000000, help = 'training episodes')
-        self.parser.add_argument('--lr', type = float, default = 1e-3, help = 'learning rate')
-        self.parser.add_argument('--batch_size', type = int, default = 40, help = 'batch_size')
+        self.parser.add_argument('--num_episodes', type = int, default = 16_000_000, help = 'training episodes')
+        self.parser.add_argument('--lr', type = float, default = 5e-4, help = 'learning rate')
+        self.parser.add_argument('--batch_size', type = int, default = 64, help = 'batch_size')
         self.parser.add_argument('--max_grad_norm', type = float, default = 1.0, help = 'gradient clipping')
         self.parser.add_argument('--gamma', type = float, default = 1.0, help = 'temporal discount')
-        self.parser.add_argument('--lamda', type = float, default = 1.0, help = 'generalized advantage estimation coefficient')
+        self.parser.add_argument('--lamda', type = float, default = 0.9, help = 'generalized advantage estimation coefficient')
         self.parser.add_argument('--beta_v', type = float, default = 0.05, help = 'value loss coefficient')
         self.parser.add_argument('--beta_e', type = float, default = 0.05, help = 'entropy regularization coefficient')
         self.parser.add_argument('--beta_e_init', type = float, default = 0.05, help = 'initial entropy regularization coefficient')
