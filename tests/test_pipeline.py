@@ -84,6 +84,53 @@ def test_jax_simulator_runs_trials():
     assert all(len(seq) <= env.t_max for seq in data["action_seqs"])
 
 
+def test_jax_simulator_runs_detailed_trials():
+    env = JaxDecisionTreeEnv(
+        num_nodes=3,
+        beta_move=4.0,
+        eps_move=0.0,
+        learning_rate=1.0,
+        wm_decay=1.0,
+        t_max=5,
+        cost=0.01,
+        scale_factor=1.0,
+        shuffle_nodes=False,
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+
+    trainer = JaxBatchMaskA2C(
+        env=env,
+        feature_size=env.observation_shape[0],
+        action_size=env.action_size,
+        hidden_size=32,
+        batch_size=4,
+        lr=1e-3,
+        max_grad_norm=1.0,
+        gamma=1.0,
+        lamda=1.0,
+        beta_v=0.05,
+        beta_e=0.05,
+    )
+
+    state = trainer.init_state(seed=1)
+    simulator = JaxSimulator(env)
+    data = simulator.simulate(
+        params=state.params,
+        seed=1,
+        num_trials=5,
+        greedy=False,
+        detailed=True,
+    )
+
+    for key in ["activations", "counts", "gs", "qs", "logits"]:
+        assert len(data[key]) == 5
+    assert len(data["activations"][0]) == env.num_nodes
+    assert len(data["counts"][0]) == env.num_nodes
+    assert len(data["gs"][0]) == env.num_nodes
+    assert len(data["qs"][0]) == env.num_nodes
+    assert len(data["logits"][0]) == len(data["action_seqs"][0])
+
+
 def test_jax_simulator_evaluate_policy_returns_summary_stats():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
@@ -164,6 +211,46 @@ def test_transformed_simulation_format_encodes_actions():
     assert transformed["starts"] == [0, 1]
     assert transformed["adj_lists"][0] == [[1, 2], [], []]
     assert transformed["actions"][0] == [1, 2, 6, 5, 4]
+
+
+def test_transformed_simulation_format_includes_details():
+    data = {
+        "child_dicts": [{0: [1, 2]}],
+        "root_nodes": [0],
+        "points": [[0.0, 1.0, -1.0]],
+        "action_seqs": [[1, 2, 3]],
+        "choice_seqs": [[2, 1]],
+        "activations": [[1.0, 0.5, 0.25]],
+        "counts": [[1, 2, 0]],
+        "gs": [[0.0, 1.0, 2.0]],
+        "qs": [[0.0, 0.5, 1.0]],
+        "logits": [[[0.0, 0.1, 0.2, 0.3]]],
+    }
+
+    transformed = to_transformed_simulation_format(
+        data,
+        num_nodes=3,
+        t_max=5,
+        skip_timeout_trials=True,
+        detailed=True,
+    )
+
+    assert list(transformed.keys()) == [
+        "adj_lists",
+        "starts",
+        "rewards",
+        "actions",
+        "activations",
+        "counts",
+        "gs",
+        "qs",
+        "logits",
+    ]
+    assert transformed["activations"] == data["activations"]
+    assert transformed["counts"] == data["counts"]
+    assert transformed["gs"] == data["gs"]
+    assert transformed["qs"] == data["qs"]
+    assert transformed["logits"] == data["logits"]
 
 
 def test_transformed_simulation_format_skips_timeouts_when_requested():

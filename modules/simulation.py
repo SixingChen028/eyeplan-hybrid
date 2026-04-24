@@ -71,26 +71,29 @@ class JaxSimulator:
         action_mask = info["mask"]
 
         action_seq = -jnp.ones((self.env.t_max,), dtype=jnp.int32)
+        logits_seq = jnp.zeros((self.env.t_max, self.env.action_size), dtype=jnp.float32)
 
         carry = (
             state,
             obs,
             action_mask,
             action_seq,
+            logits_seq,
             jnp.array(0, dtype=jnp.int32),
             jnp.array(False),
             rng_key,
         )
 
         def cond_fn(carry):
-            _, _, _, _, step_count, done, _ = carry
+            _, _, _, _, _, step_count, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
-            state, obs, action_mask, action_seq, step_count, _, rng_key = carry
+            state, obs, action_mask, action_seq, logits_seq, step_count, _, rng_key = carry
 
             logits, _ = actor_critic_forward(params, obs[None, :])
             logits = logits[0]
+            logits_seq = logits_seq.at[step_count].set(logits)
 
             def greedy_action(_):
                 masked_logits = apply_action_mask(logits, action_mask)
@@ -111,11 +114,11 @@ class JaxSimulator:
             action_seq = action_seq.at[step_count].set(action)
             step_count = step_count + 1
 
-            return state, obs, action_mask, action_seq, step_count, done, rng_key
+            return state, obs, action_mask, action_seq, logits_seq, step_count, done, rng_key
 
-        state, _, _, action_seq, action_len, _, rng_key = jax.lax.while_loop(cond_fn, body_fn, carry)
+        state, _, _, action_seq, logits_seq, action_len, _, rng_key = jax.lax.while_loop(cond_fn, body_fn, carry)
 
-        return state, action_seq, action_len, rng_key
+        return state, action_seq, logits_seq, action_len, rng_key
 
     def _run_trial_metrics(self, params: Any, rng_key: jax.Array, greedy: bool = False):
         state, obs, info = self.env.reset(rng_key)
@@ -181,10 +184,10 @@ class JaxSimulator:
         return rewards, rewards_no_cost, steps
 
     def _run_trial_batch(self, params: Any, trial_keys: jax.Array, greedy: bool = False):
-        states, action_seqs, action_lens, _ = jax.vmap(
+        states, action_seqs, logits_seqs, action_lens, _ = jax.vmap(
             lambda key: self._run_trial(params, key, greedy=greedy)
         )(trial_keys)
-        return states, action_seqs, action_lens
+        return states, action_seqs, logits_seqs, action_lens
 
     def simulate(
         self,
@@ -193,6 +196,7 @@ class JaxSimulator:
         num_trials: int,
         greedy: bool = False,
         batch_size: int = 512,
+        detailed: bool = False,
     ):
         if num_trials <= 0:
             raise ValueError("num_trials must be positive")
@@ -213,15 +217,27 @@ class JaxSimulator:
             "action_seqs": [],
             "choice_seqs": [],
         }
+        if detailed:
+            data.update(
+                {
+                    "activations": [],
+                    "counts": [],
+                    "gs": [],
+                    "qs": [],
+                    "logits": [],
+                }
+            )
 
         for batch_idx in range(num_batches):
             rng_key, batch_key = jax.random.split(rng_key)
             trial_keys = jax.random.split(batch_key, batch_size)
-            states, action_seqs, action_lens = self._trial_batch_jit(params, trial_keys, greedy=greedy)
+            states, action_seqs, logits_seqs, action_lens = self._trial_batch_jit(params, trial_keys, greedy=greedy)
 
             states = jax.device_get(states)
             action_seqs = np.asarray(action_seqs)
             action_lens = np.asarray(action_lens)
+            if detailed:
+                logits_seqs = np.asarray(logits_seqs)
 
             child_nodes_batch = np.asarray(states.child_nodes)
             parent_nodes_batch = np.asarray(states.parent_nodes)
@@ -229,6 +245,11 @@ class JaxSimulator:
             root_nodes_batch = np.asarray(states.root_node)
             chosen_paths_batch = np.asarray(states.chosen_path)
             chosen_path_lens_batch = np.asarray(states.chosen_path_len)
+            if detailed:
+                activations_batch = np.asarray(states.activation)
+                counts_batch = np.asarray(states.n_visits)
+                gs_batch = np.asarray(states.g_values)
+                qs_batch = np.asarray(states.q_values)
 
             trials_remaining = num_trials - (batch_idx * batch_size)
             trials_in_batch = min(batch_size, trials_remaining)
@@ -254,6 +275,13 @@ class JaxSimulator:
                 data["cum_points"].append(_compute_cum_points(child_nodes, root_node, points).tolist())
                 data["action_seqs"].append(action_seq)
                 data["choice_seqs"].append(choice_seq)
+                if detailed:
+                    data["activations"].append(activations_batch[trial_idx].tolist())
+                    data["counts"].append(counts_batch[trial_idx].tolist())
+                    data["gs"].append(gs_batch[trial_idx].tolist())
+                    data["qs"].append(qs_batch[trial_idx].tolist())
+                    logits_seq = np.asarray(logits_seqs[trial_idx, :action_len], dtype=np.float32).tolist()
+                    data["logits"].append(logits_seq)
 
         return data
 
@@ -311,6 +339,7 @@ def to_transformed_simulation_format(
     num_nodes: int,
     t_max: int,
     skip_timeout_trials: bool = True,
+    detailed: bool = False,
 ) -> Dict[str, List[Any]]:
     """
     Convert simulator output to the legacy JSON schema:
@@ -328,6 +357,12 @@ def to_transformed_simulation_format(
         "rewards": [],
         "actions": [],
     }
+    detail_keys = ["activations", "counts", "gs", "qs", "logits"]
+    if detailed:
+        for key in detail_keys:
+            if key not in data:
+                raise ValueError(f"Detailed simulation data missing key: {key}")
+            transformed[key] = []
 
     child_dicts = data.get("child_dicts", [])
     root_nodes = data.get("root_nodes", [])
@@ -335,12 +370,14 @@ def to_transformed_simulation_format(
     action_seqs = data.get("action_seqs", [])
     choice_seqs = data.get("choice_seqs", [])
 
-    for child_dict, root_node, points, action_seq, choice_seq in zip(
-        child_dicts,
-        root_nodes,
-        points_list,
-        action_seqs,
-        choice_seqs,
+    for trial_idx, (child_dict, root_node, points, action_seq, choice_seq) in enumerate(
+        zip(
+            child_dicts,
+            root_nodes,
+            points_list,
+            action_seqs,
+            choice_seqs,
+        )
     ):
         action_seq = [int(a) for a in action_seq]
         choice_seq = [int(a) for a in choice_seq]
@@ -372,5 +409,8 @@ def to_transformed_simulation_format(
         transformed["starts"].append(root_node)
         transformed["rewards"].append(points)
         transformed["actions"].append(actions)
+        if detailed:
+            for key in detail_keys:
+                transformed[key].append(data[key][trial_idx])
 
     return transformed

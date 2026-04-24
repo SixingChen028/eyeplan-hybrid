@@ -87,6 +87,16 @@ def _resolve_params_path_from_metadata(run_dir: str, metadata: dict) -> str:
     )
 
 
+def _round_floats(value):
+    if isinstance(value, float):
+        return round(value, 3)
+    if isinstance(value, list):
+        return [_round_floats(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _round_floats(item) for key, item in value.items()}
+    return value
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -99,6 +109,7 @@ def main() -> None:
     parser.add_argument("--greedy", action="store_true")
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--include_timeout_trials", action="store_true")
+    parser.add_argument("--detailed", action="store_true")
     args = parser.parse_args()
 
     had_error = False
@@ -123,6 +134,7 @@ def main() -> None:
             seed=seed,
             num_trials=args.num_trials,
             greedy=args.greedy,
+            detailed=args.detailed,
         )
 
         transformed = to_transformed_simulation_format(
@@ -130,6 +142,7 @@ def main() -> None:
             num_nodes=env.num_nodes,
             t_max=env.t_max,
             skip_timeout_trials=not args.include_timeout_trials,
+            detailed=args.detailed,
         )
 
         output_path = args.output
@@ -138,7 +151,7 @@ def main() -> None:
         output_path = os.path.abspath(os.path.expanduser(output_path))
 
         with open(output_path, "w") as file:
-            json.dump(transformed, file)
+            json.dump(_round_floats(transformed), file)
             file.write("\n")
 
         print(f"output_json={output_path}")
