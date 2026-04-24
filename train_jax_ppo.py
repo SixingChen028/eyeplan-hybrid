@@ -22,7 +22,7 @@ CHECKPOINT_META_NAME = "train_state_latest.json"
 
 
 def _has_resume_key(jobid: str) -> bool:
-    return str(jobid).strip() not in {"", "0"}
+    return str(jobid).strip() != ""
 
 
 def _save_rolling_checkpoint(state, checkpoint_state_path: str, checkpoint_meta_path: str, next_update: int):

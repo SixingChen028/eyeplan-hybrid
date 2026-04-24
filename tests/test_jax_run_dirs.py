@@ -12,7 +12,7 @@ def test_build_timestamped_run_dir_without_jobid():
     run_dir = build_timestamped_run_dir(
         path="/tmp/results",
         experiment="default",
-        jobid="0",
+        jobid="",
         timestamp="20260422_101500",
         suffix="a1b2",
     )
@@ -36,13 +36,25 @@ def test_build_timestamped_run_dir_generates_4_char_suffix():
     run_dir = build_timestamped_run_dir(
         path="/tmp/results",
         experiment="default",
-        jobid="0",
+        jobid="",
         timestamp="20260422_101500",
     )
     run_name = Path(run_dir).name
     suffix = run_name.rsplit("_", 1)[-1]
 
     assert len(suffix) == 4
+
+
+def test_build_timestamped_run_dir_with_zero_jobid():
+    run_dir = build_timestamped_run_dir(
+        path="/tmp/results",
+        experiment="default",
+        jobid="0",
+        timestamp="20260422_101500",
+        suffix="m3n4",
+    )
+
+    assert run_dir == "/tmp/results/runs/default/0_20260422_101500_m3n4"
 
 
 def test_resolve_timestamped_run_dir_picks_latest(tmp_path: Path):

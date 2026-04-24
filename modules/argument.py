@@ -47,7 +47,7 @@ class ArgParser:
         """
 
         # job parameters
-        self.parser.add_argument('--jobid', type = str, default = '0', help = 'job id')
+        self.parser.add_argument('--jobid', type = str, default = '', help = 'job id')
         self.parser.add_argument('--path', type = str, default = os.path.join(os.getcwd(), 'results'), help = 'path to store results')
         self.parser.add_argument('--experiment', type = str, default = 'default', help = 'experiment name for organizing runs under path/runs/<experiment>')
         self.parser.add_argument('--resume', type = parse_bool, default = False, help = 'resume from most recent matching run (requires jobid)')

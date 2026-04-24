@@ -20,7 +20,7 @@ def _normalize_prefix(jobid: str | None) -> str | None:
     if jobid is None:
         return None
     value = str(jobid).strip()
-    if value in {"", "0"}:
+    if value == "":
         return None
     return value
 
