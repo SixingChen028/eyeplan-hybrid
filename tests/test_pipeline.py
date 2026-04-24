@@ -2,7 +2,7 @@ import numpy as np
 
 from modules.a2c import JaxBatchMaskA2C
 from modules.environment import JaxDecisionTreeEnv
-from modules.simulation import JaxSimulator
+from modules.simulation import JaxSimulator, to_transformed_simulation_format
 
 
 def test_jax_train_step_compiles_and_runs():
@@ -130,3 +130,75 @@ def test_jax_simulator_evaluate_policy_returns_summary_stats():
     assert np.isfinite(summary["reward_no_cost_sd"])
     assert np.isfinite(summary["n_steps_mean"])
     assert np.isfinite(summary["n_steps_sd"])
+
+
+def test_transformed_simulation_format_encodes_actions():
+    data = {
+        "child_dicts": [
+            {0: [1, 2]},
+            {0: [1, 2]},
+        ],
+        "root_nodes": [0, 1],
+        "points": [
+            [0.0, 1.0, -1.0],
+            [0.0, 2.0, 3.0],
+        ],
+        "action_seqs": [
+            [1, 2, 3],
+            [1, 1, 3],
+        ],
+        "choice_seqs": [
+            [2, 1],
+            [2],
+        ],
+    }
+
+    transformed = to_transformed_simulation_format(
+        data,
+        num_nodes=3,
+        t_max=5,
+        skip_timeout_trials=True,
+    )
+
+    assert list(transformed.keys()) == ["adj_lists", "starts", "rewards", "actions"]
+    assert transformed["starts"] == [0, 1]
+    assert transformed["adj_lists"][0] == [[1, 2], [], []]
+    assert transformed["actions"][0] == [1, 2, 6, 5, 4]
+
+
+def test_transformed_simulation_format_skips_timeouts_when_requested():
+    data = {
+        "child_dicts": [
+            {0: [1, 2]},
+            {0: [1, 2]},
+        ],
+        "root_nodes": [0, 0],
+        "points": [
+            [0.0, 1.0, -1.0],
+            [0.0, 1.0, -1.0],
+        ],
+        "action_seqs": [
+            [1, 1, 1, 3],
+            [1, 2, 3],
+        ],
+        "choice_seqs": [
+            [2],
+            [1],
+        ],
+    }
+
+    transformed_skip = to_transformed_simulation_format(
+        data,
+        num_nodes=3,
+        t_max=4,
+        skip_timeout_trials=True,
+    )
+    transformed_keep = to_transformed_simulation_format(
+        data,
+        num_nodes=3,
+        t_max=4,
+        skip_timeout_trials=False,
+    )
+
+    assert len(transformed_skip["actions"]) == 1
+    assert len(transformed_keep["actions"]) == 2

@@ -270,3 +270,74 @@ class JaxSimulator:
             "n_steps_mean": float(np.mean(steps)),
             "n_steps_sd": float(np.std(steps)),
         }
+
+
+def to_transformed_simulation_format(
+    data: Dict[str, List[Any]],
+    *,
+    num_nodes: int,
+    t_max: int,
+    skip_timeout_trials: bool = True,
+) -> Dict[str, List[Any]]:
+    """
+    Convert simulator output to the legacy JSON schema:
+      {
+        "adj_lists": [...],
+        "starts": [...],
+        "rewards": [...],
+        "actions": [...],
+      }
+    """
+
+    transformed = {
+        "adj_lists": [],
+        "starts": [],
+        "rewards": [],
+        "actions": [],
+    }
+
+    child_dicts = data.get("child_dicts", [])
+    root_nodes = data.get("root_nodes", [])
+    points_list = data.get("points", [])
+    action_seqs = data.get("action_seqs", [])
+    choice_seqs = data.get("choice_seqs", [])
+
+    for child_dict, root_node, points, action_seq, choice_seq in zip(
+        child_dicts,
+        root_nodes,
+        points_list,
+        action_seqs,
+        choice_seqs,
+    ):
+        action_seq = [int(a) for a in action_seq]
+        choice_seq = [int(a) for a in choice_seq]
+        root_node = int(root_node)
+        points = [float(v) for v in points]
+
+        if skip_timeout_trials and len(action_seq) >= t_max:
+            continue
+
+        adj_list = [[] for _ in range(num_nodes)]
+        for parent, children in child_dict.items():
+            parent = int(parent)
+            adj_list[parent] = [int(children[0]), int(children[1])]
+
+        if len(action_seq) == 0:
+            continue
+
+        if action_seq[-1] != num_nodes:
+            continue
+
+        # Map terminal move action from num_nodes to 2 * num_nodes.
+        actions = list(action_seq)
+        actions[-1] = num_nodes * 2
+
+        # Append chosen path as decision actions in [num_nodes, 2 * num_nodes - 1].
+        actions.extend(num_nodes + node for node in choice_seq)
+
+        transformed["adj_lists"].append(adj_list)
+        transformed["starts"].append(root_node)
+        transformed["rewards"].append(points)
+        transformed["actions"].append(actions)
+
+    return transformed

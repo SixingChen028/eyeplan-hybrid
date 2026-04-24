@@ -88,6 +88,12 @@ class ArgParser:
         self.parser.add_argument('--ppo_clip_eps', type = float, default = 0.2, help = 'PPO clipping epsilon')
         self.parser.add_argument('--ppo_normalize_advantages', type = parse_bool, default = True, help = 'if normalize PPO advantages')
 
+        # simulation export parameters
+        self.parser.add_argument('--simulate_trials', type = int, default = 100000, help = 'number of trials in simulate.py')
+        self.parser.add_argument('--export_transformed_json', type = parse_bool, default = False, help = 'if export transformed simulation json format')
+        self.parser.add_argument('--transformed_json_path', type = str, default = '', help = 'optional path to transformed simulation json output')
+        self.parser.add_argument('--skip_timeout_trials', type = parse_bool, default = True, help = 'if drop timeout trials in transformed simulation json export')
+
         # parse arguments
         self.args = self.parser.parse_args()
     
