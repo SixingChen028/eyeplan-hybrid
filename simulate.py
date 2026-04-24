@@ -95,7 +95,7 @@ def main() -> None:
         help="Target run path or experiment (uses most recent run for an experiment).",
     )
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
-    parser.add_argument("--num_trials", type=int, default=100_000)
+    parser.add_argument("--num_trials", type=int, default=10_240)
     parser.add_argument("--greedy", action="store_true")
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--include_timeout_trials", action="store_true")

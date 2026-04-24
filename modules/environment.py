@@ -248,7 +248,7 @@ class JaxDecisionTreeEnv:
 
         planner_known, planner_expanded, g_values = jax.lax.cond(
             should_expand,
-            lambda x: self._expand(*x, node, state.parent_nodes, state.child_nodes, state.root_node, state.points),
+            lambda x: self._expand(x[0], x[1], x[2], node, state.parent_nodes, state.child_nodes, state.root_node, state.points),
             lambda x: x,
             (planner_known, planner_expanded, g_values),
         )
