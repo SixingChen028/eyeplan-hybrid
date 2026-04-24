@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from modules.jax_environment import JaxDecisionTreeEnv
+from modules.environment import JaxDecisionTreeEnv
 from modules.reference_environment import ReferenceDecisionTreeEnv
 
 

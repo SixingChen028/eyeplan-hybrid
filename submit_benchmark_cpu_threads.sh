@@ -11,7 +11,7 @@ manifest="${BENCH_ROOT}/submitted_jobs.txt"
 : > "${manifest}"
 
 for cpus in "${CPUS_VALUES[@]}"; do
-    job_id=$(sbatch --parsable --cpus-per-task="${cpus}" --array="${ARRAY_SPEC}" run_benchmark_jax_cpu_threads.sbatch)
+    job_id=$(sbatch --parsable --cpus-per-task="${cpus}" --array="${ARRAY_SPEC}" run_benchmark_cpu_threads.sbatch)
     echo "cpus_per_task=${cpus} job_id=${job_id}" | tee -a "${manifest}"
 done
 

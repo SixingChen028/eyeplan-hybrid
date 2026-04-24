@@ -1,8 +1,8 @@
 import numpy as np
 
-from modules.jax_a2c import JaxBatchMaskA2C
-from modules.jax_environment import JaxDecisionTreeEnv
-from modules.jax_simulation import JaxSimulator
+from modules.a2c import JaxBatchMaskA2C
+from modules.environment import JaxDecisionTreeEnv
+from modules.simulation import JaxSimulator
 
 
 def test_jax_train_step_compiles_and_runs():

@@ -1,7 +1,7 @@
 from argparse import Namespace
 from pathlib import Path
 
-from modules.jax_run_dirs import (
+from modules.run_dirs import (
     build_timestamped_run_dir,
     resolve_timestamped_run_dir,
     write_run_metadata,

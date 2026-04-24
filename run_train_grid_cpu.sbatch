@@ -58,7 +58,7 @@ SEED=${SEEDS[$seed_idx]}
 
 echo "grid_task task_id=${TASK_ID} batch_size=${BATCH_SIZE} lr=${LR} lamda=${LAMDA} beta_e_init=${BETA_E_INIT} seed=${SEED}"
 
-python -u train_jax.py \
+python -u train.py \
     --jobid="${TASK_ID}" \
     --path="${RESULT_PATH}" \
     --experiment="${EXPERIMENT}" \

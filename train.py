@@ -7,14 +7,14 @@ import jax
 import numpy as np
 
 from modules.argument import ArgParser
-from modules.jax_run_dirs import (
+from modules.run_dirs import (
     create_timestamped_run_dir,
     resolve_timestamped_run_dir,
     write_run_metadata,
 )
-from modules.jax_environment import JaxDecisionTreeEnv
-from modules.jax_a2c import JaxBatchMaskA2C, save_jax_params, save_jax_tree, load_jax_tree
-from modules.jax_simulation import JaxSimulator
+from modules.environment import JaxDecisionTreeEnv
+from modules.a2c import JaxBatchMaskA2C, save_jax_params, save_jax_tree, load_jax_tree
+from modules.simulation import JaxSimulator
 
 
 CHECKPOINT_STATE_NAME = "train_state_latest.p"

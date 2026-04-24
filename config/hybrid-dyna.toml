@@ -3,7 +3,7 @@
 # eval_episodes = 102400  # NOTE: add to arguments; 102400 is new default
 # print_frequency = 100 # NOTE: same
 # python = "python -u"
-# entrypoint = "train_jax.py"
+# entrypoint = "train.py"
 # result_path = "./results"
 # resume = true
 # jobid_from_task_id = true

@@ -7,8 +7,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .jax_environment import JaxDecisionTreeEnv
-from .jax_network import actor_critic_forward, apply_action_mask
+from .environment import JaxDecisionTreeEnv
+from .network import actor_critic_forward, apply_action_mask
 
 
 @dataclass

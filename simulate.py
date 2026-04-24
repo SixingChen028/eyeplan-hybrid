@@ -2,10 +2,10 @@ import os
 import pickle
 
 from modules.argument import ArgParser
-from modules.jax_run_dirs import resolve_timestamped_run_dir
-from modules.jax_a2c import load_jax_params
-from modules.jax_environment import JaxDecisionTreeEnv
-from modules.jax_simulation import JaxSimulator
+from modules.run_dirs import resolve_timestamped_run_dir
+from modules.a2c import load_jax_params
+from modules.environment import JaxDecisionTreeEnv
+from modules.simulation import JaxSimulator
 
 
 if __name__ == '__main__':

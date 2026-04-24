@@ -66,7 +66,7 @@ BETA_E_INIT_VALUE=${BETA_E_INIT_VALUES[$beta_e_init_idx]}
 
 echo "grid_task task_id=${TASK_ID} seed=${SEED_VALUE} batch_size=${BATCH_SIZE_VALUE} lr=${LR_VALUE} lamda=${LAMDA_VALUE} beta_e_init=${BETA_E_INIT_VALUE}"
 
-"${PYTHON_BIN}" -u train_jax.py \
+"${PYTHON_BIN}" -u train.py \
     --jobid="${TASK_ID}" \
     --path="${RESULT_PATH}" \
     --experiment="${EXPERIMENT}" \

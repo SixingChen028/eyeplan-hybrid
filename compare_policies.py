@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from modules.jax_a2c import JaxBatchMaskA2C, save_jax_params
-from modules.jax_baselines import evaluate_baseline_policies, evaluate_network_greedy
-from modules.jax_environment import JaxDecisionTreeEnv
+from modules.a2c import JaxBatchMaskA2C, save_jax_params
+from modules.baselines import evaluate_baseline_policies, evaluate_network_greedy
+from modules.environment import JaxDecisionTreeEnv
 
 
 def _to_markdown_table(df: pd.DataFrame) -> str:

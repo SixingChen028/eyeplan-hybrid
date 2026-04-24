@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from modules.jax_environment import JaxDecisionTreeEnv
+from modules.environment import JaxDecisionTreeEnv
 
 
 def _optimal_raw(child_nodes: np.ndarray, points: np.ndarray, root: int) -> float:

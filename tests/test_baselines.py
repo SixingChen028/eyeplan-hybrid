@@ -1,8 +1,8 @@
 import jax
 import numpy as np
 
-from modules.jax_baselines import evaluate_baseline_policies
-from modules.jax_environment import JaxDecisionTreeEnv
+from modules.baselines import evaluate_baseline_policies
+from modules.environment import JaxDecisionTreeEnv
 
 
 def test_baseline_policy_evaluation_runs():

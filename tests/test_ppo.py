@@ -1,7 +1,7 @@
 import numpy as np
 
-from modules.jax_environment import JaxDecisionTreeEnv
-from modules.jax_ppo import JaxBatchMaskPPO
+from modules.environment import JaxDecisionTreeEnv
+from modules.ppo import JaxBatchMaskPPO
 
 
 def test_jax_ppo_train_step_runs():

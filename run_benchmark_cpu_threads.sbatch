@@ -55,7 +55,7 @@ record_path="${RAW_ROOT}/job${SLURM_JOB_ID}_task${TASK_ID}.json"
 echo "benchmark_start job_id=${SLURM_JOB_ID} task_id=${TASK_ID} cpus=${SLURM_CPUS_PER_TASK} thread_option=${thread_option} threads=${threads} repeat=${repeat_idx}" | tee "${log_path}"
 
 start_ns=$(date +%s%N)
-python -u train_jax.py \
+python -u train.py \
     --jobid="bench_c${SLURM_CPUS_PER_TASK}_t${threads}_r${repeat_idx}" \
     --path="${RUN_ROOT}" \
     --num_nodes=15 \

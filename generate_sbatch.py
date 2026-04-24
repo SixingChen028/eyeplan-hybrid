@@ -9,7 +9,7 @@ from pathlib import Path
 
 DEFAULT_META = {
     "python": "python -u",
-    "entrypoint": "train_jax.py",
+    "entrypoint": "train.py",
     "result_path": "./results",
     "resume": True,
     "jobid_from_task_id": True,

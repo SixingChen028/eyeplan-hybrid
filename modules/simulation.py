@@ -4,8 +4,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .jax_environment import JaxDecisionTreeEnv
-from .jax_network import actor_critic_forward, apply_action_mask, sample_actions
+from .environment import JaxDecisionTreeEnv
+from .network import actor_critic_forward, apply_action_mask, sample_actions
 
 
 def _child_array_to_dict(child_nodes: np.ndarray) -> Dict[int, List[int]]:
