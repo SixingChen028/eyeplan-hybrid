@@ -1,11 +1,12 @@
 import argparse
 import json
 import os
+import pickle
 import sys
 import traceback
 
 from modules.a2c import load_jax_params
-from modules.analysis_targets import resolve_analysis_target, select_most_recent_run
+from modules.analysis_targets import resolve_analysis_target
 from modules.environment import JaxDecisionTreeEnv
 from modules.simulation import JaxSimulator, to_transformed_simulation_format
 
@@ -90,6 +91,67 @@ def _round_floats(value):
     return value
 
 
+def _expected_num_updates(metadata_args: dict) -> int:
+    num_episodes = int(metadata_args.get("num_episodes", 0))
+    batch_size = int(metadata_args.get("batch_size", 0))
+    if batch_size <= 0:
+        return 0
+    return num_episodes // batch_size
+
+
+def _read_checkpoint_next_update(run_dir: str) -> int | None:
+    checkpoint_meta_path = os.path.join(run_dir, "checkpoints", "train_state_latest.json")
+    if not os.path.exists(checkpoint_meta_path):
+        return None
+    with open(checkpoint_meta_path, "r") as file:
+        checkpoint_meta = json.load(file)
+    next_update = checkpoint_meta.get("next_update")
+    if next_update is None:
+        return None
+    return int(next_update)
+
+
+def _read_recorded_updates_from_training_data(run_dir: str) -> int | None:
+    training_data_path = os.path.join(run_dir, "data_training_jax.p")
+    if not os.path.exists(training_data_path):
+        return None
+    with open(training_data_path, "rb") as file:
+        training_data = pickle.load(file)
+    if not isinstance(training_data, dict):
+        return None
+    rewards = training_data.get("episode_reward")
+    if not isinstance(rewards, list):
+        return None
+    return len(rewards)
+
+
+def _is_complete_run(run_dir: str) -> bool:
+    try:
+        metadata = _read_metadata(run_dir)
+        metadata_args = metadata.get("args")
+        if not isinstance(metadata_args, dict):
+            return False
+
+        # If model parameters cannot be resolved, the run cannot be simulated.
+        _resolve_params_path_from_metadata(run_dir, metadata)
+
+        expected_updates = _expected_num_updates(metadata_args)
+        if expected_updates <= 0:
+            return False
+
+        checkpoint_next_update = _read_checkpoint_next_update(run_dir)
+        if checkpoint_next_update is not None and checkpoint_next_update >= expected_updates:
+            return True
+
+        recorded_updates = _read_recorded_updates_from_training_data(run_dir)
+        if recorded_updates is not None and recorded_updates >= expected_updates:
+            return True
+
+        return False
+    except Exception:
+        return False
+
+
 def _simulate_run(
     run_dir: str,
     *,
@@ -158,11 +220,20 @@ def main() -> None:
         try:
             target = resolve_analysis_target(target_arg, results_root=args.results_root)
             if target.kind == "experiment":
-                run_dirs = [select_most_recent_run(target.run_dirs)]
+                run_dirs = [run_dir for run_dir in target.run_dirs if _is_complete_run(run_dir)]
+                skipped_incomplete = len(target.run_dirs) - len(run_dirs)
+                print(
+                    f"target={target_arg} target_kind={target.kind} "
+                    f"experiment={target.experiment} runs={len(run_dirs)} "
+                    f"skipped_incomplete={skipped_incomplete}"
+                )
+                if not run_dirs:
+                    had_error = True
+                    print(f"No complete runs found for experiment target: {target_arg}", file=sys.stderr)
+                    continue
             else:
                 run_dirs = target.run_dirs
-
-            print(f"target={target_arg} target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
+                print(f"target={target_arg} target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
             for run_dir in run_dirs:
                 run_key = (target.experiment, run_dir)
                 if run_key in seen:
