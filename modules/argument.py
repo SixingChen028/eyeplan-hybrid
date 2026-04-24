@@ -71,6 +71,7 @@ class ArgParser:
 
         # training parameters
         self.parser.add_argument('--num_episodes', type = int, default = 16_000_000, help = 'training episodes')
+        self.parser.add_argument('--eval_episodes', type = int, default = 102_400, help = 'evaluation episodes')
         self.parser.add_argument('--lr', type = float, default = 5e-4, help = 'learning rate')
         self.parser.add_argument('--batch_size', type = int, default = 64, help = 'batch_size')
         self.parser.add_argument('--max_grad_norm', type = float, default = 1.0, help = 'gradient clipping')

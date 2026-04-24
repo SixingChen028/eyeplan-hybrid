@@ -17,7 +17,6 @@ from modules.jax_ppo import JaxBatchMaskPPO
 from modules.jax_simulation import JaxSimulator
 
 
-EVAL_EPISODES = 10_000
 CHECKPOINT_STATE_NAME = "train_state_latest.p"
 CHECKPOINT_META_NAME = "train_state_latest.json"
 
@@ -156,6 +155,7 @@ if __name__ == '__main__':
         "run_config "
         f"batch_size={args.batch_size} "
         f"num_episodes={args.num_episodes} "
+        f"eval_episodes={args.eval_episodes} "
         f"num_updates={num_updates} "
         f"t_max={args.t_max} "
         f"ppo_epochs={args.ppo_epochs} "
@@ -363,7 +363,7 @@ if __name__ == '__main__':
     eval_stats = simulator.evaluate_policy(
         params=state.params,
         seed=args.seed,
-        num_trials=EVAL_EPISODES,
+        num_trials=args.eval_episodes,
         greedy=True,
     )
     print(

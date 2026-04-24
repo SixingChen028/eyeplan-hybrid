@@ -17,7 +17,6 @@ from modules.jax_a2c import JaxBatchMaskA2C, save_jax_params, save_jax_tree, loa
 from modules.jax_simulation import JaxSimulator
 
 
-EVAL_EPISODES = 512 * 100
 CHECKPOINT_STATE_NAME = "train_state_latest.p"
 CHECKPOINT_META_NAME = "train_state_latest.json"
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
@@ -25,7 +24,7 @@ TRAINING_DATA_NAME = "data_training_jax.p"
 
 
 def _has_resume_key(jobid: str) -> bool:
-    return str(jobid).strip() != ""
+    return str(jobid).strip() not in {"", "0"}
 
 
 def _save_rolling_checkpoint(state, checkpoint_state_path: str, checkpoint_meta_path: str, next_update: int):
@@ -63,7 +62,7 @@ def _args_match(saved_value, current_value) -> bool:
 
 
 def _validate_resume_metadata(metadata_args: dict, current_args) -> None:
-    ignored_keys = {"resume", "path", "jobid", "experiment"}
+    ignored_keys = {"resume", "path", "jobid", "experiment", "eval_episodes"}
     mismatches: list[str] = []
     missing_keys: list[str] = []
 
@@ -123,7 +122,7 @@ if __name__ == '__main__':
     resume_matched_run = False
     if args.resume:
         if not _has_resume_key(args.jobid):
-            raise ValueError("--resume requires a non-empty --jobid.")
+            raise ValueError("--resume requires a non-empty --jobid (jobid must not be '0').")
 
         try:
             exp_path = resolve_timestamped_run_dir(
@@ -253,6 +252,7 @@ if __name__ == '__main__':
         "run_config "
         f"batch_size={args.batch_size} "
         f"num_episodes={args.num_episodes} "
+        f"eval_episodes={args.eval_episodes} "
         f"num_updates={num_updates} "
         f"t_max={args.t_max} "
         f"print_frequency={args.print_frequency} "
@@ -458,7 +458,7 @@ if __name__ == '__main__':
     eval_stats = simulator.evaluate_policy(
         params=state.params,
         seed=args.seed,
-        num_trials=EVAL_EPISODES,
+        num_trials=args.eval_episodes,
         greedy=True,
     )
     eval_elapsed_seconds = time.time() - eval_start
