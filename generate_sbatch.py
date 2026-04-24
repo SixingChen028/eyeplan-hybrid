@@ -89,7 +89,6 @@ def _resolve_config_path(config_arg: str) -> Path:
         stem = raw.stem if raw.suffix == ".toml" else raw.name
         candidates.extend(
             [
-                Path("configs") / f"{stem}.toml",
                 Path("config") / f"{stem}.toml",
             ]
         )
