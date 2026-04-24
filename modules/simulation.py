@@ -71,6 +71,10 @@ class JaxSimulator:
         action_mask = info["mask"]
 
         action_seq = -jnp.ones((self.env.t_max,), dtype=jnp.int32)
+        activation_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
+        count_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.int32)
+        g_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
+        q_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
         logits_seq = jnp.zeros((self.env.t_max, self.env.action_size), dtype=jnp.float32)
 
         carry = (
@@ -78,6 +82,10 @@ class JaxSimulator:
             obs,
             action_mask,
             action_seq,
+            activation_seq,
+            count_seq,
+            g_seq,
+            q_seq,
             logits_seq,
             jnp.array(0, dtype=jnp.int32),
             jnp.array(False),
@@ -85,12 +93,29 @@ class JaxSimulator:
         )
 
         def cond_fn(carry):
-            _, _, _, _, _, step_count, done, _ = carry
+            _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
-            state, obs, action_mask, action_seq, logits_seq, step_count, _, rng_key = carry
+            (
+                state,
+                obs,
+                action_mask,
+                action_seq,
+                activation_seq,
+                count_seq,
+                g_seq,
+                q_seq,
+                logits_seq,
+                step_count,
+                _,
+                rng_key,
+            ) = carry
 
+            activation_seq = activation_seq.at[step_count].set(state.activation)
+            count_seq = count_seq.at[step_count].set(state.n_visits)
+            g_seq = g_seq.at[step_count].set(state.g_values)
+            q_seq = q_seq.at[step_count].set(state.q_values)
             logits, _ = actor_critic_forward(params, obs[None, :])
             logits = logits[0]
             logits_seq = logits_seq.at[step_count].set(logits)
@@ -114,11 +139,37 @@ class JaxSimulator:
             action_seq = action_seq.at[step_count].set(action)
             step_count = step_count + 1
 
-            return state, obs, action_mask, action_seq, logits_seq, step_count, done, rng_key
+            return (
+                state,
+                obs,
+                action_mask,
+                action_seq,
+                activation_seq,
+                count_seq,
+                g_seq,
+                q_seq,
+                logits_seq,
+                step_count,
+                done,
+                rng_key,
+            )
 
-        state, _, _, action_seq, logits_seq, action_len, _, rng_key = jax.lax.while_loop(cond_fn, body_fn, carry)
+        (
+            state,
+            _,
+            _,
+            action_seq,
+            activation_seq,
+            count_seq,
+            g_seq,
+            q_seq,
+            logits_seq,
+            action_len,
+            _,
+            rng_key,
+        ) = jax.lax.while_loop(cond_fn, body_fn, carry)
 
-        return state, action_seq, logits_seq, action_len, rng_key
+        return state, action_seq, activation_seq, count_seq, g_seq, q_seq, logits_seq, action_len, rng_key
 
     def _run_trial_metrics(self, params: Any, rng_key: jax.Array, greedy: bool = False):
         state, obs, info = self.env.reset(rng_key)
@@ -184,10 +235,10 @@ class JaxSimulator:
         return rewards, rewards_no_cost, steps
 
     def _run_trial_batch(self, params: Any, trial_keys: jax.Array, greedy: bool = False):
-        states, action_seqs, logits_seqs, action_lens, _ = jax.vmap(
+        states, action_seqs, activation_seqs, count_seqs, g_seqs, q_seqs, logits_seqs, action_lens, _ = jax.vmap(
             lambda key: self._run_trial(params, key, greedy=greedy)
         )(trial_keys)
-        return states, action_seqs, logits_seqs, action_lens
+        return states, action_seqs, activation_seqs, count_seqs, g_seqs, q_seqs, logits_seqs, action_lens
 
     def simulate(
         self,
@@ -231,12 +282,25 @@ class JaxSimulator:
         for batch_idx in range(num_batches):
             rng_key, batch_key = jax.random.split(rng_key)
             trial_keys = jax.random.split(batch_key, batch_size)
-            states, action_seqs, logits_seqs, action_lens = self._trial_batch_jit(params, trial_keys, greedy=greedy)
+            (
+                states,
+                action_seqs,
+                activation_seqs,
+                count_seqs,
+                g_seqs,
+                q_seqs,
+                logits_seqs,
+                action_lens,
+            ) = self._trial_batch_jit(params, trial_keys, greedy=greedy)
 
             states = jax.device_get(states)
             action_seqs = np.asarray(action_seqs)
             action_lens = np.asarray(action_lens)
             if detailed:
+                activation_seqs = np.asarray(activation_seqs)
+                count_seqs = np.asarray(count_seqs)
+                g_seqs = np.asarray(g_seqs)
+                q_seqs = np.asarray(q_seqs)
                 logits_seqs = np.asarray(logits_seqs)
 
             child_nodes_batch = np.asarray(states.child_nodes)
@@ -245,11 +309,6 @@ class JaxSimulator:
             root_nodes_batch = np.asarray(states.root_node)
             chosen_paths_batch = np.asarray(states.chosen_path)
             chosen_path_lens_batch = np.asarray(states.chosen_path_len)
-            if detailed:
-                activations_batch = np.asarray(states.activation)
-                counts_batch = np.asarray(states.n_visits)
-                gs_batch = np.asarray(states.g_values)
-                qs_batch = np.asarray(states.q_values)
 
             trials_remaining = num_trials - (batch_idx * batch_size)
             trials_in_batch = min(batch_size, trials_remaining)
@@ -276,10 +335,10 @@ class JaxSimulator:
                 data["action_seqs"].append(action_seq)
                 data["choice_seqs"].append(choice_seq)
                 if detailed:
-                    data["activations"].append(activations_batch[trial_idx].tolist())
-                    data["counts"].append(counts_batch[trial_idx].tolist())
-                    data["gs"].append(gs_batch[trial_idx].tolist())
-                    data["qs"].append(qs_batch[trial_idx].tolist())
+                    data["activations"].append(activation_seqs[trial_idx, :action_len].tolist())
+                    data["counts"].append(count_seqs[trial_idx, :action_len].tolist())
+                    data["gs"].append(g_seqs[trial_idx, :action_len].tolist())
+                    data["qs"].append(q_seqs[trial_idx, :action_len].tolist())
                     logits_seq = np.asarray(logits_seqs[trial_idx, :action_len], dtype=np.float32).tolist()
                     data["logits"].append(logits_seq)
 

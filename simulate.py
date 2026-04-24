@@ -27,13 +27,6 @@ def _read_metadata_args(run_dir: str) -> dict:
     return args
 
 
-def _resolve_run_dir(target: str, results_root: str) -> tuple[str, str]:
-    resolved = resolve_analysis_target(target, results_root=results_root)
-    if resolved.kind == "run":
-        return resolved.run_dirs[0], resolved.experiment
-    return select_most_recent_run(resolved.run_dirs), resolved.experiment
-
-
 def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
     return JaxDecisionTreeEnv(
         num_nodes=int(metadata_args.get("num_nodes", 15)),
@@ -97,12 +90,58 @@ def _round_floats(value):
     return value
 
 
+def _simulate_run(
+    run_dir: str,
+    *,
+    output_path: str,
+    num_trials: int,
+    greedy: bool,
+    include_timeout_trials: bool,
+    detailed: bool,
+) -> tuple[int, int]:
+    print(f"run_dir={run_dir}")
+
+    metadata = _read_metadata(run_dir)
+    metadata_args = _read_metadata_args(run_dir)
+    env = _build_env_from_metadata_args(metadata_args)
+
+    params_path = _resolve_params_path_from_metadata(run_dir, metadata)
+    params = load_jax_params(params_path)
+    print(f"params_path={params_path}")
+
+    seed = int(metadata_args.get("seed", 15))
+    print(f"seed={seed}")
+    simulator = JaxSimulator(env)
+    data = simulator.simulate(
+        params=params,
+        seed=seed,
+        num_trials=num_trials,
+        greedy=greedy,
+        detailed=detailed,
+    )
+
+    transformed = to_transformed_simulation_format(
+        data,
+        num_nodes=env.num_nodes,
+        t_max=env.t_max,
+        skip_timeout_trials=not include_timeout_trials,
+        detailed=detailed,
+    )
+
+    with open(output_path, "w") as file:
+        json.dump(_round_floats(transformed), file)
+        file.write("\n")
+
+    return len(data["action_seqs"]), len(transformed["actions"])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "target",
+        "targets",
+        nargs="+",
         type=str,
-        help="Target run path or experiment (uses most recent run for an experiment).",
+        help="One or more targets: <experiment>, <experiment>/<run_id>, <experiment>/*, or full path in runs/analysis.",
     )
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--num_trials", type=int, default=10_240)
@@ -112,54 +151,60 @@ def main() -> None:
     parser.add_argument("--detailed", action="store_true")
     args = parser.parse_args()
 
+    runs_to_simulate: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     had_error = False
-    try:
-        run_dir, experiment = _resolve_run_dir(args.target, results_root=args.results_root)
-        print(f"target={args.target} experiment={experiment}")
-        print(f"run_dir={run_dir}")
+    for target_arg in args.targets:
+        try:
+            target = resolve_analysis_target(target_arg, results_root=args.results_root)
+            if target.kind == "experiment":
+                run_dirs = [select_most_recent_run(target.run_dirs)]
+            else:
+                run_dirs = target.run_dirs
 
-        metadata = _read_metadata(run_dir)
-        metadata_args = _read_metadata_args(run_dir)
-        env = _build_env_from_metadata_args(metadata_args)
+            print(f"target={target_arg} target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
+            for run_dir in run_dirs:
+                run_key = (target.experiment, run_dir)
+                if run_key in seen:
+                    continue
+                seen.add(run_key)
+                runs_to_simulate.append(run_key)
+        except Exception:
+            had_error = True
+            print(f"Error resolving target: {target_arg}", file=sys.stderr)
+            traceback.print_exc()
+            continue
 
-        params_path = _resolve_params_path_from_metadata(run_dir, metadata)
-        params = load_jax_params(params_path)
-        print(f"params_path={params_path}")
-
-        seed = int(metadata_args.get("seed", 15))
-        print(f"seed={seed}")
-        simulator = JaxSimulator(env)
-        data = simulator.simulate(
-            params=params,
-            seed=seed,
-            num_trials=args.num_trials,
-            greedy=args.greedy,
-            detailed=args.detailed,
-        )
-
-        transformed = to_transformed_simulation_format(
-            data,
-            num_nodes=env.num_nodes,
-            t_max=env.t_max,
-            skip_timeout_trials=not args.include_timeout_trials,
-            detailed=args.detailed,
-        )
-
-        output_path = args.output
-        if output_path == "":
-            output_path = os.path.join(run_dir, "data_simulation.json")
-        output_path = os.path.abspath(os.path.expanduser(output_path))
-
-        with open(output_path, "w") as file:
-            json.dump(_round_floats(transformed), file)
-            file.write("\n")
-
-        print(f"output_json={output_path}")
-        print(f"num_trials_raw={len(data['action_seqs'])}")
-        print(f"num_trials_exported={len(transformed['actions'])}")
-    except Exception:
+    if args.output != "" and len(runs_to_simulate) != 1:
+        print("--output can only be used when exactly one run is resolved.", file=sys.stderr)
         had_error = True
-        traceback.print_exc(file=sys.stderr)
+        runs_to_simulate = []
+
+    for experiment, run_dir in runs_to_simulate:
+        try:
+            print(f"experiment={experiment}")
+            output_path = args.output
+            if output_path == "":
+                output_path = os.path.join(run_dir, "data_simulation.json")
+            output_path = os.path.abspath(os.path.expanduser(output_path))
+
+            num_trials_raw, num_trials_exported = _simulate_run(
+                run_dir=run_dir,
+                output_path=output_path,
+                num_trials=args.num_trials,
+                greedy=args.greedy,
+                include_timeout_trials=args.include_timeout_trials,
+                detailed=args.detailed,
+            )
+
+            print(f"output_json={output_path}")
+            print(f"num_trials_raw={num_trials_raw}")
+            print(f"num_trials_exported={num_trials_exported}")
+        except Exception:
+            had_error = True
+            print(f"Error simulating run: {run_dir}", file=sys.stderr)
+            traceback.print_exc()
+            continue
 
     if had_error:
         raise SystemExit(1)

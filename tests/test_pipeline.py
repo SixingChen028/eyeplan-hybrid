@@ -124,11 +124,13 @@ def test_jax_simulator_runs_detailed_trials():
 
     for key in ["activations", "counts", "gs", "qs", "logits"]:
         assert len(data[key]) == 5
-    assert len(data["activations"][0]) == env.num_nodes
-    assert len(data["counts"][0]) == env.num_nodes
-    assert len(data["gs"][0]) == env.num_nodes
-    assert len(data["qs"][0]) == env.num_nodes
+        assert len(data[key][0]) == len(data["action_seqs"][0])
+    assert len(data["activations"][0][0]) == env.num_nodes
+    assert len(data["counts"][0][0]) == env.num_nodes
+    assert len(data["gs"][0][0]) == env.num_nodes
+    assert len(data["qs"][0][0]) == env.num_nodes
     assert len(data["logits"][0]) == len(data["action_seqs"][0])
+    assert len(data["logits"][0][0]) == env.action_size
 
 
 def test_jax_simulator_evaluate_policy_returns_summary_stats():
@@ -220,11 +222,11 @@ def test_transformed_simulation_format_includes_details():
         "points": [[0.0, 1.0, -1.0]],
         "action_seqs": [[1, 2, 3]],
         "choice_seqs": [[2, 1]],
-        "activations": [[1.0, 0.5, 0.25]],
-        "counts": [[1, 2, 0]],
-        "gs": [[0.0, 1.0, 2.0]],
-        "qs": [[0.0, 0.5, 1.0]],
-        "logits": [[[0.0, 0.1, 0.2, 0.3]]],
+        "activations": [[[1.0, 0.5, 0.25], [1.0, 0.0, 0.25], [1.0, 0.0, 1.0]]],
+        "counts": [[[1, 0, 0], [1, 1, 0], [1, 1, 1]]],
+        "gs": [[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 2.0]]],
+        "qs": [[[0.0, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.5, 1.0]]],
+        "logits": [[[0.0, 0.1, 0.2, 0.3], [0.0, 0.2, 0.1, 0.3], [0.0, 0.3, 0.2, 0.1]]],
     }
 
     transformed = to_transformed_simulation_format(
