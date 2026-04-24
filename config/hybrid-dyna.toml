@@ -13,8 +13,7 @@
 # cpus_per_task = 1
 time = "04:00:00"
 mem_per_cpu = "1G"
-# error = "./log/%A_%a.err"
-# output = "./log/%A_%a.out"
+# log = "./log/%A_%a.log"
 
 # [runtime]
 # set_euo_pipefail = true

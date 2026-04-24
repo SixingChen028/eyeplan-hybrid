@@ -21,8 +21,7 @@ DEFAULT_SBATCH = {
     "cpus_per_task": 1,
     "time": "08:00:00",
     "mem_per_cpu": "1G",
-    "error": "./log/%A_%a.err",
-    "output": "./log/%A_%a.out",
+    "log": "./log/%A_%a.log",
 }
 
 DEFAULT_RUNTIME = {
@@ -73,6 +72,13 @@ def _to_bash_name(key: str, suffix: str) -> str:
     if token[0].isdigit():
         token = f"V_{token}"
     return f"{token}_{suffix}"
+
+
+def _split_python_command(command: str) -> tuple[str, list[str]]:
+    tokens = shlex.split(command)
+    if len(tokens) == 0:
+        raise ValueError("meta.python must contain a python command.")
+    return tokens[0], tokens[1:]
 
 
 def _resolve_config_path(config_arg: str) -> Path:
@@ -132,6 +138,8 @@ def _render_script(config: dict, config_path: Path) -> str:
 
     experiment = str(meta.get("experiment", config_path.stem))
     job_name = str(sbatch.get("job_name", experiment))
+    python_exec, python_extra_args = _split_python_command(str(meta["python"]))
+    log_path = str(sbatch.get("log", sbatch.get("output", sbatch.get("error", "./log/%A_%a.log"))))
 
     fixed, vary = _split_params(params)
     n_terms = [_to_bash_name(key, "N") for key, _ in vary]
@@ -145,8 +153,8 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append(f"#SBATCH --cpus-per-task={sbatch['cpus_per_task']}")
     lines.append(f"#SBATCH --time={sbatch['time']}")
     lines.append(f"#SBATCH --mem-per-cpu={sbatch['mem_per_cpu']}")
-    lines.append(f"#SBATCH -e {sbatch['error']}")
-    lines.append(f"#SBATCH -o {sbatch['output']}")
+    lines.append(f"#SBATCH -e {log_path}")
+    lines.append(f"#SBATCH -o {log_path}")
     for directive in sbatch.get("extra_directives", []):
         lines.append(f"#SBATCH {directive}")
     lines.append(f"#SBATCH --array=0-{array_size - 1}")
@@ -155,6 +163,15 @@ def _render_script(config: dict, config_path: Path) -> str:
     if bool(runtime["set_euo_pipefail"]):
         lines.append("set -euo pipefail")
         lines.append("")
+
+    lines.append(f"PYTHON_BIN={shlex.quote(python_exec)}")
+    lines.append('if [[ -x ".venv/bin/python" ]]; then')
+    lines.append('    if [[ -f ".venv/bin/activate" ]]; then')
+    lines.append('        source ".venv/bin/activate"')
+    lines.append("    fi")
+    lines.append('    PYTHON_BIN=".venv/bin/python"')
+    lines.append("fi")
+    lines.append("")
 
     if bool(runtime["force_jax_cpu"]):
         lines.append("# Force CPU execution for JAX.")
@@ -219,7 +236,10 @@ def _render_script(config: dict, config_path: Path) -> str:
         lines.append("TASK_ID=${SLURM_ARRAY_TASK_ID:-0}")
     lines.append("")
 
-    lines.append(f"{meta['python']} {shlex.quote(str(meta['entrypoint']))} \\")
+    python_cmd_parts = ['"${PYTHON_BIN}"']
+    python_cmd_parts.extend(shlex.quote(arg) for arg in python_extra_args)
+    python_cmd_parts.append(shlex.quote(str(meta["entrypoint"])))
+    lines.append(" ".join(python_cmd_parts) + " \\")
     if bool(meta["jobid_from_task_id"]):
         lines.append('    --jobid="${TASK_ID}" \\')
     lines.append('    --path="${RESULT_PATH}" \\')

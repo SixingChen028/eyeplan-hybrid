@@ -3,11 +3,19 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --time=04:00:00
 #SBATCH --mem-per-cpu=1G
-#SBATCH -e ./log/%A_%a.err
-#SBATCH -o ./log/%A_%a.out
+#SBATCH -e ./log/%A_%a.log
+#SBATCH -o ./log/%A_%a.log
 #SBATCH --array=0-71
 
 set -euo pipefail
+
+PYTHON_BIN=python
+if [[ -x ".venv/bin/python" ]]; then
+    if [[ -f ".venv/bin/activate" ]]; then
+        source ".venv/bin/activate"
+    fi
+    PYTHON_BIN=".venv/bin/python"
+fi
 
 # Force CPU execution for JAX.
 export JAX_PLATFORMS=cpu
@@ -58,7 +66,7 @@ BETA_E_INIT_VALUE=${BETA_E_INIT_VALUES[$beta_e_init_idx]}
 
 echo "grid_task task_id=${TASK_ID} seed=${SEED_VALUE} batch_size=${BATCH_SIZE_VALUE} lr=${LR_VALUE} lamda=${LAMDA_VALUE} beta_e_init=${BETA_E_INIT_VALUE}"
 
-python -u train_jax.py \
+"${PYTHON_BIN}" -u train_jax.py \
     --jobid="${TASK_ID}" \
     --path="${RESULT_PATH}" \
     --experiment="${EXPERIMENT}" \
