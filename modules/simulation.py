@@ -63,6 +63,7 @@ class JaxSimulator:
     def __init__(self, env: JaxDecisionTreeEnv):
         self.env = env
         self._trial_jit = jax.jit(self._run_trial, static_argnames=("greedy",))
+        self._trial_batch_jit = jax.jit(self._run_trial_batch, static_argnames=("greedy",))
         self._eval_batch_jit = jax.jit(self._run_eval_batch, static_argnames=("greedy",))
 
     def _run_trial(self, params: Any, rng_key: jax.Array, greedy: bool = False):
@@ -179,14 +180,27 @@ class JaxSimulator:
         )(trial_keys)
         return rewards, rewards_no_cost, steps
 
+    def _run_trial_batch(self, params: Any, trial_keys: jax.Array, greedy: bool = False):
+        states, action_seqs, action_lens, _ = jax.vmap(
+            lambda key: self._run_trial(params, key, greedy=greedy)
+        )(trial_keys)
+        return states, action_seqs, action_lens
+
     def simulate(
         self,
         params: Any,
         seed: int,
         num_trials: int,
         greedy: bool = False,
+        batch_size: int = 512,
     ):
+        if num_trials <= 0:
+            raise ValueError("num_trials must be positive")
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+
         rng_key = jax.random.PRNGKey(seed)
+        num_batches = int(np.ceil(num_trials / batch_size))
 
         data = {
             "child_dicts": [],
@@ -200,27 +214,46 @@ class JaxSimulator:
             "choice_seqs": [],
         }
 
-        for _ in range(num_trials):
-            rng_key, trial_key = jax.random.split(rng_key)
-            state, action_seq, action_len, _ = self._trial_jit(params, trial_key, greedy=greedy)
+        for batch_idx in range(num_batches):
+            rng_key, batch_key = jax.random.split(rng_key)
+            trial_keys = jax.random.split(batch_key, batch_size)
+            states, action_seqs, action_lens = self._trial_batch_jit(params, trial_keys, greedy=greedy)
 
-            child_nodes = np.asarray(state.child_nodes)
-            parent_nodes = np.asarray(state.parent_nodes)
-            points = np.asarray(state.points)
-            root_node = int(state.root_node)
+            states = jax.device_get(states)
+            action_seqs = np.asarray(action_seqs)
+            action_lens = np.asarray(action_lens)
 
-            action_seq = np.asarray(action_seq[: int(action_len)], dtype=np.int32).tolist()
-            choice_seq = np.asarray(state.chosen_path[: int(state.chosen_path_len)], dtype=np.int32).tolist()
+            child_nodes_batch = np.asarray(states.child_nodes)
+            parent_nodes_batch = np.asarray(states.parent_nodes)
+            points_batch = np.asarray(states.points)
+            root_nodes_batch = np.asarray(states.root_node)
+            chosen_paths_batch = np.asarray(states.chosen_path)
+            chosen_path_lens_batch = np.asarray(states.chosen_path_len)
 
-            data["child_dicts"].append(_child_array_to_dict(child_nodes))
-            data["parent_dicts"].append(_parent_array_to_dict(parent_nodes))
-            data["root_nodes"].append(root_node)
-            data["leaf_nodes"].append(_leaf_nodes_from_children(child_nodes).tolist())
-            data["depths"].append(_compute_depths(child_nodes, root_node).tolist())
-            data["points"].append(points.tolist())
-            data["cum_points"].append(_compute_cum_points(child_nodes, root_node, points).tolist())
-            data["action_seqs"].append(action_seq)
-            data["choice_seqs"].append(choice_seq)
+            trials_remaining = num_trials - (batch_idx * batch_size)
+            trials_in_batch = min(batch_size, trials_remaining)
+
+            for trial_idx in range(trials_in_batch):
+                child_nodes = child_nodes_batch[trial_idx]
+                parent_nodes = parent_nodes_batch[trial_idx]
+                points = points_batch[trial_idx]
+                root_node = int(root_nodes_batch[trial_idx])
+
+                action_len = int(action_lens[trial_idx])
+                action_seq = np.asarray(action_seqs[trial_idx, :action_len], dtype=np.int32).tolist()
+
+                choice_len = int(chosen_path_lens_batch[trial_idx])
+                choice_seq = np.asarray(chosen_paths_batch[trial_idx, :choice_len], dtype=np.int32).tolist()
+
+                data["child_dicts"].append(_child_array_to_dict(child_nodes))
+                data["parent_dicts"].append(_parent_array_to_dict(parent_nodes))
+                data["root_nodes"].append(root_node)
+                data["leaf_nodes"].append(_leaf_nodes_from_children(child_nodes).tolist())
+                data["depths"].append(_compute_depths(child_nodes, root_node).tolist())
+                data["points"].append(points.tolist())
+                data["cum_points"].append(_compute_cum_points(child_nodes, root_node, points).tolist())
+                data["action_seqs"].append(action_seq)
+                data["choice_seqs"].append(choice_seq)
 
         return data
 
