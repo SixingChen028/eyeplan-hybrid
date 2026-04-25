@@ -145,7 +145,12 @@ class JaxBatchMaskPPO:
                 logits, values = actor_critic_forward(params, obs)
 
                 rng_key, action_key = jax.random.split(rng_key)
-                actions, log_probs, _ = sample_actions(action_key, logits, action_mask)
+                actions, _, _ = sample_actions(action_key, logits, action_mask)
+                force_terminal = env_state.time_elapsed == (self.env.t_max - 1)
+                actions = jnp.where(force_terminal, jnp.int32(self.env.num_nodes), actions)
+                masked_logits = apply_action_mask(logits, action_mask)
+                log_probs_all = jax.nn.log_softmax(masked_logits, axis=-1)
+                log_probs = log_probs_all[jnp.arange(logits.shape[0]), actions]
 
                 next_env_state, next_obs, rewards, dones, _, info = jax.vmap(self.env.step)(env_state, actions)
                 next_action_mask = info["mask"]

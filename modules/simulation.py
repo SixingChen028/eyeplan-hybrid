@@ -133,6 +133,8 @@ class JaxSimulator:
                 action = greedy_action(None)
             else:
                 action, rng_key = sampled_action(rng_key)
+            # last action is forced to be terminate 
+            action = jnp.where(state.time_elapsed == (self.env.t_max - 1), jnp.int32(self.env.num_nodes), action)
 
             state, obs, _, done, _, info = self.env.step(state, action)
             action_mask = info["mask"]
@@ -210,6 +212,7 @@ class JaxSimulator:
                 sampled_action,
                 rng_key,
             )
+            action = jnp.where(state.time_elapsed == (self.env.t_max - 1), jnp.int32(self.env.num_nodes), action)
 
             state, obs, reward, done, _, info = self.env.step(state, action)
             action_mask = info["mask"]

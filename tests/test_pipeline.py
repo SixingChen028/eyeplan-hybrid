@@ -133,6 +133,46 @@ def test_jax_simulator_runs_detailed_trials():
     assert len(data["logits"][0][0]) == env.action_size
 
 
+def test_jax_simulator_records_forced_terminal_action():
+    env = JaxDecisionTreeEnv(
+        num_nodes=3,
+        beta_move=4.0,
+        eps_move=0.0,
+        learning_rate=1.0,
+        wm_decay=1.0,
+        t_max=1,
+        cost=0.01,
+        scale_factor=1.0,
+        shuffle_nodes=False,
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+
+    trainer = JaxBatchMaskA2C(
+        env=env,
+        feature_size=env.observation_shape[0],
+        action_size=env.action_size,
+        hidden_size=32,
+        batch_size=4,
+        lr=1e-3,
+        max_grad_norm=1.0,
+        gamma=1.0,
+        lamda=1.0,
+        beta_v=0.05,
+        beta_e=0.05,
+    )
+
+    state = trainer.init_state(seed=3)
+    simulator = JaxSimulator(env)
+    data = simulator.simulate(
+        params=state.params,
+        seed=3,
+        num_trials=4,
+        greedy=False,
+    )
+
+    assert data["action_seqs"] == [[env.num_nodes], [env.num_nodes], [env.num_nodes], [env.num_nodes]]
+
+
 def test_jax_simulator_evaluate_policy_returns_summary_stats():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
@@ -243,7 +283,7 @@ def test_transformed_simulation_format_includes_details():
         "starts",
         "rewards",
         "actions",
-        "chosen_path",
+        "chosen_paths",
         "activations",
         "counts",
         "gs",
@@ -256,7 +296,7 @@ def test_transformed_simulation_format_includes_details():
     assert transformed["qs"] == data["qs"]
     assert transformed["logits"] == data["logits"]
     assert transformed["actions"] == [[0, 1, 2, 3]]
-    assert transformed["chosen_path"] == data["choice_seqs"]
+    assert transformed["chosen_paths"] == data["choice_seqs"]
 
 
 def test_transformed_simulation_format_skips_timeouts_when_requested():
