@@ -343,7 +343,9 @@ class JaxDecisionTreeEnv:
         mask = mask.at[: self.num_nodes].set(gated)
         mask = mask.at[-1].set(True)
 
-        return mask
+        terminal_mask = jnp.zeros((self.action_size,), dtype=jnp.bool_)
+        terminal_mask = terminal_mask.at[-1].set(True)
+        return jnp.where(state.time_elapsed == (self.t_max - 1), terminal_mask, mask)
 
     def _move(self, state: JaxDecisionTreeState):
         path = self.empty_path
