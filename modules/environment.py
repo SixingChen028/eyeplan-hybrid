@@ -22,6 +22,17 @@ class JaxDecisionTreeState(NamedTuple):
     chosen_path_len: jax.Array
 
 
+class JaxDecisionTreeParams(NamedTuple):
+    beta_move: jax.Array
+    eps_move: jax.Array
+    learning_rate: jax.Array
+    lamda_backup: jax.Array
+    wm_decay: jax.Array
+    cost: jax.Array
+    scale_factor: jax.Array
+    shuffle_nodes: jax.Array
+
+
 class JaxDecisionTreeEnv:
     metadata = {"render_modes": ["human", "rgb_array"]}
 
@@ -68,22 +79,36 @@ class JaxDecisionTreeEnv:
         self.observation_shape = (observation_size,)
         self.action_size = self.num_nodes + 1
 
+    def default_params(self) -> JaxDecisionTreeParams:
+        return JaxDecisionTreeParams(
+            beta_move=jnp.asarray(self.beta_move, dtype=jnp.float32),
+            eps_move=jnp.asarray(self.eps_move, dtype=jnp.float32),
+            learning_rate=jnp.asarray(self.learning_rate, dtype=jnp.float32),
+            lamda_backup=jnp.asarray(self.lamda_backup, dtype=jnp.float32),
+            wm_decay=jnp.asarray(self.wm_decay, dtype=jnp.float32),
+            cost=jnp.asarray(self.cost, dtype=jnp.float32),
+            scale_factor=jnp.asarray(self.scale_factor, dtype=jnp.float32),
+            shuffle_nodes=jnp.asarray(self.shuffle_nodes, dtype=jnp.bool_),
+        )
+
     def _one_hot(self, label: jax.Array) -> jax.Array:
         label = jnp.asarray(label, dtype=jnp.int32)
         idx = jnp.maximum(label, 0)
         mask = label >= 0
         return jax.nn.one_hot(idx, self.num_nodes, dtype=jnp.float32) * mask.astype(jnp.float32)
 
-    def _softmax(self, x: jax.Array) -> jax.Array:
+    def _softmax(self, x: jax.Array, params: JaxDecisionTreeParams | None = None) -> jax.Array:
         if x.size == 0:
             return x
 
-        z = self.beta_move * (x - jnp.max(x))
+        beta_move = self.beta_move if params is None else params.beta_move
+        eps_move = self.eps_move if params is None else params.eps_move
+
+        z = beta_move * (x - jnp.max(x))
         p = jnp.exp(z)
         p = p / jnp.sum(p)
 
-        if self.eps_move > 0.0:
-            p = (1.0 - self.eps_move) * p + self.eps_move * (1.0 / x.shape[0])
+        p = (1.0 - eps_move) * p + eps_move * (1.0 / x.shape[0])
 
         return p
 
@@ -93,11 +118,22 @@ class JaxDecisionTreeEnv:
             chosen_path_len=jnp.int32(0),
         )
 
-    def _build_tree(self, key: jax.Array):
+    def _build_tree(self, key: jax.Array, params: JaxDecisionTreeParams | None = None):
         nodes = jnp.arange(self.num_nodes, dtype=jnp.int32)
-        if self.shuffle_nodes:
+        if params is None and self.shuffle_nodes:
             key, perm_key = jax.random.split(key)
             nodes = jax.random.permutation(perm_key, nodes)
+        elif params is not None:
+            def shuffled_fn(k):
+                k, perm_key = jax.random.split(k)
+                return k, jax.random.permutation(perm_key, nodes)
+
+            key, nodes = jax.lax.cond(
+                params.shuffle_nodes,
+                shuffled_fn,
+                lambda k: (k, nodes),
+                key,
+            )
 
         root = nodes[0]
         child_nodes = -jnp.ones((self.num_nodes, 2), dtype=jnp.int32)
@@ -198,10 +234,23 @@ class JaxDecisionTreeEnv:
 
         return jax.lax.cond(has_child, non_leaf_target, leaf_target, operand=None)
 
-    def _update_q(self, q_values, planner_expanded, child_nodes, parent_nodes, root_node, points, node):
+    def _update_q(
+        self,
+        q_values,
+        planner_expanded,
+        child_nodes,
+        parent_nodes,
+        root_node,
+        points,
+        node,
+        params: JaxDecisionTreeParams | None = None,
+    ):
+        learning_rate = self.learning_rate if params is None else params.learning_rate
+        lamda_backup = self.lamda_backup if params is None else params.lamda_backup
+
         def do_update(q_values):
             target = self._bellman_target(q_values, child_nodes, points, node)
-            node_step = self.learning_rate * (target - q_values[node])
+            node_step = learning_rate * (target - q_values[node])
             q_values = q_values.at[node].add(node_step)
 
             def cond_fn(carry):
@@ -214,21 +263,26 @@ class JaxDecisionTreeEnv:
                 current, weight, q_values = carry
                 ancestor = parent_nodes[current]
                 target = self._bellman_target(q_values, child_nodes, points, ancestor)
-                step_size = self.learning_rate * weight
+                step_size = learning_rate * weight
                 new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
                 q_values = q_values.at[ancestor].set(new_value)
-                return ancestor, weight * self.lamda_backup, q_values
+                return ancestor, weight * lamda_backup, q_values
 
             _, _, q_values = jax.lax.while_loop(
                 cond_fn,
                 body_fn,
-                (node, jnp.asarray(self.lamda_backup, dtype=q_values.dtype), q_values),
+                (node, jnp.asarray(lamda_backup, dtype=q_values.dtype), q_values),
             )
             return q_values
 
         return jax.lax.cond(planner_expanded[node], do_update, lambda x: x, q_values)
 
-    def _look(self, state: JaxDecisionTreeState, node: jax.Array) -> JaxDecisionTreeState:
+    def _look(
+        self,
+        state: JaxDecisionTreeState,
+        node: jax.Array,
+        params: JaxDecisionTreeParams | None = None,
+    ) -> JaxDecisionTreeState:
         n_visits = state.n_visits.at[node].add(1)
         g_values = self._update_g(state.g_values, state.parent_nodes, state.root_node, state.points, node)
 
@@ -261,6 +315,7 @@ class JaxDecisionTreeEnv:
             state.root_node,
             state.points,
             node,
+            params,
         )
 
         return state._replace(
@@ -271,10 +326,16 @@ class JaxDecisionTreeEnv:
             n_visits=n_visits,
         )
 
-    def _update_activation(self, state: JaxDecisionTreeState, node: jax.Array) -> JaxDecisionTreeState:
+    def _update_activation(
+        self,
+        state: JaxDecisionTreeState,
+        node: jax.Array,
+        params: JaxDecisionTreeParams | None = None,
+    ) -> JaxDecisionTreeState:
         key, drop_key = jax.random.split(state.rng_key)
 
-        activation = state.activation * self.wm_decay
+        wm_decay = self.wm_decay if params is None else params.wm_decay
+        activation = state.activation * wm_decay
         activation = jnp.clip(activation, 0.0, 1.0)
         activation = activation.at[node].set(1.0)
 
@@ -347,7 +408,7 @@ class JaxDecisionTreeEnv:
         terminal_mask = terminal_mask.at[-1].set(True)
         return jnp.where(state.time_elapsed == (self.t_max - 1), terminal_mask, mask)
 
-    def _move(self, state: JaxDecisionTreeState):
+    def _move(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams | None = None):
         path = self.empty_path
 
         init = (
@@ -368,7 +429,7 @@ class JaxDecisionTreeEnv:
 
             children = state.child_nodes[node]
             q_children = state.q_values[children]
-            probs = self._softmax(q_children)
+            probs = self._softmax(q_children, params)
             idx = jax.random.choice(choice_key, 2, p=probs)
             child = children[idx]
 
@@ -382,8 +443,8 @@ class JaxDecisionTreeEnv:
 
         return cum_reward, path, path_len, key
 
-    def reset(self, key: jax.Array):
-        key, root, child_nodes, parent_nodes = self._build_tree(key)
+    def reset_with_params(self, key: jax.Array, params: JaxDecisionTreeParams):
+        key, root, child_nodes, parent_nodes = self._build_tree(key, params)
 
         key, points_key = jax.random.split(key)
         point_idx = jax.random.randint(
@@ -425,30 +486,38 @@ class JaxDecisionTreeEnv:
             chosen_path_len=jnp.int32(0),
         )
 
-        state = self._update_activation(state, state.root_node)
+        state = self._update_activation(state, state.root_node, params)
 
         obs = self.get_obs(state)
         info = {"mask": self.get_action_mask(state)}
         return state, obs, info
 
-    def step(self, state: JaxDecisionTreeState, action: jax.Array):
+    def reset(self, key: jax.Array):
+        return self.reset_with_params(key, self.default_params())
+
+    def step_with_params(
+        self,
+        state: JaxDecisionTreeState,
+        action: jax.Array,
+        params: JaxDecisionTreeParams,
+    ):
         action = jnp.asarray(action, dtype=jnp.int32)
         state = state._replace(time_elapsed=state.time_elapsed + 1)
         action = jnp.where(state.time_elapsed == self.t_max, jnp.int32(self.num_nodes), action)
-        reward = jnp.array(-self.cost, dtype=jnp.float32)
+        reward = -jnp.asarray(params.cost, dtype=jnp.float32)
 
         def fixation_branch(payload):
             state, reward = payload
-            state = self._look(state, action)
+            state = self._look(state, action, params)
             state = state._replace(fixation_node=action)
-            state = self._update_activation(state, action)
+            state = self._update_activation(state, action, params)
             state = self._clear_chosen_path(state)
             return state, reward
 
         def move_branch(payload):
             state, reward = payload
-            cum_reward, path, path_len, key = self._move(state)
-            reward = cum_reward * self.scale_factor
+            cum_reward, path, path_len, key = self._move(state, params)
+            reward = cum_reward * params.scale_factor
             state = state._replace(
                 rng_key=key,
                 chosen_path=path,
@@ -473,3 +542,6 @@ class JaxDecisionTreeEnv:
         info = {"mask": self.get_action_mask(state)}
 
         return state, obs, reward, done, jnp.array(False), info
+
+    def step(self, state: JaxDecisionTreeState, action: jax.Array):
+        return self.step_with_params(state, action, self.default_params())
