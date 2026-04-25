@@ -8,7 +8,6 @@ import traceback
 from modules.analysis_targets import (
     get_run_analysis_dir,
     resolve_analysis_target,
-    select_most_recent_run,
 )
 
 import matplotlib
@@ -179,10 +178,7 @@ def main():
     for target_arg in args.targets:
         try:
             target = resolve_analysis_target(target_arg, results_root=args.results_root)
-            if target.kind == "experiment":
-                run_dirs = [select_most_recent_run(target.run_dirs)]
-            else:
-                run_dirs = target.run_dirs
+            run_dirs = target.run_dirs
 
             print(f"target={target_arg} target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
             for run_dir in run_dirs:
