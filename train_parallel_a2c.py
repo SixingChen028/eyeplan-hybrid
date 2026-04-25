@@ -10,14 +10,16 @@ from argparse import Namespace
 from pathlib import Path
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 from modules.a2c import save_jax_params
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
-from modules.parallel_a2c import A2CHyperParams, ParallelJaxBatchMaskA2C
+from modules.parallel_a2c import A2CHyperParams, ParallelA2CResult, ParallelJaxBatchMaskA2C
 from modules.run_dirs import create_timestamped_run_dir, write_run_metadata
 from modules.simulation import JaxSimulator
 
+jax.config.update('jax_compiler_enable_remat_pass', False)
 
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 TRAINING_DATA_NAME = "data_training_jax.p"
@@ -152,8 +154,8 @@ def expand_sweep(params: dict) -> tuple[dict, list[dict], list[int], list[str]]:
 
 
 def build_hypers(combos: list[dict]) -> A2CHyperParams:
-    def array(key: str, dtype=np.float32):
-        return np.asarray([combo[key] for combo in combos], dtype=dtype)
+    def array(key: str, dtype=jnp.float32):
+        return jnp.asarray([combo[key] for combo in combos], dtype=dtype)
 
     env = JaxDecisionTreeParams(
         beta_move=array("beta_move"),
@@ -192,6 +194,22 @@ def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
     )
 
 
+def _env_cache_key(args: dict) -> tuple:
+    keys = (
+        "num_nodes",
+        "beta_move",
+        "eps_move",
+        "learning_rate",
+        "lamda_backup",
+        "wm_decay",
+        "t_max",
+        "cost",
+        "scale_factor",
+        "shuffle_nodes",
+    )
+    return tuple(args[key] for key in keys)
+
+
 def _metric_data(metrics, hyper_index: int, seed_index: int, elapsed_seconds: float) -> dict[str, list[float]]:
     metric_slice = jax.tree_util.tree_map(
         lambda x: np.asarray(jax.device_get(x[hyper_index, seed_index])),
@@ -228,6 +246,68 @@ def _run_jobid(base_jobid: str, hyper_index: int, seed: int) -> str:
     return suffix
 
 
+def _format_duration(seconds: float) -> str:
+    seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours:d}h{minutes:02d}m{seconds:02d}s"
+    return f"{minutes:d}m{seconds:02d}s"
+
+
+def _entropy_schedule(hypers: A2CHyperParams, num_updates: int) -> jax.Array:
+    progress = jnp.linspace(0.0, 1.0, num_updates, dtype=jnp.float32)
+    return (
+        hypers.beta_e_init[:, None]
+        + (hypers.beta_e_final - hypers.beta_e_init)[:, None] * progress[None, :]
+    ).astype(jnp.float32)
+
+
+def train_with_progress(
+    trainer: ParallelJaxBatchMaskA2C,
+    hypers: A2CHyperParams,
+    seeds: list[int],
+    *,
+    num_updates: int,
+    print_frequency: int,
+) -> tuple[ParallelA2CResult, float]:
+    if print_frequency <= 0:
+        start = time.time()
+        result = jax.block_until_ready(trainer.train_sweep(hypers, seeds))
+        return result, time.time() - start
+
+    start = time.time()
+    schedule = _entropy_schedule(hypers, num_updates)
+    states = jax.block_until_ready(trainer.init_sweep_states(hypers, seeds))
+    metrics_chunks = []
+
+    for update_start in range(0, num_updates, print_frequency):
+        update_end = min(update_start + print_frequency, num_updates)
+        chunk = schedule[:, update_start:update_end]
+        result = jax.block_until_ready(trainer.train_sweep_chunk(states, hypers, chunk))
+        states = result.states
+        metrics_chunks.append(result.metrics)
+
+        elapsed_seconds = time.time() - start
+        updates_done = update_end
+        updates_per_second = updates_done / elapsed_seconds
+        eta_seconds = (num_updates - updates_done) / updates_per_second
+        print(
+            "parallel_train_progress "
+            f"updates={updates_done}/{num_updates} "
+            f"elapsed={_format_duration(elapsed_seconds)} "
+            f"eta={_format_duration(eta_seconds)} "
+            f"updates_per_second={updates_per_second:.3f}",
+            flush=True,
+        )
+
+    metrics = jax.tree_util.tree_map(
+        lambda *chunks: jnp.concatenate(chunks, axis=2),
+        *metrics_chunks,
+    )
+    return ParallelA2CResult(states=states, metrics=metrics), time.time() - start
+
+
 def save_results(
     result,
     combos: list[dict],
@@ -240,7 +320,13 @@ def save_results(
     elapsed_seconds: float,
 ) -> list[str]:
     run_dirs: list[str] = []
+    simulators: dict[tuple, JaxSimulator] = {}
     for hyper_index, combo in enumerate(combos):
+        env_key = _env_cache_key(combo)
+        if env_key not in simulators:
+            simulators[env_key] = JaxSimulator(_env_from_args(combo))
+        simulator = simulators[env_key]
+
         for seed_index, seed in enumerate(seeds):
             run_args = dict(combo)
             run_args["seed"] = int(seed)
@@ -263,14 +349,14 @@ def save_results(
                 pickle.dump(data, file)
             save_jax_params(state.params, os.path.join(run_dir, "net_jax.p"))
 
-            eval_env = _env_from_args(run_args)
-            simulator = JaxSimulator(eval_env)
             eval_start = time.time()
+            eval_episodes = int(run_args["eval_episodes"])
             eval_stats = simulator.evaluate_policy(
                 params=state.params,
                 seed=int(seed),
-                num_trials=int(run_args["eval_episodes"]),
+                num_trials=eval_episodes,
                 greedy=True,
+                batch_size=eval_episodes,
             )
             eval_elapsed_seconds = time.time() - eval_start
             eval_summary = {
@@ -336,9 +422,13 @@ def main() -> None:
         f"varied_keys={','.join(varied_keys)}"
     )
 
-    start = time.time()
-    result = jax.block_until_ready(trainer.train_sweep(hypers, seeds))
-    elapsed_seconds = time.time() - start
+    result, elapsed_seconds = train_with_progress(
+        trainer,
+        hypers,
+        seeds,
+        num_updates=num_updates,
+        print_frequency=int(fixed["print_frequency"]),
+    )
     print(f"parallel_train_elapsed_seconds={elapsed_seconds:.3f}")
 
     run_dirs = save_results(

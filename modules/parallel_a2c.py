@@ -58,6 +58,8 @@ class ParallelJaxBatchMaskA2C:
 
         self._train_one_jit = jax.jit(self._train_one)
         self._train_sweep_jit = jax.jit(self._train_sweep)
+        self._init_sweep_states_jit = jax.jit(self._init_sweep_states)
+        self._train_sweep_chunk_jit = jax.jit(self._train_sweep_chunk)
 
     def init_state(self, seed: jax.Array) -> JaxTrainState:
         key = jax.random.PRNGKey(seed)
@@ -288,10 +290,41 @@ class ParallelJaxBatchMaskA2C:
         state, metrics = jax.lax.scan(body_fn, state, entropy_schedule)
         return state, metrics
 
+    def _train_one_from_state(
+        self,
+        state: JaxTrainState,
+        hyper: A2CHyperParams,
+        entropy_schedule: jax.Array,
+    ):
+        def body_fn(carry, beta_e):
+            return self._train_step(carry, beta_e, hyper)
+
+        return jax.lax.scan(body_fn, state, entropy_schedule)
+
     def _train_sweep(self, hypers: A2CHyperParams, seeds: jax.Array):
         train_seeds = jax.vmap(self._train_one, in_axes=(None, 0))
         train_hypers = jax.vmap(train_seeds, in_axes=(0, None))
         states, metrics = train_hypers(hypers, seeds)
+        return ParallelA2CResult(states=states, metrics=metrics)
+
+    def _init_sweep_states(self, hypers: A2CHyperParams, seeds: jax.Array):
+        def init_seed(seed):
+            return self.init_state(seed)
+
+        def init_hyper(_):
+            return jax.vmap(init_seed)(seeds)
+
+        return jax.vmap(init_hyper)(jnp.arange(hypers.lr.shape[0]))
+
+    def _train_sweep_chunk(
+        self,
+        states: JaxTrainState,
+        hypers: A2CHyperParams,
+        entropy_schedule: jax.Array,
+    ):
+        train_seeds = jax.vmap(self._train_one_from_state, in_axes=(0, None, None))
+        train_hypers = jax.vmap(train_seeds, in_axes=(0, 0, 0))
+        states, metrics = train_hypers(states, hypers, entropy_schedule)
         return ParallelA2CResult(states=states, metrics=metrics)
 
     def train_one(self, hyper: A2CHyperParams, seed: int):
@@ -300,3 +333,16 @@ class ParallelJaxBatchMaskA2C:
     def train_sweep(self, hypers: A2CHyperParams, seeds):
         seeds = jnp.asarray(seeds, dtype=jnp.int32)
         return self._train_sweep_jit(hypers, seeds)
+
+    def init_sweep_states(self, hypers: A2CHyperParams, seeds):
+        seeds = jnp.asarray(seeds, dtype=jnp.int32)
+        return self._init_sweep_states_jit(hypers, seeds)
+
+    def train_sweep_chunk(
+        self,
+        states: JaxTrainState,
+        hypers: A2CHyperParams,
+        entropy_schedule,
+    ):
+        entropy_schedule = jnp.asarray(entropy_schedule, dtype=jnp.float32)
+        return self._train_sweep_chunk_jit(states, hypers, entropy_schedule)
