@@ -69,7 +69,7 @@ class JaxDecisionTreeEnv:
         observation_size = (
             self.num_nodes
             + 1
-            + self.num_nodes * 3
+            + self.num_nodes * 2
             + self.num_nodes
             + self.num_nodes
             + self.num_nodes
@@ -378,14 +378,16 @@ class JaxDecisionTreeEnv:
     def get_obs(self, state: JaxDecisionTreeState) -> jax.Array:
         fixation_parent = state.parent_nodes[state.fixation_node]
         fixation_children = state.child_nodes[state.fixation_node]
+        fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
+            fixation_children[1]
+        )
 
         obs = jnp.concatenate(
             [
                 self._one_hot(state.fixation_node),
                 jnp.array([state.points[state.fixation_node]], dtype=jnp.float32),
                 self._one_hot(fixation_parent),
-                self._one_hot(fixation_children[0]),
-                self._one_hot(fixation_children[1]),
+                fixation_child_mask,
                 self._one_hot(state.root_node),
                 state.g_values,
                 state.q_values,

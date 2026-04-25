@@ -42,7 +42,7 @@ class ReferenceDecisionTreeEnv:
         observation_size = (
             self.num_nodes
             + 1
-            + self.num_nodes * 3
+            + self.num_nodes * 2
             + self.num_nodes
             + self.num_nodes
             + self.num_nodes
@@ -214,14 +214,16 @@ class ReferenceDecisionTreeEnv:
     def get_obs(self) -> np.ndarray:
         fixation_parent = int(self.parent_nodes[self.fixation_node])
         fixation_children = self.child_nodes[self.fixation_node]
+        fixation_child_mask = self._one_hot(int(fixation_children[0])) + self._one_hot(
+            int(fixation_children[1])
+        )
 
         obs = np.concatenate(
             [
                 self._one_hot(self.fixation_node),
                 np.asarray([self.points[self.fixation_node]], dtype=np.float32),
                 self._one_hot(fixation_parent),
-                self._one_hot(int(fixation_children[0])),
-                self._one_hot(int(fixation_children[1])),
+                fixation_child_mask,
                 self._one_hot(self.root_node),
                 self.g_values,
                 self.q_values,

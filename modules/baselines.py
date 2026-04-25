@@ -24,8 +24,7 @@ class PolicyStats:
 class ObsView:
     fixation_node: int | None
     parent_node: int | None
-    child1_node: int | None
-    child2_node: int | None
+    child_nodes: List[int]
     root_node: int | None
     g_values: np.ndarray
 
@@ -44,10 +43,7 @@ class ObsLayout:
         self.parent = slice(index, index + num_nodes)
         index += num_nodes
 
-        self.child1 = slice(index, index + num_nodes)
-        index += num_nodes
-
-        self.child2 = slice(index, index + num_nodes)
+        self.children = slice(index, index + num_nodes)
         index += num_nodes
 
         self.root = slice(index, index + num_nodes)
@@ -71,12 +67,15 @@ def _decode_one_hot(one_hot: np.ndarray) -> int | None:
     return int(np.argmax(one_hot))
 
 
+def _decode_multi_hot(multi_hot: np.ndarray) -> List[int]:
+    return [int(idx) for idx in np.where(multi_hot > 0.5)[0]]
+
+
 def parse_obs(obs: np.ndarray, layout: ObsLayout) -> ObsView:
     return ObsView(
         fixation_node=_decode_one_hot(obs[layout.fixation]),
         parent_node=_decode_one_hot(obs[layout.parent]),
-        child1_node=_decode_one_hot(obs[layout.child1]),
-        child2_node=_decode_one_hot(obs[layout.child2]),
+        child_nodes=_decode_multi_hot(obs[layout.children]),
         root_node=_decode_one_hot(obs[layout.root]),
         g_values=obs[layout.g],
     )
@@ -173,7 +172,7 @@ def _visit_all_then_bestg_then_parent_chain_action(
         policy_state["discovered"][parent] = True
         policy_state["parent_map"][current] = parent
 
-    for child in (obs_view.child1_node, obs_view.child2_node):
+    for child in obs_view.child_nodes:
         if child is not None and current is not None:
             policy_state["discovered"][child] = True
             policy_state["parent_map"][child] = current
@@ -303,7 +302,7 @@ def _init_policy_state(policy_name: str, obs_view: ObsView, num_nodes: int) -> D
     if policy_name in {"depth1_then_terminate", "best_depth1_then_move"}:
         return {
             "step_idx": 0,
-            "depth1_nodes": [obs_view.child1_node, obs_view.child2_node],
+            "depth1_nodes": obs_view.child_nodes,
         }
 
     if policy_name == "visit_all_then_bestg_then_parent_chain":
@@ -315,10 +314,9 @@ def _init_policy_state(policy_name: str, obs_view: ObsView, num_nodes: int) -> D
         discovered[root] = True
         visited[root] = True
 
-        for child in (obs_view.child1_node, obs_view.child2_node):
-            if child is not None:
-                discovered[child] = True
-                parent_map[child] = root
+        for child in obs_view.child_nodes:
+            discovered[child] = True
+            parent_map[child] = root
 
         return {
             "phase": "visit_all",
