@@ -401,7 +401,7 @@ def to_transformed_simulation_format(
     detailed: bool = False,
 ) -> Dict[str, List[Any]]:
     """
-    Convert simulator output to the legacy JSON schema:
+    Convert simulator output to the JSON schema:
       {
         "adj_lists": [...],
         "starts": [...],
@@ -415,6 +415,7 @@ def to_transformed_simulation_format(
         "starts": [],
         "rewards": [],
         "actions": [],
+        "chosen_paths": [],
     }
     detail_keys = ["activations", "counts", "gs", "qs", "logits"]
     if detailed:
@@ -457,17 +458,13 @@ def to_transformed_simulation_format(
         if action_seq[-1] != num_nodes:
             continue
 
-        # Map terminal move action from num_nodes to 2 * num_nodes.
-        actions = list(action_seq)
-        actions[-1] = num_nodes * 2
-
-        # Append chosen path as decision actions in [num_nodes, 2 * num_nodes - 1].
-        actions.extend(num_nodes + node for node in choice_seq)
+        actions = [root_node] + action_seq
 
         transformed["adj_lists"].append(adj_list)
         transformed["starts"].append(root_node)
         transformed["rewards"].append(points)
         transformed["actions"].append(actions)
+        transformed["chosen_paths"].append(choice_seq)
         if detailed:
             for key in detail_keys:
                 transformed[key].append(data[key][trial_idx])

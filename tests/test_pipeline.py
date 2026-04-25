@@ -209,10 +209,11 @@ def test_transformed_simulation_format_encodes_actions():
         skip_timeout_trials=True,
     )
 
-    assert list(transformed.keys()) == ["adj_lists", "starts", "rewards", "actions"]
+    assert list(transformed.keys()) == ["adj_lists", "starts", "rewards", "actions", "chosen_paths"]
     assert transformed["starts"] == [0, 1]
     assert transformed["adj_lists"][0] == [[1, 2], [], []]
-    assert transformed["actions"][0] == [1, 2, 6, 5, 4]
+    assert transformed["actions"][0] == [0, 1, 2, 3]
+    assert transformed["chosen_paths"][0] == [2, 1]
 
 
 def test_transformed_simulation_format_includes_details():
@@ -242,6 +243,7 @@ def test_transformed_simulation_format_includes_details():
         "starts",
         "rewards",
         "actions",
+        "chosen_path",
         "activations",
         "counts",
         "gs",
@@ -253,6 +255,8 @@ def test_transformed_simulation_format_includes_details():
     assert transformed["gs"] == data["gs"]
     assert transformed["qs"] == data["qs"]
     assert transformed["logits"] == data["logits"]
+    assert transformed["actions"] == [[0, 1, 2, 3]]
+    assert transformed["chosen_path"] == data["choice_seqs"]
 
 
 def test_transformed_simulation_format_skips_timeouts_when_requested():
