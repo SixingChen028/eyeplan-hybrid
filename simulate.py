@@ -224,12 +224,16 @@ def main() -> None:
         help="One or more targets: <experiment>, <experiment>/<run_id>, <experiment>/*, or full path in runs/analysis.",
     )
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
-    parser.add_argument("--num_trials", type=int, default=10_240)
+    parser.add_argument("--num_trials", type=int, default=None)
     parser.add_argument("--greedy", action="store_true")
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--skip_timeout_trials", action="store_true")
     parser.add_argument("--detailed", action="store_true")
+    parser.add_argument("--seed-filter", type=int, default=None)
     args = parser.parse_args()
+    num_trials = args.num_trials
+    if num_trials is None:
+        num_trials = 100 if args.detailed else 10_240
 
     runs_to_simulate: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -253,6 +257,10 @@ def main() -> None:
                 run_dirs = target.run_dirs
                 print(f"target={target_arg} target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
             for run_dir in run_dirs:
+                if args.seed_filter is not None:
+                    metadata_args = _read_metadata_args(run_dir)
+                    if int(metadata_args.get("seed", 15)) != args.seed_filter:
+                        continue
                 run_key = (target.experiment, run_dir)
                 if run_key in seen:
                     continue
@@ -274,13 +282,14 @@ def main() -> None:
             print(f"experiment={experiment}")
             output_path = args.output
             if output_path == "":
-                output_path = os.path.join(run_dir, "data_simulation.json")
+                output_name = "data_simulation_detailed.json" if args.detailed else "data_simulation.json"
+                output_path = os.path.join(run_dir, output_name)
             output_path = os.path.abspath(os.path.expanduser(output_path))
 
             num_trials_raw, num_trials_exported = _simulate_run(
                 run_dir=run_dir,
                 output_path=output_path,
-                num_trials=args.num_trials,
+                num_trials=num_trials,
                 greedy=args.greedy,
                 skip_timeout_trials=args.skip_timeout_trials,
                 detailed=args.detailed,
