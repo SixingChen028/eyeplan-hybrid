@@ -176,7 +176,7 @@ def _simulate_run(
     output_path: str,
     num_trials: int,
     greedy: bool,
-    include_timeout_trials: bool,
+    skip_timeout_trials: bool,
     detailed: bool,
 ) -> tuple[int, int]:
     print(f"run_dir={run_dir}")
@@ -204,7 +204,7 @@ def _simulate_run(
         data,
         num_nodes=env.num_nodes,
         t_max=env.t_max,
-        skip_timeout_trials=not include_timeout_trials,
+        skip_timeout_trials=skip_timeout_trials,
         detailed=detailed,
     )
 
@@ -227,7 +227,7 @@ def main() -> None:
     parser.add_argument("--num_trials", type=int, default=10_240)
     parser.add_argument("--greedy", action="store_true")
     parser.add_argument("--output", type=str, default="")
-    parser.add_argument("--include_timeout_trials", action="store_true")
+    parser.add_argument("--skip_timeout_trials", action="store_true")
     parser.add_argument("--detailed", action="store_true")
     args = parser.parse_args()
 
@@ -282,7 +282,7 @@ def main() -> None:
                 output_path=output_path,
                 num_trials=args.num_trials,
                 greedy=args.greedy,
-                include_timeout_trials=args.include_timeout_trials,
+                skip_timeout_trials=args.skip_timeout_trials,
                 detailed=args.detailed,
             )
 
