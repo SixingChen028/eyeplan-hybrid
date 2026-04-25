@@ -125,6 +125,20 @@ def _read_recorded_updates_from_training_data(run_dir: str) -> int | None:
     return len(rewards)
 
 
+def _read_eval_summary_updates(run_dir: str) -> int | None:
+    eval_summary_path = os.path.join(run_dir, "eval_summary_jax.json")
+    if not os.path.exists(eval_summary_path):
+        return None
+    with open(eval_summary_path, "r") as file:
+        eval_summary = json.load(file)
+    if not isinstance(eval_summary, dict):
+        return None
+    num_updates = eval_summary.get("num_updates")
+    if num_updates is None:
+        return None
+    return int(num_updates)
+
+
 def _is_complete_run(run_dir: str) -> bool:
     try:
         metadata = _read_metadata(run_dir)
@@ -145,6 +159,10 @@ def _is_complete_run(run_dir: str) -> bool:
 
         recorded_updates = _read_recorded_updates_from_training_data(run_dir)
         if recorded_updates is not None and recorded_updates >= expected_updates:
+            return True
+
+        eval_summary_updates = _read_eval_summary_updates(run_dir)
+        if eval_summary_updates is not None and eval_summary_updates >= expected_updates:
             return True
 
         return False

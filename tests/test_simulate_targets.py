@@ -27,6 +27,10 @@ def _write_training_data(run_dir: Path, num_updates: int) -> None:
         pickle.dump({"episode_reward": [0.0] * num_updates}, file)
 
 
+def _write_eval_summary(run_dir: Path, num_updates: int) -> None:
+    (run_dir / "eval_summary_jax.json").write_text(json.dumps({"num_updates": num_updates}))
+
+
 def _write_model_file(run_dir: Path) -> None:
     (run_dir / "net_jax.p").write_bytes(b"placeholder")
 
@@ -38,14 +42,16 @@ def test_main_experiment_target_simulates_all_complete_runs(monkeypatch, tmp_pat
     run_complete_ckpt = experiment_root / "run-complete-ckpt"
     run_incomplete = experiment_root / "run-incomplete"
     run_complete_data = experiment_root / "run-complete-data"
+    run_complete_eval = experiment_root / "run-complete-eval"
 
-    for run_dir in (run_complete_ckpt, run_incomplete, run_complete_data):
+    for run_dir in (run_complete_ckpt, run_incomplete, run_complete_data, run_complete_eval):
         _write_metadata(run_dir)
         _write_model_file(run_dir)
 
     _write_checkpoint(run_complete_ckpt, next_update=10)
     _write_checkpoint(run_incomplete, next_update=3)
     _write_training_data(run_complete_data, num_updates=10)
+    _write_eval_summary(run_complete_eval, num_updates=10)
 
     simulated_dirs: list[str] = []
 
@@ -63,7 +69,11 @@ def test_main_experiment_target_simulates_all_complete_runs(monkeypatch, tmp_pat
 
     simulate.main()
 
-    assert set(simulated_dirs) == {str(run_complete_ckpt), str(run_complete_data)}
+    assert set(simulated_dirs) == {
+        str(run_complete_ckpt),
+        str(run_complete_data),
+        str(run_complete_eval),
+    }
 
 
 def test_main_run_target_keeps_explicit_run_without_completion_filter(monkeypatch, tmp_path: Path):
