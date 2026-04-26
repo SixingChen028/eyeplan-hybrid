@@ -256,6 +256,10 @@ def _render_script(config: dict, config_path: Path) -> str:
     if lines[-1].endswith(" \\"):
         lines[-1] = lines[-1][:-2]
     lines.append("")
+    lines.append('RUN=$(ls -td "${RESULT_PATH}/runs/${EXPERIMENT}/${TASK_ID}"_* | head -n 1)')
+    lines.append('"${PYTHON_BIN}" simulate.py "${RUN}"')
+    lines.append('"${PYTHON_BIN}" simulate.py "${RUN}" --detailed')
+    lines.append("")
     return "\n".join(lines)
 
 
