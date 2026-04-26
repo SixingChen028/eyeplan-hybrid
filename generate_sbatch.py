@@ -22,7 +22,6 @@ DEFAULT_SBATCH = {
     "time": "08:00:00",
     "mem_per_cpu": "1G",
     "log": "./log/%A_%a.log",
-    "array_start": 0,
 }
 
 DEFAULT_RUNTIME = {
@@ -131,28 +130,6 @@ def _split_params(params: dict) -> tuple[list[tuple[str, object]], list[tuple[st
     return fixed, vary
 
 
-def _array_bounds(sbatch: dict, array_size: int) -> tuple[int, int]:
-    start = int(sbatch.get("array_start", 0))
-    end = int(sbatch.get("array_end", array_size - 1))
-
-    if array_size <= 0:
-        raise ValueError("Array size must be positive.")
-    if start < 0:
-        raise ValueError("sbatch.array_start must be >= 0.")
-    if start >= array_size:
-        raise ValueError(
-            f"sbatch array start {start} exceeds generated grid size {array_size}."
-        )
-    if end < start:
-        raise ValueError("sbatch.array_end must be >= sbatch.array_start.")
-    if end >= array_size:
-        raise ValueError(
-            f"sbatch array bounds {start}-{end} exceed generated grid size {array_size}."
-        )
-
-    return start, end
-
-
 def _render_script(config: dict, config_path: Path) -> str:
     meta = _as_dict(config.get("meta"), "meta", default=DEFAULT_META)
     sbatch = _as_dict(config.get("sbatch"), "sbatch", default=DEFAULT_SBATCH)
@@ -169,7 +146,6 @@ def _render_script(config: dict, config_path: Path) -> str:
     array_size = 1
     for _, values in vary:
         array_size *= len(values)
-    array_start, array_end = _array_bounds(sbatch=sbatch, array_size=array_size)
 
     lines: list[str] = []
     lines.append("#!/bin/bash")
@@ -181,7 +157,7 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append(f"#SBATCH -o {log_path}")
     for directive in sbatch.get("extra_directives", []):
         lines.append(f"#SBATCH {directive}")
-    lines.append(f"#SBATCH --array={array_start}-{array_end}")
+    lines.append(f"#SBATCH --array=0-{array_size - 1}")
     lines.append("")
 
     if bool(runtime["set_euo_pipefail"]):
