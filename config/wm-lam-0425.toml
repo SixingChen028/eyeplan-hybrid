@@ -1,6 +1,6 @@
 [sbatch]
 time = "10:00:00"
-mem_per_cpu = "1.5G"
+mem_per_cpu = "1600M"
 
 [params]
 # environment
