@@ -285,10 +285,19 @@ class ReferenceDecisionTreeEnv:
     def step(self, action: int):
         action = int(action)
 
-        self.time_elapsed += 1
-        if self.time_elapsed == self.t_max:
+        next_time_elapsed = self.time_elapsed + 1
+        if next_time_elapsed == self.t_max:
             action = self.num_nodes
 
+        if action < 0 or action > self.num_nodes:
+            raise ValueError(f"Invalid action {action}; expected 0 <= action <= {self.num_nodes}.")
+
+        action_mask = self.get_action_mask()
+        if not action_mask[action]:
+            valid_actions = np.flatnonzero(action_mask).tolist()
+            raise ValueError(f"Invalid action {action}; valid actions are {valid_actions}.")
+
+        self.time_elapsed = next_time_elapsed
         reward = -self.cost
 
         if action < self.num_nodes:
