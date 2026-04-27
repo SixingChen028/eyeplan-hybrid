@@ -95,22 +95,26 @@ class ReferenceDecisionTreeEnv:
 
         return root, child_nodes, parent_nodes
 
-    def _update_g(self, node: int):
-        if node == self.root_node:
-            self.g_values[node] = 0.0
-            return
+    def _compute_path_values(self):
+        g_values = np.zeros((self.num_nodes,), dtype=np.float32)
+        for _ in range(self.num_nodes):
+            for node in range(self.num_nodes):
+                parent = int(self.parent_nodes[node])
+                if parent >= 0:
+                    g_values[node] = g_values[parent] + self.points[parent]
+        return g_values
 
-        parent = int(self.parent_nodes[node])
-        assert parent >= 0
-        self.g_values[node] = self.g_values[parent] + self.points[parent]
+    def _known_mask(self):
+        expanded = self.n_visits > 0
+        expanded[self.root_node] = True
 
-    def _expand(self, node: int):
-        self.planner_expanded[node] = True
-        for child in self.child_nodes[node]:
-            child = int(child)
-            if child >= 0 and not self.planner_known[child]:
-                self.planner_known[child] = True
-                self._update_g(child)
+        known = np.zeros((self.num_nodes,), dtype=bool)
+        known[self.root_node] = True
+        for node in range(self.num_nodes):
+            parent = int(self.parent_nodes[node])
+            if parent >= 0 and expanded[parent]:
+                known[node] = True
+        return known
 
     def _bellman_target(self, node: int) -> float:
         children = self.child_nodes[node]
@@ -121,9 +125,6 @@ class ReferenceDecisionTreeEnv:
         return float(self.points[node] + np.max(child_q))
 
     def _update_q(self, node: int):
-        if not self.planner_expanded[node]:
-            return
-
         target = self._bellman_target(node)
         self.q_values[node] += self.learning_rate * (target - self.q_values[node])
 
@@ -142,24 +143,6 @@ class ReferenceDecisionTreeEnv:
 
     def _look(self, node: int):
         self.n_visits[node] += 1
-        self._update_g(node)
-
-        children = self.child_nodes[node]
-        hidden_child = False
-        for child in children:
-            child = int(child)
-            if child >= 0 and not self.planner_known[child]:
-                hidden_child = True
-                break
-
-        should_expand = (
-            (not self.planner_expanded[node] and self.planner_known[node])
-            or (self.planner_expanded[node] and hidden_child)
-        )
-
-        if should_expand:
-            self._expand(node)
-
         self._update_q(node)
 
     def _update_activation(self, node: int):
@@ -207,6 +190,7 @@ class ReferenceDecisionTreeEnv:
         fixation_child_mask = self._one_hot(int(fixation_children[0])) + self._one_hot(
             int(fixation_children[1])
         )
+        visible_g_values = np.where(self._known_mask(), self.g_values, 0.0).astype(np.float32)
 
         obs = np.concatenate(
             [
@@ -215,7 +199,7 @@ class ReferenceDecisionTreeEnv:
                 self._one_hot(fixation_parent),
                 fixation_child_mask,
                 self._one_hot(self.root_node),
-                self.g_values,
+                visible_g_values,
                 self.q_values,
                 self.n_visits.astype(np.float32),
                 np.asarray([self.time_elapsed], dtype=np.float32),
@@ -234,14 +218,12 @@ class ReferenceDecisionTreeEnv:
         return self.n_visits.copy()
 
     def get_action_mask(self) -> np.ndarray:
-        gated = self.planner_known & self.active_mask
-        gated[self.root_node] = True
-
         mask = np.zeros((self.action_size,), dtype=bool)
         mask[-1] = True  # can always terminate
         if self.time_elapsed == self.t_max - 1:
             return mask  # can ONLY terminate 
-        mask[: self.num_nodes] = gated
+        mask[: self.num_nodes] = self.active_mask
+        mask[self.root_node] = True
         return mask
 
     def reset(self, seed: int | None = None, options=None):
@@ -258,20 +240,8 @@ class ReferenceDecisionTreeEnv:
         self.points = self.point_set[point_idx].astype(np.float32)
         self.points[self.root_node] = 0.0
 
-        self.planner_known = np.zeros((self.num_nodes,), dtype=bool)
-        self.planner_known[self.root_node] = True
-
-        root_children = self.child_nodes[self.root_node]
-        for child in root_children:
-            child = int(child)
-            if child >= 0:
-                self.planner_known[child] = True
-
-        self.planner_expanded = np.zeros((self.num_nodes,), dtype=bool)
-        self.planner_expanded[self.root_node] = True
-
         self.q_values = np.zeros((self.num_nodes,), dtype=np.float32)
-        self.g_values = np.zeros((self.num_nodes,), dtype=np.float32)
+        self.g_values = self._compute_path_values()
         self.n_visits = np.zeros((self.num_nodes,), dtype=np.int32)
 
         self.activation = np.zeros((self.num_nodes,), dtype=np.float32)

@@ -11,8 +11,6 @@ class JaxDecisionTreeState(NamedTuple):
     points: jax.Array
     child_nodes: jax.Array
     parent_nodes: jax.Array
-    planner_known: jax.Array
-    planner_expanded: jax.Array
     q_values: jax.Array
     g_values: jax.Array
     n_visits: jax.Array
@@ -176,50 +174,22 @@ class JaxDecisionTreeEnv:
 
         return key, root, child_nodes, parent_nodes
 
-    def _update_g(self, g_values, parent_nodes, root_node, points, node):
-        def root_fn(g):
-            return g.at[node].set(0.0)
+    def _compute_path_values(self, parent_nodes, points):
+        g_values = jnp.zeros((self.num_nodes,), dtype=jnp.float32)
 
-        def non_root_fn(g):
-            parent = parent_nodes[node]
-            new_value = g[parent] + points[parent]
-            return g.at[node].set(new_value)
+        def body_fn(_, g_values):
+            parent_safe = jnp.maximum(parent_nodes, 0)
+            parent_values = g_values[parent_safe] + points[parent_safe]
+            return jnp.where(parent_nodes >= 0, parent_values, 0.0)
 
-        return jax.lax.cond(node == root_node, root_fn, non_root_fn, g_values)
+        return jax.lax.fori_loop(0, self.num_nodes, body_fn, g_values)
 
-    def _expand(self, planner_known, planner_expanded, g_values, node, parent_nodes, child_nodes, root_node, points):
-        planner_expanded = planner_expanded.at[node].set(True)
-        children = child_nodes[node]
-
-        def child_fn(carry, child):
-            planner_known, g_values = carry
-            safe_child = jnp.maximum(child, 0)
-            valid_child = child >= 0
-            unseen_child = ~planner_known[safe_child]
-            should_add = valid_child & unseen_child
-
-            def add_fn(state):
-                planner_known, g_values = state
-                planner_known = planner_known.at[child].set(True)
-                g_values = self._update_g(g_values, parent_nodes, root_node, points, child)
-                return planner_known, g_values
-
-            planner_known, g_values = jax.lax.cond(
-                should_add,
-                add_fn,
-                lambda x: x,
-                (planner_known, g_values),
-            )
-
-            return (planner_known, g_values), None
-
-        (planner_known, g_values), _ = jax.lax.scan(
-            child_fn,
-            (planner_known, g_values),
-            children,
-        )
-
-        return planner_known, planner_expanded, g_values
+    def _known_mask(self, parent_nodes, root_node, n_visits):
+        expanded = n_visits > 0
+        expanded = expanded.at[root_node].set(True)
+        parent_safe = jnp.maximum(parent_nodes, 0)
+        known = (parent_nodes >= 0) & expanded[parent_safe]
+        return known.at[root_node].set(True)
 
     def _bellman_target(self, q_values, child_nodes, points, node):
         children = child_nodes[node]
@@ -237,7 +207,6 @@ class JaxDecisionTreeEnv:
     def _update_q(
         self,
         q_values,
-        planner_expanded,
         child_nodes,
         parent_nodes,
         root_node,
@@ -248,34 +217,31 @@ class JaxDecisionTreeEnv:
         learning_rate = self.learning_rate if params is None else params.learning_rate
         lamda_backup = self.lamda_backup if params is None else params.lamda_backup
 
-        def do_update(q_values):
-            target = self._bellman_target(q_values, child_nodes, points, node)
-            node_step = learning_rate * (target - q_values[node])
-            q_values = q_values.at[node].add(node_step)
+        target = self._bellman_target(q_values, child_nodes, points, node)
+        node_step = learning_rate * (target - q_values[node])
+        q_values = q_values.at[node].add(node_step)
 
-            def cond_fn(carry):
-                current, weight, _ = carry
-                parent = parent_nodes[current]
-                has_parent = parent >= 0
-                return (weight > 1e-6) & (current != root_node) & has_parent
+        def cond_fn(carry):
+            current, weight, _ = carry
+            parent = parent_nodes[current]
+            has_parent = parent >= 0
+            return (weight > 1e-6) & (current != root_node) & has_parent
 
-            def body_fn(carry):
-                current, weight, q_values = carry
-                ancestor = parent_nodes[current]
-                target = self._bellman_target(q_values, child_nodes, points, ancestor)
-                step_size = learning_rate * weight
-                new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
-                q_values = q_values.at[ancestor].set(new_value)
-                return ancestor, weight * lamda_backup, q_values
+        def body_fn(carry):
+            current, weight, q_values = carry
+            ancestor = parent_nodes[current]
+            target = self._bellman_target(q_values, child_nodes, points, ancestor)
+            step_size = learning_rate * weight
+            new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
+            q_values = q_values.at[ancestor].set(new_value)
+            return ancestor, weight * lamda_backup, q_values
 
-            _, _, q_values = jax.lax.while_loop(
-                cond_fn,
-                body_fn,
-                (node, jnp.asarray(lamda_backup, dtype=q_values.dtype), q_values),
-            )
-            return q_values
-
-        return jax.lax.cond(planner_expanded[node], do_update, lambda x: x, q_values)
+        _, _, q_values = jax.lax.while_loop(
+            cond_fn,
+            body_fn,
+            (node, jnp.asarray(lamda_backup, dtype=q_values.dtype), q_values),
+        )
+        return q_values
 
     def _look(
         self,
@@ -284,32 +250,8 @@ class JaxDecisionTreeEnv:
         params: JaxDecisionTreeParams | None = None,
     ) -> JaxDecisionTreeState:
         n_visits = state.n_visits.at[node].add(1)
-        g_values = self._update_g(state.g_values, state.parent_nodes, state.root_node, state.points, node)
-
-        planner_known = state.planner_known
-        planner_expanded = state.planner_expanded
-
-        children = state.child_nodes[node]
-        child0 = children[0]
-        child1 = children[1]
-        child0_known = planner_known[jnp.maximum(child0, 0)]
-        child1_known = planner_known[jnp.maximum(child1, 0)]
-        hidden_child = ((child0 >= 0) & (~child0_known)) | ((child1 >= 0) & (~child1_known))
-
-        should_expand = ((~planner_expanded[node]) & planner_known[node]) | (
-            planner_expanded[node] & hidden_child
-        )
-
-        planner_known, planner_expanded, g_values = jax.lax.cond(
-            should_expand,
-            lambda x: self._expand(x[0], x[1], x[2], node, state.parent_nodes, state.child_nodes, state.root_node, state.points),
-            lambda x: x,
-            (planner_known, planner_expanded, g_values),
-        )
-
         q_values = self._update_q(
             state.q_values,
-            planner_expanded,
             state.child_nodes,
             state.parent_nodes,
             state.root_node,
@@ -319,9 +261,6 @@ class JaxDecisionTreeEnv:
         )
 
         return state._replace(
-            planner_known=planner_known,
-            planner_expanded=planner_expanded,
-            g_values=g_values,
             q_values=q_values,
             n_visits=n_visits,
         )
@@ -381,6 +320,11 @@ class JaxDecisionTreeEnv:
         fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
             fixation_children[1]
         )
+        visible_g_values = jnp.where(
+            self._known_mask(state.parent_nodes, state.root_node, state.n_visits),
+            state.g_values,
+            0.0,
+        )
 
         obs = jnp.concatenate(
             [
@@ -389,7 +333,7 @@ class JaxDecisionTreeEnv:
                 self._one_hot(fixation_parent),
                 fixation_child_mask,
                 self._one_hot(state.root_node),
-                state.g_values,
+                visible_g_values,
                 state.q_values,
                 state.n_visits.astype(jnp.float32),
                 jnp.array([state.time_elapsed], dtype=jnp.float32),
@@ -399,11 +343,9 @@ class JaxDecisionTreeEnv:
         return obs
 
     def get_action_mask(self, state: JaxDecisionTreeState) -> jax.Array:
-        gated = state.planner_known & state.active_mask
-        gated = gated.at[state.root_node].set(True)
-
         mask = jnp.zeros((self.action_size,), dtype=jnp.bool_)
-        mask = mask.at[: self.num_nodes].set(gated)
+        mask = mask.at[: self.num_nodes].set(state.active_mask)
+        mask = mask.at[state.root_node].set(True)
         mask = mask.at[-1].set(True)
 
         terminal_mask = jnp.zeros((self.action_size,), dtype=jnp.bool_)
@@ -458,17 +400,6 @@ class JaxDecisionTreeEnv:
         points = self.point_set[point_idx]
         points = points.at[root].set(0.0)
 
-        planner_known = jnp.zeros((self.num_nodes,), dtype=jnp.bool_)
-        planner_known = planner_known.at[root].set(True)
-
-        root_children = child_nodes[root]
-        root_children_safe = jnp.maximum(root_children, 0)
-        root_children_valid = root_children >= 0
-        planner_known = planner_known.at[root_children_safe].set(root_children_valid)
-
-        planner_expanded = jnp.zeros((self.num_nodes,), dtype=jnp.bool_)
-        planner_expanded = planner_expanded.at[root].set(True)
-
         state = JaxDecisionTreeState(
             rng_key=key,
             time_elapsed=jnp.int32(0),
@@ -477,10 +408,8 @@ class JaxDecisionTreeEnv:
             points=points,
             child_nodes=child_nodes,
             parent_nodes=parent_nodes,
-            planner_known=planner_known,
-            planner_expanded=planner_expanded,
             q_values=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(0.0),
-            g_values=jnp.zeros((self.num_nodes,), dtype=jnp.float32),
+            g_values=self._compute_path_values(parent_nodes, points),
             n_visits=jnp.zeros((self.num_nodes,), dtype=jnp.int32),
             activation=jnp.zeros((self.num_nodes,), dtype=jnp.float32),
             active_mask=jnp.zeros((self.num_nodes,), dtype=jnp.bool_),

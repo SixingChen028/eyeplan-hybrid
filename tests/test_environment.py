@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from modules.environment import JaxDecisionTreeEnv
 from modules.reference_environment import ReferenceDecisionTreeEnv
@@ -49,14 +50,6 @@ def _reference_parent_array(env: ReferenceDecisionTreeEnv) -> np.ndarray:
     return env.parent_nodes
 
 
-def _reference_planner_known(env: ReferenceDecisionTreeEnv) -> np.ndarray:
-    return env.planner_known
-
-
-def _reference_planner_expanded(env: ReferenceDecisionTreeEnv) -> np.ndarray:
-    return env.planner_expanded
-
-
 def _sync_reference_from_state(env: ReferenceDecisionTreeEnv, state) -> None:
     env.time_elapsed = int(state.time_elapsed)
     env.fixation_node = int(state.fixation_node)
@@ -66,8 +59,6 @@ def _sync_reference_from_state(env: ReferenceDecisionTreeEnv, state) -> None:
     env.parent_nodes = np.asarray(state.parent_nodes).copy()
     env.points = np.asarray(state.points).copy()
 
-    env.planner_known = np.asarray(state.planner_known).copy()
-    env.planner_expanded = np.asarray(state.planner_expanded).copy()
     env.q_values = np.asarray(state.q_values).copy()
     env.g_values = np.asarray(state.g_values).copy()
     env.n_visits = np.asarray(state.n_visits).copy()
@@ -114,9 +105,6 @@ def _assert_state_matches_reference(env: ReferenceDecisionTreeEnv, state) -> Non
     np.testing.assert_array_equal(np.asarray(state.child_nodes), _reference_children_array(env))
     np.testing.assert_array_equal(np.asarray(state.parent_nodes), _reference_parent_array(env))
     np.testing.assert_array_equal(np.asarray(state.points), env.points)
-
-    np.testing.assert_array_equal(np.asarray(state.planner_known), _reference_planner_known(env))
-    np.testing.assert_array_equal(np.asarray(state.planner_expanded), _reference_planner_expanded(env))
 
     np.testing.assert_allclose(np.asarray(state.q_values), env.get_q_values(), atol=1e-6)
     np.testing.assert_allclose(np.asarray(state.g_values), env.get_path_values(), atol=1e-6)
@@ -322,16 +310,28 @@ def test_chosen_path_does_not_leak_across_trials():
     assert reference_env.chosen_path == []
 
 
-def test_timeout_forces_move_action():
+def test_timeout_masks_to_move_action():
     reference_env, jax_env, _, state, _, _ = _reset_synced_envs(seed=11, t_max=3)
 
     action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
+    info_reference = {"mask": reference_env.get_action_mask()}
+    info_jax = {"mask": jax_env.get_action_mask(state)}
     for _ in range(reference_env.t_max - 1):
-        reference_env.step(action)
-        state, _, _, _, _, _ = jax_env.step(state, _jax_action(action))
+        _, _, _, _, info_reference = reference_env.step(action)
+        state, _, _, _, _, info_jax = jax_env.step(state, _jax_action(action))
 
-    _, reference_reward, reference_done, _, _ = reference_env.step(action)
-    state, _, reward_jax, done_jax, _, _ = jax_env.step(state, _jax_action(action))
+    np.testing.assert_array_equal(
+        info_reference["mask"],
+        np.eye(reference_env.action_size, dtype=bool)[reference_env.num_nodes],
+    )
+    np.testing.assert_array_equal(np.asarray(info_jax["mask"]), info_reference["mask"])
+
+    with pytest.raises(ValueError, match=f"Invalid action {action}"):
+        reference_env.step(action)
+
+    move_action = reference_env.num_nodes
+    _, reference_reward, reference_done, _, _ = reference_env.step(move_action)
+    state, _, reward_jax, done_jax, _, _ = jax_env.step(state, _jax_action(move_action))
 
     assert reference_done
     assert bool(done_jax)
