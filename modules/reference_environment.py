@@ -238,8 +238,10 @@ class ReferenceDecisionTreeEnv:
         gated[self.root_node] = True
 
         mask = np.zeros((self.action_size,), dtype=bool)
+        mask[-1] = True  # can always terminate
+        if self.time_elapsed == self.t_max - 1:
+            return mask  # can ONLY terminate 
         mask[: self.num_nodes] = gated
-        mask[-1] = True
         return mask
 
     def reset(self, seed: int | None = None, options=None):
@@ -286,8 +288,6 @@ class ReferenceDecisionTreeEnv:
         action = int(action)
 
         next_time_elapsed = self.time_elapsed + 1
-        if next_time_elapsed == self.t_max:
-            action = self.num_nodes
 
         if action < 0 or action > self.num_nodes:
             raise ValueError(f"Invalid action {action}; expected 0 <= action <= {self.num_nodes}.")

@@ -505,7 +505,6 @@ class JaxDecisionTreeEnv:
     ):
         action = jnp.asarray(action, dtype=jnp.int32)
         state = state._replace(time_elapsed=state.time_elapsed + 1)
-        action = jnp.where(state.time_elapsed == self.t_max, jnp.int32(self.num_nodes), action)
         reward = -jnp.asarray(params.cost, dtype=jnp.float32)
 
         def fixation_branch(payload):
