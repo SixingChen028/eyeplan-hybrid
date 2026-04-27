@@ -39,19 +39,9 @@ class ReferenceDecisionTreeEnv:
         self.point_set = np.asarray(point_set, dtype=np.float32)
 
         self.action_size = self.num_nodes + 1
-        observation_size = (
-            self.num_nodes
-            + 1
-            + self.num_nodes * 2
-            + self.num_nodes
-            + self.num_nodes
-            + self.num_nodes
-            + self.num_nodes
-            + 1
-        )
-        self.observation_shape = (observation_size,)
+        self.reset(seed)  # build the tree for get_obs()
+        self.observation_shape = self.get_obs().shape
 
-        self.seed(seed)
 
     def seed(self, seed: int | None):
         self.rng = np.random.RandomState(seed)
@@ -111,8 +101,8 @@ class ReferenceDecisionTreeEnv:
             return
 
         parent = int(self.parent_nodes[node])
-        if parent >= 0:
-            self.g_values[node] = self.g_values[parent] + self.points[parent]
+        assert parent >= 0
+        self.g_values[node] = self.g_values[parent] + self.points[parent]
 
     def _expand(self, node: int):
         self.planner_expanded[node] = True
