@@ -64,7 +64,6 @@ def _sync_reference_from_state(env: ReferenceDecisionTreeEnv, state) -> None:
     env.n_visits = np.asarray(state.n_visits).copy()
 
     env.activation = np.asarray(state.activation).copy()
-    env.active_mask = np.asarray(state.active_mask).copy()
 
     chosen_path_len = int(state.chosen_path_len)
     env.chosen_path = [int(node) for node in np.asarray(state.chosen_path)[:chosen_path_len]]
@@ -106,12 +105,11 @@ def _assert_state_matches_reference(env: ReferenceDecisionTreeEnv, state) -> Non
     np.testing.assert_array_equal(np.asarray(state.parent_nodes), _reference_parent_array(env))
     np.testing.assert_array_equal(np.asarray(state.points), env.points)
 
-    np.testing.assert_allclose(np.asarray(state.q_values), env.get_q_values(), atol=1e-6)
-    np.testing.assert_allclose(np.asarray(state.g_values), env.get_path_values(), atol=1e-6)
-    np.testing.assert_array_equal(np.asarray(state.n_visits), env.get_num_visits())
+    np.testing.assert_allclose(np.asarray(state.q_values), env.q_values, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(state.g_values), env.g_values, atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(state.n_visits), env.n_visits)
 
     np.testing.assert_allclose(np.asarray(state.activation), env.activation, atol=1e-6)
-    np.testing.assert_array_equal(np.asarray(state.active_mask), env.active_mask)
 
 
 def _make_envs(seed: int = 0, t_max: int = 20):
@@ -136,7 +134,6 @@ def _make_envs(seed: int = 0, t_max: int = 20):
         cost=cost,
         scale_factor=scale_factor,
         shuffle_nodes=shuffle_nodes,
-        mask_fixation=True,
         seed=seed,
     )
     reference_env.point_set = np.array([1.0], dtype=np.float32)
@@ -352,7 +349,6 @@ def test_visit_all_once_then_terminate_is_optimal_reference():
         t_max=8,
         cost=0.0,
         shuffle_nodes=True,
-        mask_fixation=True,
         seed=19,
     )
 

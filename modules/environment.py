@@ -15,7 +15,6 @@ class JaxDecisionTreeState(NamedTuple):
     g_values: jax.Array
     n_visits: jax.Array
     activation: jax.Array
-    active_mask: jax.Array
     chosen_path: jax.Array
     chosen_path_len: jax.Array
 
@@ -96,9 +95,6 @@ class JaxDecisionTreeEnv:
         return jax.nn.one_hot(idx, self.num_nodes, dtype=jnp.float32) * mask.astype(jnp.float32)
 
     def _softmax(self, x: jax.Array, params: JaxDecisionTreeParams | None = None) -> jax.Array:
-        if x.size == 0:
-            return x
-
         beta_move = self.beta_move if params is None else params.beta_move
         eps_move = self.eps_move if params is None else params.eps_move
 
@@ -109,12 +105,6 @@ class JaxDecisionTreeEnv:
         p = (1.0 - eps_move) * p + eps_move * (1.0 / x.shape[0])
 
         return p
-
-    def _clear_chosen_path(self, state: JaxDecisionTreeState) -> JaxDecisionTreeState:
-        return state._replace(
-            chosen_path=self.empty_path,
-            chosen_path_len=jnp.int32(0),
-        )
 
     def _build_tree(self, key: jax.Array, params: JaxDecisionTreeParams | None = None):
         nodes = jnp.arange(self.num_nodes, dtype=jnp.int32)
@@ -193,16 +183,12 @@ class JaxDecisionTreeEnv:
 
     def _bellman_target(self, q_values, child_nodes, points, node):
         children = child_nodes[node]
-        has_child = children[0] >= 0
-
-        def leaf_target(_):
-            return points[node]
-
-        def non_leaf_target(_):
-            child_q = q_values[children]
-            return points[node] + jnp.max(child_q)
-
-        return jax.lax.cond(has_child, non_leaf_target, leaf_target, operand=None)
+        child_q = q_values.at[children].get(
+            mode="fill",
+            fill_value=0.0,
+            wrap_negative_indices=False,
+        )
+        return points[node] + jnp.max(child_q)
 
     def _update_q(
         self,
@@ -279,28 +265,17 @@ class JaxDecisionTreeEnv:
         activation = activation.at[node].set(1.0)
 
         parent = state.parent_nodes[node]
-        activation = jax.lax.cond(
-            parent >= 0,
-            lambda x: x.at[parent].set(1.0),
-            lambda x: x,
-            activation,
+        activation = activation.at[parent].set(
+            1.0,
+            mode="drop",
+            wrap_negative_indices=False,
         )
 
         children = state.child_nodes[node]
-        child0 = children[0]
-        child1 = children[1]
-
-        activation = jax.lax.cond(
-            child0 >= 0,
-            lambda x: x.at[child0].set(1.0),
-            lambda x: x,
-            activation,
-        )
-        activation = jax.lax.cond(
-            child1 >= 0,
-            lambda x: x.at[child1].set(1.0),
-            lambda x: x,
-            activation,
+        activation = activation.at[children].set(
+            1.0,
+            mode="drop",
+            wrap_negative_indices=False,
         )
 
         activation = activation.at[state.root_node].set(1.0)
@@ -311,7 +286,6 @@ class JaxDecisionTreeEnv:
         return state._replace(
             rng_key=key,
             activation=activation,
-            active_mask=keep,
         )
 
     def get_obs(self, state: JaxDecisionTreeState) -> jax.Array:
@@ -343,14 +317,12 @@ class JaxDecisionTreeEnv:
         return obs
 
     def get_action_mask(self, state: JaxDecisionTreeState) -> jax.Array:
+        fixation_allowed = state.time_elapsed != (self.t_max - 1)
         mask = jnp.zeros((self.action_size,), dtype=jnp.bool_)
-        mask = mask.at[: self.num_nodes].set(state.active_mask)
-        mask = mask.at[state.root_node].set(True)
+        mask = mask.at[: self.num_nodes].set((state.activation > 0) & fixation_allowed)
+        mask = mask.at[state.root_node].set(fixation_allowed)
         mask = mask.at[-1].set(True)
-
-        terminal_mask = jnp.zeros((self.action_size,), dtype=jnp.bool_)
-        terminal_mask = terminal_mask.at[-1].set(True)
-        return jnp.where(state.time_elapsed == (self.t_max - 1), terminal_mask, mask)
+        return mask
 
     def _move(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams | None = None):
         path = self.empty_path
@@ -412,7 +384,6 @@ class JaxDecisionTreeEnv:
             g_values=self._compute_path_values(parent_nodes, points),
             n_visits=jnp.zeros((self.num_nodes,), dtype=jnp.int32),
             activation=jnp.zeros((self.num_nodes,), dtype=jnp.float32),
-            active_mask=jnp.zeros((self.num_nodes,), dtype=jnp.bool_),
             chosen_path=self.empty_path,
             chosen_path_len=jnp.int32(0),
         )
@@ -441,7 +412,6 @@ class JaxDecisionTreeEnv:
             state = self._look(state, action, params)
             state = state._replace(fixation_node=action)
             state = self._update_activation(state, action, params)
-            state = self._clear_chosen_path(state)
             return state, reward
 
         def move_branch(payload):
@@ -455,15 +425,10 @@ class JaxDecisionTreeEnv:
             )
             return state, reward
 
-        def noop_branch(payload):
-            state, reward = payload
-            state = self._clear_chosen_path(state)
-            return state, reward
-
         state, reward = jax.lax.cond(
             action < self.num_nodes,
             fixation_branch,
-            lambda x: jax.lax.cond(action == self.num_nodes, move_branch, noop_branch, x),
+            move_branch,
             (state, reward),
         )
 

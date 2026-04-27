@@ -1,4 +1,6 @@
 import pickle
+import subprocess
+import sys
 from pathlib import Path
 
 import jax
@@ -176,6 +178,55 @@ def test_parallel_single_combo_matches_existing_a2c():
         jax.tree_util.tree_leaves(reference_state.params),
     ):
         np.testing.assert_allclose(np.asarray(parallel_leaf[0, 0]), np.asarray(reference_leaf), atol=1e-6)
+
+
+def test_default_shape_compiled_a2c_materializes_metrics():
+    code = """
+import numpy as np
+import jax
+
+from modules.a2c import JaxBatchMaskA2C
+from modules.environment import JaxDecisionTreeEnv
+
+env = JaxDecisionTreeEnv(
+    num_nodes=15,
+    beta_move=40.0,
+    eps_move=0.0,
+    learning_rate=1.0,
+    lamda_backup=1.0,
+    wm_decay=1.0,
+    t_max=100,
+    cost=0.01,
+    scale_factor=1 / 8,
+    shuffle_nodes=True,
+)
+trainer = JaxBatchMaskA2C(
+    env=env,
+    feature_size=env.observation_shape[0],
+    action_size=env.action_size,
+    hidden_size=128,
+    batch_size=64,
+    lr=5e-4,
+    gamma=1.0,
+    lamda=0.9,
+    beta_v=0.05,
+    beta_e=0.05,
+)
+state = trainer.init_state(seed=15)
+_, metrics = trainer.train_compiled(state, np.array([0.05], dtype=np.float32))
+jax.device_get(metrics.episode_reward)
+"""
+    try:
+        subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=Path(__file__).resolve().parents[1],
+            check=True,
+            timeout=20,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise AssertionError("compiled A2C metrics did not materialize") from error
 
 
 def test_expand_sweep_rejects_shape_changing_arrays():
