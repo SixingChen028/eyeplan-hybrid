@@ -300,7 +300,7 @@ def test_recency_observation_tracks_direct_fixations():
         wm_decay=0.5,
         t_max=20,
         shuffle_nodes=False,
-        use_recency_obs=True,
+        recency_decay="auto",
         seed=8,
     )
     jax_env = JaxDecisionTreeEnv(
@@ -308,9 +308,9 @@ def test_recency_observation_tracks_direct_fixations():
         wm_decay=0.5,
         t_max=20,
         shuffle_nodes=False,
-        use_recency_obs=True,
+        recency_decay="auto",
     )
-    default_env = JaxDecisionTreeEnv(num_nodes=num_nodes, use_recency_obs=False)
+    default_env = JaxDecisionTreeEnv(num_nodes=num_nodes, recency_decay="off")
 
     assert jax_env.observation_shape[0] == default_env.observation_shape[0] + num_nodes
 
@@ -332,6 +332,45 @@ def test_recency_observation_tracks_direct_fixations():
     np.testing.assert_allclose(np.asarray(obs_jax)[recency_slice], expected_recency, atol=1e-6)
     np.testing.assert_allclose(np.asarray(obs_jax), obs_reference, atol=1e-6)
     np.testing.assert_allclose(np.asarray(state.fixation_recency), reference_env.fixation_recency, atol=1e-6)
+
+
+def test_zero_recency_decay_observation_stays_zero():
+    env = JaxDecisionTreeEnv(
+        num_nodes=7,
+        wm_decay=0.5,
+        t_max=20,
+        shuffle_nodes=False,
+        recency_decay=0.0,
+    )
+    state, obs, _ = env.reset(jax.random.PRNGKey(9))
+    recency_slice = slice(-env.num_nodes - 1, -1)
+
+    np.testing.assert_allclose(np.asarray(obs)[recency_slice], np.zeros(env.num_nodes), atol=1e-6)
+
+    action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
+    state, obs, _, _, _, _ = env.step(state, _jax_action(action))
+
+    np.testing.assert_allclose(np.asarray(obs)[recency_slice], np.zeros(env.num_nodes), atol=1e-6)
+    np.testing.assert_allclose(np.asarray(state.fixation_recency), np.zeros(env.num_nodes), atol=1e-6)
+
+
+def test_auto_recency_decay_uses_half_when_wm_decay_is_one():
+    env = JaxDecisionTreeEnv(
+        num_nodes=7,
+        wm_decay=1.0,
+        t_max=20,
+        shuffle_nodes=False,
+        recency_decay="auto",
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(10))
+    action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
+    state, obs, _, _, _, _ = env.step(state, _jax_action(action))
+
+    recency = np.asarray(obs)[-env.num_nodes - 1 : -1]
+    expected = np.zeros(env.num_nodes)
+    expected[int(state.root_node)] = 0.5
+    expected[action] = 1.0
+    np.testing.assert_allclose(recency, expected, atol=1e-6)
 
 
 def test_move_step_matches_reference_environment():

@@ -22,6 +22,27 @@ def parse_bool(value):
     )
 
 
+def parse_recency_decay(value):
+    if isinstance(value, str):
+        stripped = value.strip().lower()
+        if stripped in {"off", "auto"}:
+            return stripped
+        value = stripped
+
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as error:
+        raise argparse.ArgumentTypeError(
+            "recency_decay must be 'off', 'auto', or a number in [0, 1)."
+        ) from error
+
+    if not 0.0 <= parsed < 1.0:
+        raise argparse.ArgumentTypeError(
+            "recency_decay numeric values must satisfy 0 <= recency_decay < 1."
+        )
+    return parsed
+
+
 class ArgParser:
     """
     An ArgumentParser.
@@ -68,7 +89,7 @@ class ArgParser:
         self.parser.add_argument('--scale_factor', type = float, default = 1 / 8, help = 'reward scale factor')
         self.parser.add_argument('--shuffle_nodes', type = parse_bool, default = True, help = 'if shuffle nodes')
         self.parser.add_argument('--canonicalize', nargs = '?', const = True, type = parse_bool, default = False, help = 'if canonicalize node ids by discovery order')
-        self.parser.add_argument('--use_recency_obs', type = parse_bool, default = False, help = 'if append decayed fixation recency to observations')
+        self.parser.add_argument('--recency_decay', type = parse_recency_decay, default = 'off', help = "off, auto, or numeric decay in [0, 1)")
         self.parser.add_argument('--mask_fixation', type = parse_bool, default = True, help = 'if mask fixations')
 
         # training parameters

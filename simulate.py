@@ -29,6 +29,10 @@ def _read_metadata_args(run_dir: str) -> dict:
 
 
 def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
+    recency_decay = metadata_args.get("recency_decay")
+    if recency_decay is None:
+        recency_decay = "auto" if bool(metadata_args.get("use_recency_obs", False)) else "off"
+
     return JaxDecisionTreeEnv(
         num_nodes=int(metadata_args.get("num_nodes", 15)),
         beta_move=float(metadata_args.get("beta_move", 40.0)),
@@ -40,7 +44,7 @@ def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
         cost=float(metadata_args.get("cost", 0.01)),
         scale_factor=float(metadata_args.get("scale_factor", 1 / 8)),
         shuffle_nodes=bool(metadata_args.get("shuffle_nodes", True)),
-        use_recency_obs=bool(metadata_args.get("use_recency_obs", False)),
+        recency_decay=recency_decay,
     )
 
 

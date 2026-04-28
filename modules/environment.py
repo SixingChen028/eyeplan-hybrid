@@ -37,6 +37,24 @@ class JaxDecisionTreeParams(NamedTuple):
 class JaxDecisionTreeEnv:
     metadata = {"render_modes": ["human", "rgb_array"]}
 
+    @staticmethod
+    def _parse_recency_decay(recency_decay) -> tuple[bool, bool, float]:
+        if isinstance(recency_decay, str):
+            value = recency_decay.strip().lower()
+            if value == "off":
+                return False, False, 0.0
+            if value == "auto":
+                return True, True, 0.0
+            try:
+                recency_decay = float(value)
+            except ValueError as error:
+                raise ValueError("recency_decay must be 'off', 'auto', or a number in [0, 1).") from error
+
+        value = float(recency_decay)
+        if not 0.0 <= value < 1.0:
+            raise ValueError("recency_decay numeric values must satisfy 0 <= recency_decay < 1.")
+        return True, False, value
+
     def __init__(
         self,
         num_nodes: int = 15,
@@ -50,7 +68,7 @@ class JaxDecisionTreeEnv:
         scale_factor: float = 1 / 8,
         shuffle_nodes: bool = True,
         canonicalize: bool = False,
-        use_recency_obs: bool = False,
+        recency_decay="off",
         point_set=None,
     ):
         self.num_nodes = int(num_nodes)
@@ -64,7 +82,7 @@ class JaxDecisionTreeEnv:
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
         self.canonicalize = bool(canonicalize)
-        self.use_recency_obs = bool(use_recency_obs)
+        self.use_recency_obs, self.recency_decay_auto, self.recency_decay = self._parse_recency_decay(recency_decay)
 
         if point_set is None:
             point_set = [-8, -4, -2, -1, 1, 2, 4, 8]
@@ -298,8 +316,14 @@ class JaxDecisionTreeEnv:
         state: JaxDecisionTreeState,
         params: JaxDecisionTreeParams | None = None,
     ) -> JaxDecisionTreeState:
-        wm_decay = self.wm_decay if params is None else params.wm_decay
-        return state._replace(fixation_recency=state.fixation_recency * wm_decay)
+        recency_decay = self._recency_decay_value(params)
+        return state._replace(fixation_recency=state.fixation_recency * recency_decay)
+
+    def _recency_decay_value(self, params: JaxDecisionTreeParams | None = None):
+        if self.recency_decay_auto:
+            wm_decay = self.wm_decay if params is None else params.wm_decay
+            return jnp.where(wm_decay == 1.0, 0.5, wm_decay)
+        return jnp.asarray(self.recency_decay, dtype=jnp.float32)
 
     def _look(
         self,
@@ -321,7 +345,9 @@ class JaxDecisionTreeEnv:
         return state._replace(
             q_values=q_values,
             n_visits=n_visits,
-            fixation_recency=state.fixation_recency.at[node].set(1.0),
+            fixation_recency=state.fixation_recency.at[node].set(
+                jnp.where(self._recency_decay_value(params) > 0.0, 1.0, 0.0),
+            ),
         )
 
     def _update_activation(
@@ -477,6 +503,7 @@ class JaxDecisionTreeEnv:
         points = self.point_set[point_idx]
         points = points.at[root].set(0.0)
 
+        recency_initial_value = jnp.where(self._recency_decay_value(params) > 0.0, 1.0, 0.0)
         state = JaxDecisionTreeState(
             rng_key=key,
             time_elapsed=jnp.int32(0),
@@ -488,7 +515,7 @@ class JaxDecisionTreeEnv:
             q_values=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(0.0),
             g_values=self._compute_path_values(parent_nodes, points),
             n_visits=jnp.zeros((self.num_nodes,), dtype=jnp.int32),
-            fixation_recency=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(1.0),
+            fixation_recency=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(recency_initial_value),
             activation=jnp.zeros((self.num_nodes,), dtype=jnp.float32),
             chosen_path=self.empty_path,
             chosen_path_len=jnp.int32(0),

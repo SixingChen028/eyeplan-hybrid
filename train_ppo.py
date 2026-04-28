@@ -110,7 +110,7 @@ if __name__ == '__main__':
         scale_factor=args.scale_factor,
         shuffle_nodes=args.shuffle_nodes,
         canonicalize=args.canonicalize,
-        use_recency_obs=args.use_recency_obs,
+        recency_decay=args.recency_decay,
     )
 
     trainer = JaxBatchMaskPPO(
