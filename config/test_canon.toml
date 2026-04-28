@@ -1,18 +1,22 @@
+[sbatch]
+time = "8:00:00"
+mem_per_cpu = "1000M"
+
 [params]
 # environment
 num_nodes = 15
 t_max = 50
-cost = [0.01, 0.02, 0.04, 0.08]
+cost = [0.01, 0.02, 0.03, 0.04, 0.08, 0.16]
 beta_move = 100.0
 eps_move = 0.0
 learning_rate = 1.0
 wm_decay = [0.5, 1.0]
 lamda_backup = 1.0
-canonicalize = true
+canonicalize = [true, false]
 # network
-hidden_size = 512
+hidden_size = 256
 # training
-seed = [1, 2, 3, 4]
+seed = [1, 2, 3]
 num_episodes = 16000000
 batch_size = 512
 # GAE
