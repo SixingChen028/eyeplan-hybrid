@@ -276,9 +276,16 @@ def train_with_progress(
         result = jax.block_until_ready(trainer.train_sweep(hypers, seeds))
         return result, time.time() - start
 
-    start = time.time()
     schedule = _entropy_schedule(hypers, num_updates)
     states = jax.block_until_ready(trainer.init_sweep_states(hypers, seeds))
+    warmup_updates = min(print_frequency, num_updates)
+    trainer.compile_train_sweep_chunk(
+        states,
+        hypers,
+        schedule[:, :warmup_updates],
+    )
+
+    start = time.time()
     metrics_chunks = []
 
     for update_start in range(0, num_updates, print_frequency):

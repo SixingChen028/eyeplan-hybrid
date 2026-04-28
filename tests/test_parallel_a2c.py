@@ -10,7 +10,7 @@ import numpy as np
 from modules.a2c import JaxBatchMaskA2C
 from modules.environment import JaxDecisionTreeEnv
 from modules.parallel_a2c import ParallelJaxBatchMaskA2C
-from train_parallel_a2c import build_hypers, expand_sweep, save_results
+from train_parallel_a2c import build_hypers, expand_sweep, save_results, train_with_progress
 
 
 def _small_params(**overrides):
@@ -105,6 +105,46 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
     assert result.metrics.episode_reward.shape == (2, 2, 2)
     assert result.states.optimizer.step.shape == (2, 2)
     np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((2, 2), 2))
+
+
+def test_train_with_progress_reports_numeric_rate(capsys):
+    fixed, combos, seeds, _ = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
+    env = JaxDecisionTreeEnv(
+        num_nodes=fixed["num_nodes"],
+        t_max=fixed["t_max"],
+        shuffle_nodes=fixed["shuffle_nodes"],
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+    num_updates = int(fixed["num_episodes"] / fixed["batch_size"])
+    trainer = ParallelJaxBatchMaskA2C(
+        env=env,
+        feature_size=env.observation_shape[0],
+        action_size=env.action_size,
+        hidden_size=fixed["hidden_size"],
+        batch_size=fixed["batch_size"],
+        num_updates=num_updates,
+    )
+
+    result, elapsed_seconds = train_with_progress(
+        trainer,
+        build_hypers(combos),
+        seeds,
+        num_updates=num_updates,
+        print_frequency=1,
+    )
+
+    assert result.metrics.loss.shape == (1, 1, 2)
+    assert elapsed_seconds >= 0.0
+    progress_lines = [
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("parallel_train_progress ")
+    ]
+    assert len(progress_lines) == 2
+    assert all("updates_per_second=" in line for line in progress_lines)
+    for line in progress_lines:
+        rate = float(line.rsplit("updates_per_second=", maxsplit=1)[1])
+        assert rate > 0.0
 
 
 def test_parallel_single_combo_matches_existing_a2c():

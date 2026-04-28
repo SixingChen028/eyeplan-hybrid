@@ -346,3 +346,12 @@ class ParallelJaxBatchMaskA2C:
     ):
         entropy_schedule = jnp.asarray(entropy_schedule, dtype=jnp.float32)
         return self._train_sweep_chunk_jit(states, hypers, entropy_schedule)
+
+    def compile_train_sweep_chunk(
+        self,
+        states: JaxTrainState,
+        hypers: A2CHyperParams,
+        entropy_schedule,
+    ) -> None:
+        entropy_schedule = jnp.asarray(entropy_schedule, dtype=jnp.float32)
+        self._train_sweep_chunk_jit.lower(states, hypers, entropy_schedule).compile()
