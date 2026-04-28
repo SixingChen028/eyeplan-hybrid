@@ -200,6 +200,7 @@ if __name__ == '__main__':
         cost=args.cost,
         scale_factor=args.scale_factor,
         shuffle_nodes=args.shuffle_nodes,
+        canonicalize=args.canonicalize,
     )
 
     trainer = JaxBatchMaskA2C(

@@ -42,6 +42,7 @@ DEFAULT_PARAMS = {
     "cost": 0.01,
     "scale_factor": 1 / 8,
     "shuffle_nodes": True,
+    "canonicalize": False,
     "mask_fixation": True,
     "num_episodes": 16_000_000,
     "eval_episodes": 102_400,
@@ -86,6 +87,7 @@ SHAPE_KEYS = {
     "t_max",
     "num_episodes",
     "eval_episodes",
+    "canonicalize",
 }
 
 
@@ -191,6 +193,7 @@ def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
         cost=args["cost"],
         scale_factor=args["scale_factor"],
         shuffle_nodes=args["shuffle_nodes"],
+        canonicalize=args["canonicalize"],
     )
 
 
@@ -206,6 +209,7 @@ def _env_cache_key(args: dict) -> tuple:
         "cost",
         "scale_factor",
         "shuffle_nodes",
+        "canonicalize",
     )
     return tuple(args[key] for key in keys)
 

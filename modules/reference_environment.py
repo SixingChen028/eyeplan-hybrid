@@ -16,6 +16,7 @@ class ReferenceDecisionTreeEnv:
         cost: float = 0.01,
         scale_factor: float = 1 / 8,
         shuffle_nodes: bool = True,
+        canonicalize: bool = False,
         point_set=None,
         seed: int | None = None,
     ):
@@ -29,6 +30,7 @@ class ReferenceDecisionTreeEnv:
         self.cost = float(cost)
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
+        self.canonicalize = bool(canonicalize)
 
         if point_set is None:
             point_set = [-8, -4, -2, -1, 1, 2, 4, 8]
@@ -209,10 +211,29 @@ class ReferenceDecisionTreeEnv:
     def get_obs(self) -> np.ndarray:
         fixation_parent = self.parent_nodes[self.fixation_node]
         fixation_children = self.child_nodes[self.fixation_node]
+        visible_g_values = np.where(self._known_mask(), self.g_values, 0.0)
+
+        if not self.canonicalize:
+            fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
+                fixation_children[1]
+            )
+            return np.concatenate(
+                [
+                    self._one_hot(self.fixation_node),
+                    np.asarray([self.points[self.fixation_node]]),
+                    self._one_hot(fixation_parent),
+                    fixation_child_mask,
+                    self._one_hot(self.root_node),
+                    visible_g_values,
+                    self.q_values,
+                    self.n_visits.astype(float),
+                    np.asarray([self.time_elapsed]),
+                ]
+            )
+
         fixation_child_mask = self._canonical_one_hot(fixation_children[0]) + self._canonical_one_hot(
             fixation_children[1]
         )
-        visible_g_values = np.where(self._known_mask(), self.g_values, 0.0)
 
         obs = np.concatenate(
             [
@@ -237,6 +258,10 @@ class ReferenceDecisionTreeEnv:
             return mask  # can ONLY terminate 
         raw_node_mask = self.activation > 0
         raw_node_mask[self.root_node] = True
+        if not self.canonicalize:
+            mask[: self.num_nodes] = raw_node_mask
+            return mask
+
         mask[: self.num_nodes] = self._canonical_values(raw_node_mask).astype(bool)
         return mask
 
@@ -260,11 +285,18 @@ class ReferenceDecisionTreeEnv:
         self.activation = np.zeros(self.num_nodes)
 
         self.fixation_node = self.root_node
-        self.raw_to_canon = -np.ones(self.num_nodes, dtype=int)
-        self.canon_to_raw = -np.ones(self.num_nodes, dtype=int)
-        self.next_canon_id = 0
+        if self.canonicalize:
+            self.raw_to_canon = -np.ones(self.num_nodes, dtype=int)
+            self.canon_to_raw = -np.ones(self.num_nodes, dtype=int)
+            self.next_canon_id = 0
+        else:
+            self.raw_to_canon = np.arange(self.num_nodes, dtype=int)
+            self.canon_to_raw = np.arange(self.num_nodes, dtype=int)
+            self.next_canon_id = self.num_nodes
+
         self._update_activation(self.fixation_node)
-        self._canonicalize_visible()
+        if self.canonicalize:
+            self._canonicalize_visible()
 
         obs = self.get_obs()
         info = {"mask": self.get_action_mask()}
@@ -283,7 +315,11 @@ class ReferenceDecisionTreeEnv:
             valid_actions = np.flatnonzero(action_mask).tolist()
             raise ValueError(f"Invalid action {action}; valid actions are {valid_actions}.")
 
-        raw_action = self.canon_to_raw[action] if action < self.num_nodes else action
+        raw_action = (
+            self.canon_to_raw[action]
+            if self.canonicalize and action < self.num_nodes
+            else action
+        )
 
         self.time_elapsed = next_time_elapsed
         reward = -self.cost
@@ -292,7 +328,8 @@ class ReferenceDecisionTreeEnv:
             self._look(raw_action)
             self.fixation_node = raw_action
             self._update_activation(raw_action)
-            self._canonicalize_visible()
+            if self.canonicalize:
+                self._canonicalize_visible()
             self.chosen_path = []
         elif action == self.num_nodes:
             cum_reward, chosen_path = self._move()
