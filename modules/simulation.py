@@ -134,9 +134,14 @@ class JaxSimulator:
             else:
                 action, rng_key = sampled_action(rng_key)
 
+            raw_action = jnp.where(
+                action < self.env.num_nodes,
+                state.canon_to_raw[jnp.minimum(action, self.env.num_nodes - 1)],
+                action,
+            )
             state, obs, _, done, _, info = self.env.step(state, action)
             action_mask = info["mask"]
-            action_seq = action_seq.at[step_count].set(action)
+            action_seq = action_seq.at[step_count].set(raw_action)
             step_count = step_count + 1
 
             return (

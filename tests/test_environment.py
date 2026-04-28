@@ -67,6 +67,9 @@ def _sync_reference_from_state(env: ReferenceDecisionTreeEnv, state) -> None:
 
     chosen_path_len = int(state.chosen_path_len)
     env.chosen_path = [int(node) for node in np.asarray(state.chosen_path)[:chosen_path_len]]
+    env.raw_to_canon = np.asarray(state.raw_to_canon).copy()
+    env.canon_to_raw = np.asarray(state.canon_to_raw).copy()
+    env.next_canon_id = int(state.next_canon_id)
 
 
 def _reset_synced_envs(seed: int = 0, t_max: int = 20):
@@ -96,6 +99,10 @@ def _jax_action(action: int):
     return jnp.asarray(action, dtype=jnp.int32)
 
 
+def _canonical_action_from_raw(raw_to_canon, raw_action: int) -> int:
+    return int(np.asarray(raw_to_canon)[raw_action])
+
+
 def _assert_state_matches_reference(env: ReferenceDecisionTreeEnv, state) -> None:
     np.testing.assert_equal(int(state.time_elapsed), env.time_elapsed)
     np.testing.assert_equal(int(state.fixation_node), env.fixation_node)
@@ -110,6 +117,9 @@ def _assert_state_matches_reference(env: ReferenceDecisionTreeEnv, state) -> Non
     np.testing.assert_array_equal(np.asarray(state.n_visits), env.n_visits)
 
     np.testing.assert_allclose(np.asarray(state.activation), env.activation, atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(state.raw_to_canon), env.raw_to_canon)
+    np.testing.assert_array_equal(np.asarray(state.canon_to_raw), env.canon_to_raw)
+    np.testing.assert_equal(int(state.next_canon_id), env.next_canon_id)
 
 
 def _make_envs(seed: int = 0, t_max: int = 20):
@@ -167,10 +177,38 @@ def test_reset_matches_reference_environment():
     _assert_state_matches_reference(reference_env, state)
 
 
+def test_reset_canonicalizes_only_visible_nodes():
+    env = JaxDecisionTreeEnv(num_nodes=15, shuffle_nodes=True)
+
+    state, obs, info = env.reset(jax.random.PRNGKey(23))
+    root = int(state.root_node)
+    root_children = [int(node) for node in np.asarray(state.child_nodes[root]) if int(node) >= 0]
+    visible_raw = {root, *root_children}
+
+    assert int(state.raw_to_canon[root]) == 0
+    assert int(state.next_canon_id) == len(visible_raw)
+    assert set(np.asarray(state.canon_to_raw)[: int(state.next_canon_id)].tolist()) == visible_raw
+    np.testing.assert_array_equal(
+        np.asarray(state.canon_to_raw)[int(state.next_canon_id) :],
+        -np.ones(env.num_nodes - int(state.next_canon_id), dtype=np.int32),
+    )
+
+    fixation_slice = slice(0, env.num_nodes)
+    root_slice = slice(1 + env.num_nodes * 3, 1 + env.num_nodes * 4)
+    np.testing.assert_array_equal(np.asarray(obs[fixation_slice]), np.eye(env.num_nodes)[0])
+    np.testing.assert_array_equal(np.asarray(obs[root_slice]), np.eye(env.num_nodes)[0])
+
+    expected_mask = np.zeros(env.action_size, dtype=bool)
+    expected_mask[: int(state.next_canon_id)] = True
+    expected_mask[-1] = True
+    np.testing.assert_array_equal(np.asarray(info["mask"]), expected_mask)
+
+
 def test_fixation_step_matches_reference_environment():
     reference_env, jax_env, _, state, _, _ = _reset_synced_envs(seed=4)
 
-    action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
+    raw_action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
+    action = _canonical_action_from_raw(reference_env.raw_to_canon, raw_action)
     obs_reference, reward_reference, done_reference, truncated_reference, info_reference = reference_env.step(action)
     state, obs_jax, reward_jax, done_jax, truncated_jax, info_jax = jax_env.step(state, _jax_action(action))
 
@@ -186,7 +224,8 @@ def test_fixation_step_matches_reference_environment():
 def test_move_step_matches_reference_environment():
     reference_env, jax_env, _, state, _, _ = _reset_synced_envs(seed=5)
 
-    for action in _first_child_path(_reference_children_array(reference_env), reference_env.root_node):
+    for raw_action in _first_child_path(_reference_children_array(reference_env), reference_env.root_node):
+        action = _canonical_action_from_raw(reference_env.raw_to_canon, raw_action)
         reference_env.step(action)
         state, _, _, _, _, _ = jax_env.step(state, _jax_action(action))
 
@@ -209,11 +248,13 @@ def test_compiled_rollout_matches_reference_environment():
 
     reset_state, _, _ = jax_env.reset(key)
     _sync_reference_from_state(reference_env, reset_state)
-    actions = jnp.array(
-        _first_child_path(_reference_children_array(reference_env), reference_env.root_node)
-        + [reference_env.num_nodes],
-        dtype=jnp.int32,
-    )
+    action_list = []
+    for raw_action in _first_child_path(_reference_children_array(reference_env), reference_env.root_node):
+        action = _canonical_action_from_raw(reference_env.raw_to_canon, raw_action)
+        action_list.append(action)
+        reference_env.step(action)
+    action_list.append(reference_env.num_nodes)
+    actions = jnp.array(action_list, dtype=jnp.int32)
 
     def rollout(k, action_seq):
         state, reset_obs, reset_info = jax_env.reset(k)
@@ -280,7 +321,8 @@ def test_compiled_rollout_matches_reference_environment():
 def test_chosen_path_does_not_leak_across_trials():
     reference_env, jax_env, key, state, _, _ = _reset_synced_envs(seed=7, t_max=3)
 
-    action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
+    raw_action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
+    action = _canonical_action_from_raw(reference_env.raw_to_canon, raw_action)
     reference_env.step(action)
     state, _, _, _, _, _ = jax_env.step(state, _jax_action(action))
     move_action = reference_env.num_nodes
@@ -293,7 +335,8 @@ def test_chosen_path_does_not_leak_across_trials():
     reference_env.reset()
     state, _, _ = jax_env.reset(key)
     _sync_reference_from_state(reference_env, state)
-    action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
+    raw_action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
+    action = _canonical_action_from_raw(reference_env.raw_to_canon, raw_action)
 
     done_reference = False
     done_jax = False
@@ -310,7 +353,8 @@ def test_chosen_path_does_not_leak_across_trials():
 def test_timeout_masks_to_move_action():
     reference_env, jax_env, _, state, _, _ = _reset_synced_envs(seed=11, t_max=3)
 
-    action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
+    raw_action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
+    action = _canonical_action_from_raw(reference_env.raw_to_canon, raw_action)
     info_reference = {"mask": reference_env.get_action_mask()}
     info_jax = {"mask": jax_env.get_action_mask(state)}
     for _ in range(reference_env.t_max - 1):
@@ -361,7 +405,8 @@ def test_visit_all_once_then_terminate_is_optimal_reference():
     assert len(visit_order) == env.num_nodes
     assert len(set(visit_order)) == env.num_nodes
 
-    for action in visit_order:
+    for raw_action in visit_order:
+        action = _canonical_action_from_raw(env.raw_to_canon, raw_action)
         assert bool(info["mask"][action])
         _, _, done, truncated, info = env.step(action)
         assert not done
@@ -401,7 +446,8 @@ def test_visit_all_once_then_terminate_is_optimal_jax():
     assert len(visit_order) == env.num_nodes
     assert len(set(visit_order)) == env.num_nodes
 
-    for action in visit_order:
+    for raw_action in visit_order:
+        action = _canonical_action_from_raw(state.raw_to_canon, raw_action)
         assert bool(np.asarray(info["mask"])[action])
         state, _, _, done, truncated, info = env.step(state, _jax_action(action))
         assert not bool(done)
