@@ -1,0 +1,29 @@
+[sbatch]
+time = "10:00:00"
+mem_per_cpu = "1000M"
+
+[params]
+# environment
+num_nodes = 15
+t_max = 100
+cost = 0.01
+beta_move = 4
+eps_move = 0.02
+learning_rate = 1.0
+wm_decay = [0.0, 0.5, 1.0]
+lamda_backup = [0.0, 0.5, 1.0]
+# network
+hidden_size = 128
+# training
+seed = [1, 2, 3]
+num_episodes = 15000000
+batch_size = 64
+# GAE
+gamma = 1.0
+lr = 0.001
+lamda = 1.0
+# loss
+beta_e_init = 0.05
+beta_e_final = 0.01
+beta_v = 0.05
+max_grad_norm = 1
