@@ -17,6 +17,7 @@ class ReferenceDecisionTreeEnv:
         scale_factor: float = 1 / 8,
         shuffle_nodes: bool = True,
         canonicalize: bool = False,
+        use_recency_obs: bool = False,
         point_set=None,
         seed: int | None = None,
     ):
@@ -31,6 +32,7 @@ class ReferenceDecisionTreeEnv:
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
         self.canonicalize = bool(canonicalize)
+        self.use_recency_obs = bool(use_recency_obs)
 
         if point_set is None:
             point_set = [-8, -4, -2, -1, 1, 2, 4, 8]
@@ -167,8 +169,12 @@ class ReferenceDecisionTreeEnv:
             weight *= self.lamda_backup
             current = ancestor
 
+    def _decay_fixation_recency(self):
+        self.fixation_recency *= self.wm_decay
+
     def _look(self, node: int):
         self.n_visits[node] += 1
+        self.fixation_recency[node] = 1.0
         self._update_q(node)
 
     def _update_activation(self, node: int):
@@ -217,37 +223,40 @@ class ReferenceDecisionTreeEnv:
             fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
                 fixation_children[1]
             )
-            return np.concatenate(
-                [
-                    self._one_hot(self.fixation_node),
-                    np.asarray([self.points[self.fixation_node]]),
-                    self._one_hot(fixation_parent),
-                    fixation_child_mask,
-                    self._one_hot(self.root_node),
-                    visible_g_values,
-                    self.q_values,
-                    self.n_visits.astype(float),
-                    np.asarray([self.time_elapsed]),
-                ]
-            )
+            parts = [
+                self._one_hot(self.fixation_node),
+                np.asarray([self.points[self.fixation_node]]),
+                self._one_hot(fixation_parent),
+                fixation_child_mask,
+                self._one_hot(self.root_node),
+                visible_g_values,
+                self.q_values,
+                self.n_visits.astype(float),
+            ]
+            if self.use_recency_obs:
+                parts.append(self.fixation_recency)
+            parts.append(np.asarray([self.time_elapsed]))
+            return np.concatenate(parts)
 
         fixation_child_mask = self._canonical_one_hot(fixation_children[0]) + self._canonical_one_hot(
             fixation_children[1]
         )
 
-        obs = np.concatenate(
-            [
-                self._canonical_one_hot(self.fixation_node),
-                np.asarray([self.points[self.fixation_node]]),
-                self._canonical_one_hot(fixation_parent),
-                fixation_child_mask,
-                self._canonical_one_hot(self.root_node),
-                self._canonical_values(visible_g_values),
-                self._canonical_values(self.q_values),
-                self._canonical_values(self.n_visits).astype(float),
-                np.asarray([self.time_elapsed]),
-            ]
-        )
+        parts = [
+            self._canonical_one_hot(self.fixation_node),
+            np.asarray([self.points[self.fixation_node]]),
+            self._canonical_one_hot(fixation_parent),
+            fixation_child_mask,
+            self._canonical_one_hot(self.root_node),
+            self._canonical_values(visible_g_values),
+            self._canonical_values(self.q_values),
+            self._canonical_values(self.n_visits).astype(float),
+        ]
+        if self.use_recency_obs:
+            parts.append(self._canonical_values(self.fixation_recency))
+        parts.append(np.asarray([self.time_elapsed]))
+
+        obs = np.concatenate(parts)
 
         return obs
 
@@ -281,6 +290,7 @@ class ReferenceDecisionTreeEnv:
         self.q_values = np.zeros(self.num_nodes)
         self.g_values = self._compute_path_values()
         self.n_visits = np.zeros(self.num_nodes, dtype=int)
+        self.fixation_recency = np.zeros(self.num_nodes, dtype=float)
 
         self.activation = np.zeros(self.num_nodes)
 
@@ -294,6 +304,7 @@ class ReferenceDecisionTreeEnv:
             self.canon_to_raw = np.arange(self.num_nodes, dtype=int)
             self.next_canon_id = self.num_nodes
 
+        self.fixation_recency[self.root_node] = 1.0
         self._update_activation(self.fixation_node)
         if self.canonicalize:
             self._canonicalize_visible()
@@ -322,6 +333,7 @@ class ReferenceDecisionTreeEnv:
         )
 
         self.time_elapsed = next_time_elapsed
+        self._decay_fixation_recency()
         reward = -self.cost
 
         if action < self.num_nodes:

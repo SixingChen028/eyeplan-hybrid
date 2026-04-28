@@ -1,0 +1,34 @@
+# config/test_decay.toml
+[meta]
+experiment = "test_decay"
+result_path = "./results"
+
+[params]
+# fixed shape params
+num_nodes = 15
+hidden_size = 256
+batch_size = 256
+t_max = 30
+num_episodes = 32_000_000
+eval_episodes = 51200
+use_recency_obs = true
+
+# env params
+cost = 0.02
+beta_move = 100.0
+eps_move = 0.0
+learning_rate = 1.0
+lamda_backup = [0.2, 0.5, 0.8]
+wm_decay = [0.2, 0.5, 0.8]
+shuffle_nodes = true
+scale_factor = 0.125
+
+# training params
+seed = [1, 2, 3]
+lr = [0.0005, 0.001]
+gamma = 1.0
+lamda = 0.8
+beta_v = 0.05
+beta_e_init = 0.02
+beta_e_final = 0.01
+max_grad_norm = 2.0

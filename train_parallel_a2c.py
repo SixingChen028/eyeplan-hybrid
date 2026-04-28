@@ -43,6 +43,7 @@ DEFAULT_PARAMS = {
     "scale_factor": 1 / 8,
     "shuffle_nodes": True,
     "canonicalize": False,
+    "use_recency_obs": False,
     "mask_fixation": True,
     "num_episodes": 16_000_000,
     "eval_episodes": 102_400,
@@ -88,6 +89,7 @@ SHAPE_KEYS = {
     "num_episodes",
     "eval_episodes",
     "canonicalize",
+    "use_recency_obs",
 }
 
 
@@ -194,6 +196,7 @@ def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
         scale_factor=args["scale_factor"],
         shuffle_nodes=args["shuffle_nodes"],
         canonicalize=args["canonicalize"],
+        use_recency_obs=args["use_recency_obs"],
     )
 
 
@@ -210,6 +213,7 @@ def _env_cache_key(args: dict) -> tuple:
         "scale_factor",
         "shuffle_nodes",
         "canonicalize",
+        "use_recency_obs",
     )
     return tuple(args[key] for key in keys)
 

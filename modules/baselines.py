@@ -30,8 +30,9 @@ class ObsView:
 
 
 class ObsLayout:
-    def __init__(self, num_nodes: int):
+    def __init__(self, num_nodes: int, use_recency_obs: bool = False):
         self.num_nodes = num_nodes
+        self.use_recency_obs = bool(use_recency_obs)
         index = 0
 
         self.fixation = slice(index, index + num_nodes)
@@ -57,6 +58,10 @@ class ObsLayout:
 
         self.visits = slice(index, index + num_nodes)
         index += num_nodes
+
+        self.recency = slice(index, index + num_nodes)
+        if self.use_recency_obs:
+            index += num_nodes
 
         self.time = slice(index, index + 1)
 
@@ -359,7 +364,7 @@ def evaluate_baseline_policies(
     policy_names: List[str],
     reset_keys: jax.Array,
 ) -> Tuple[List[PolicyStats], float, float]:
-    layout = ObsLayout(env.num_nodes)
+    layout = ObsLayout(env.num_nodes, use_recency_obs=getattr(env, "use_recency_obs", False))
     reset_fn = jax.jit(env.reset)
     step_fn = jax.jit(env.step)
 

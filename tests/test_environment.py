@@ -62,6 +62,7 @@ def _sync_reference_from_state(env: ReferenceDecisionTreeEnv, state) -> None:
     env.q_values = np.asarray(state.q_values).copy()
     env.g_values = np.asarray(state.g_values).copy()
     env.n_visits = np.asarray(state.n_visits).copy()
+    env.fixation_recency = np.asarray(state.fixation_recency).copy()
 
     env.activation = np.asarray(state.activation).copy()
 
@@ -115,6 +116,7 @@ def _assert_state_matches_reference(env: ReferenceDecisionTreeEnv, state) -> Non
     np.testing.assert_allclose(np.asarray(state.q_values), env.q_values, atol=1e-6)
     np.testing.assert_allclose(np.asarray(state.g_values), env.g_values, atol=1e-6)
     np.testing.assert_array_equal(np.asarray(state.n_visits), env.n_visits)
+    np.testing.assert_allclose(np.asarray(state.fixation_recency), env.fixation_recency, atol=1e-6)
 
     np.testing.assert_allclose(np.asarray(state.activation), env.activation, atol=1e-6)
     np.testing.assert_array_equal(np.asarray(state.raw_to_canon), env.raw_to_canon)
@@ -289,6 +291,47 @@ def test_fixation_step_matches_reference_environment():
     np.testing.assert_array_equal(np.asarray(info_jax["mask"]), info_reference["mask"])
 
     _assert_state_matches_reference(reference_env, state)
+
+
+def test_recency_observation_tracks_direct_fixations():
+    num_nodes = 7
+    reference_env = ReferenceDecisionTreeEnv(
+        num_nodes=num_nodes,
+        wm_decay=0.5,
+        t_max=20,
+        shuffle_nodes=False,
+        use_recency_obs=True,
+        seed=8,
+    )
+    jax_env = JaxDecisionTreeEnv(
+        num_nodes=num_nodes,
+        wm_decay=0.5,
+        t_max=20,
+        shuffle_nodes=False,
+        use_recency_obs=True,
+    )
+    default_env = JaxDecisionTreeEnv(num_nodes=num_nodes, use_recency_obs=False)
+
+    assert jax_env.observation_shape[0] == default_env.observation_shape[0] + num_nodes
+
+    reference_env.reset()
+    state, obs_jax, _ = jax_env.reset(jax.random.PRNGKey(8))
+    _sync_reference_from_state(reference_env, state)
+
+    recency_slice = slice(-num_nodes - 1, -1)
+    reset_recency = np.zeros(num_nodes)
+    reset_recency[int(state.root_node)] = 1.0
+    np.testing.assert_allclose(np.asarray(obs_jax)[recency_slice], reset_recency, atol=1e-6)
+
+    action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
+    obs_reference, _, _, _, _ = reference_env.step(action)
+    state, obs_jax, _, _, _, _ = jax_env.step(state, _jax_action(action))
+
+    expected_recency = reset_recency * 0.5
+    expected_recency[action] = 1.0
+    np.testing.assert_allclose(np.asarray(obs_jax)[recency_slice], expected_recency, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(obs_jax), obs_reference, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(state.fixation_recency), reference_env.fixation_recency, atol=1e-6)
 
 
 def test_move_step_matches_reference_environment():

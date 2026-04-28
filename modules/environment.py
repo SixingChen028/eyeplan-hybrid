@@ -14,6 +14,7 @@ class JaxDecisionTreeState(NamedTuple):
     q_values: jax.Array
     g_values: jax.Array
     n_visits: jax.Array
+    fixation_recency: jax.Array
     activation: jax.Array
     chosen_path: jax.Array
     chosen_path_len: jax.Array
@@ -49,6 +50,7 @@ class JaxDecisionTreeEnv:
         scale_factor: float = 1 / 8,
         shuffle_nodes: bool = True,
         canonicalize: bool = False,
+        use_recency_obs: bool = False,
         point_set=None,
     ):
         self.num_nodes = int(num_nodes)
@@ -62,6 +64,7 @@ class JaxDecisionTreeEnv:
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
         self.canonicalize = bool(canonicalize)
+        self.use_recency_obs = bool(use_recency_obs)
 
         if point_set is None:
             point_set = [-8, -4, -2, -1, 1, 2, 4, 8]
@@ -76,6 +79,7 @@ class JaxDecisionTreeEnv:
             + self.num_nodes
             + self.num_nodes
             + self.num_nodes
+            + (self.num_nodes if self.use_recency_obs else 0)
             + 1
         )
         self.observation_shape = (observation_size,)
@@ -289,6 +293,14 @@ class JaxDecisionTreeEnv:
         )
         return q_values
 
+    def _decay_fixation_recency(
+        self,
+        state: JaxDecisionTreeState,
+        params: JaxDecisionTreeParams | None = None,
+    ) -> JaxDecisionTreeState:
+        wm_decay = self.wm_decay if params is None else params.wm_decay
+        return state._replace(fixation_recency=state.fixation_recency * wm_decay)
+
     def _look(
         self,
         state: JaxDecisionTreeState,
@@ -309,6 +321,7 @@ class JaxDecisionTreeEnv:
         return state._replace(
             q_values=q_values,
             n_visits=n_visits,
+            fixation_recency=state.fixation_recency.at[node].set(1.0),
         )
 
     def _update_activation(
@@ -361,38 +374,41 @@ class JaxDecisionTreeEnv:
             fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
                 fixation_children[1]
             )
-            return jnp.concatenate(
-                [
-                    self._one_hot(state.fixation_node),
-                    jnp.array([state.points[state.fixation_node]], dtype=jnp.float32),
-                    self._one_hot(fixation_parent),
-                    fixation_child_mask,
-                    self._one_hot(state.root_node),
-                    visible_g_values_raw,
-                    state.q_values,
-                    state.n_visits.astype(jnp.float32),
-                    jnp.array([state.time_elapsed], dtype=jnp.float32),
-                ]
-            )
+            parts = [
+                self._one_hot(state.fixation_node),
+                jnp.array([state.points[state.fixation_node]], dtype=jnp.float32),
+                self._one_hot(fixation_parent),
+                fixation_child_mask,
+                self._one_hot(state.root_node),
+                visible_g_values_raw,
+                state.q_values,
+                state.n_visits.astype(jnp.float32),
+            ]
+            if self.use_recency_obs:
+                parts.append(state.fixation_recency)
+            parts.append(jnp.array([state.time_elapsed], dtype=jnp.float32))
+            return jnp.concatenate(parts)
 
         fixation_child_mask = self._canonical_one_hot(
             state,
             fixation_children[0],
         ) + self._canonical_one_hot(state, fixation_children[1])
 
-        obs = jnp.concatenate(
-            [
-                self._canonical_one_hot(state, state.fixation_node),
-                jnp.array([state.points[state.fixation_node]], dtype=jnp.float32),
-                self._canonical_one_hot(state, fixation_parent),
-                fixation_child_mask,
-                self._canonical_one_hot(state, state.root_node),
-                self._canonical_values(state, visible_g_values_raw),
-                self._canonical_values(state, state.q_values),
-                self._canonical_values(state, state.n_visits).astype(jnp.float32),
-                jnp.array([state.time_elapsed], dtype=jnp.float32),
-            ]
-        )
+        parts = [
+            self._canonical_one_hot(state, state.fixation_node),
+            jnp.array([state.points[state.fixation_node]], dtype=jnp.float32),
+            self._canonical_one_hot(state, fixation_parent),
+            fixation_child_mask,
+            self._canonical_one_hot(state, state.root_node),
+            self._canonical_values(state, visible_g_values_raw),
+            self._canonical_values(state, state.q_values),
+            self._canonical_values(state, state.n_visits).astype(jnp.float32),
+        ]
+        if self.use_recency_obs:
+            parts.append(self._canonical_values(state, state.fixation_recency))
+        parts.append(jnp.array([state.time_elapsed], dtype=jnp.float32))
+
+        obs = jnp.concatenate(parts)
 
         return obs
 
@@ -472,6 +488,7 @@ class JaxDecisionTreeEnv:
             q_values=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(0.0),
             g_values=self._compute_path_values(parent_nodes, points),
             n_visits=jnp.zeros((self.num_nodes,), dtype=jnp.int32),
+            fixation_recency=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(1.0),
             activation=jnp.zeros((self.num_nodes,), dtype=jnp.float32),
             chosen_path=self.empty_path,
             chosen_path_len=jnp.int32(0),
@@ -515,6 +532,7 @@ class JaxDecisionTreeEnv:
         else:
             raw_action = action
         state = state._replace(time_elapsed=state.time_elapsed + 1)
+        state = self._decay_fixation_recency(state, params)
         reward = -jnp.asarray(params.cost, dtype=jnp.float32)
 
         def fixation_branch(payload):
