@@ -2,10 +2,30 @@
 
 source('/Users/fred/lib/utils/R/base.r')
 
-df <- read_csvs("results/analysis/[experiment:apr25.*]/summary/evaluation.csv")
+# %% --------
+
+df <- read_csvs("results/analysis/[experiment:test_decay]/summary/evaluation.csv")
+# %% --------
+
+df %>% 
+    ggplot(aes(recency_decay, reward_mean, color=factor(wm_decay))) +
+    points() +
+    facet_wrap(~cost) +
+    theme()
+
+fig("tmp")
+
+# %% --------
+
+df %>% group_by(recency_decay, wm_decay, cost) %>% 
+    agg(reward_mean) %>% 
+    pivot_wider(names_from=recency_decay, values_from=reward_mean) %>% 
+    mutate(diff = `0.5` - `0`)
 
 
 # %% --------
+
+df <- read_csvs("results/analysis/[experiment:apr25.*]/summary/evaluation.csv")
 
 df %>% 
     group_by(wm_decay, beta_e_final, experiment) %>% 
