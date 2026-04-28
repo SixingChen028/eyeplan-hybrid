@@ -106,6 +106,36 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
     assert result.states.optimizer.step.shape == (2, 2)
     np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((2, 2), 2))
 
+def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
+    fixed, combos, seeds, varied_keys = expand_sweep(
+        _small_params(seed=0, wm_decay=0.5, recency_decay=[0, 0.5])
+    )
+
+    assert varied_keys == ["recency_decay"]
+    assert len(combos) == 2
+    assert seeds == [0]
+
+    hypers = build_hypers(combos)
+    np.testing.assert_allclose(np.asarray(hypers.env.recency_decay), np.array([0.0, 0.5], dtype=np.float32))
+
+    env = JaxDecisionTreeEnv(
+        num_nodes=fixed["num_nodes"],
+        t_max=fixed["t_max"],
+        shuffle_nodes=fixed["shuffle_nodes"],
+        recency_decay=combos[0]["recency_decay"],
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+    assert env.observation_shape[0] == JaxDecisionTreeEnv(num_nodes=fixed["num_nodes"]).observation_shape[0] + fixed["num_nodes"]
+
+
+def test_parallel_sweep_rejects_recency_decay_arrays_with_off():
+    try:
+        expand_sweep(_small_params(seed=0, recency_decay=["off", 0.5]))
+    except ValueError as error:
+        assert "changes compiled shapes" in str(error)
+        return
+    assert False, "recency_decay sweeps that include off should be rejected"
+
 
 def test_train_with_progress_reports_numeric_rate(capsys):
     fixed, combos, seeds, _ = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))

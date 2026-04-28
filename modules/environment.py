@@ -29,6 +29,7 @@ class JaxDecisionTreeParams(NamedTuple):
     learning_rate: jax.Array
     lamda_backup: jax.Array
     wm_decay: jax.Array
+    recency_decay: jax.Array
     cost: jax.Array
     scale_factor: jax.Array
     shuffle_nodes: jax.Array
@@ -110,6 +111,7 @@ class JaxDecisionTreeEnv:
             learning_rate=jnp.asarray(self.learning_rate, dtype=jnp.float32),
             lamda_backup=jnp.asarray(self.lamda_backup, dtype=jnp.float32),
             wm_decay=jnp.asarray(self.wm_decay, dtype=jnp.float32),
+            recency_decay=jnp.asarray(self._recency_decay_value(), dtype=jnp.float32),
             cost=jnp.asarray(self.cost, dtype=jnp.float32),
             scale_factor=jnp.asarray(self.scale_factor, dtype=jnp.float32),
             shuffle_nodes=jnp.asarray(self.shuffle_nodes, dtype=jnp.bool_),
@@ -320,9 +322,10 @@ class JaxDecisionTreeEnv:
         return state._replace(fixation_recency=state.fixation_recency * recency_decay)
 
     def _recency_decay_value(self, params: JaxDecisionTreeParams | None = None):
+        if params is not None:
+            return params.recency_decay
         if self.recency_decay_auto:
-            wm_decay = self.wm_decay if params is None else params.wm_decay
-            return jnp.where(wm_decay == 1.0, 0.5, wm_decay)
+            return jnp.where(self.wm_decay == 1.0, 0.5, self.wm_decay)
         return jnp.asarray(self.recency_decay, dtype=jnp.float32)
 
     def _look(

@@ -67,6 +67,7 @@ ENV_SWEEP_KEYS = {
     "learning_rate",
     "lamda_backup",
     "wm_decay",
+    "recency_decay",
     "cost",
     "scale_factor",
     "shuffle_nodes",
@@ -89,7 +90,6 @@ SHAPE_KEYS = {
     "num_episodes",
     "eval_episodes",
     "canonicalize",
-    "recency_decay",
 }
 
 
@@ -110,9 +110,29 @@ def _is_list(value) -> bool:
     return isinstance(value, list)
 
 
+def _resolve_recency_decay(value, wm_decay) -> float:
+    enabled, auto, decay = JaxDecisionTreeEnv._parse_recency_decay(value)
+    if not enabled:
+        return 0.0
+    if auto:
+        wm_decay = float(wm_decay)
+        return 0.5 if wm_decay == 1.0 else wm_decay
+    return float(decay)
+
+
 def _validate_params(params: dict) -> None:
     for key, value in params.items():
         if not _is_list(value):
+            continue
+        if len(value) == 0:
+            raise ValueError(f"params.{key} must not be an empty array.")
+        if key == "recency_decay":
+            for item in value:
+                enabled, _, _ = JaxDecisionTreeEnv._parse_recency_decay(item)
+                if not enabled:
+                    raise ValueError(
+                        "params.recency_decay cannot include 'off' in train_parallel_a2c.py because it changes compiled shapes."
+                    )
             continue
         if key in SHAPE_KEYS:
             raise ValueError(
@@ -120,8 +140,10 @@ def _validate_params(params: dict) -> None:
             )
         if key not in SWEEP_KEYS:
             raise ValueError(f"params.{key} is not a supported parallel sweep parameter.")
-        if len(value) == 0:
-            raise ValueError(f"params.{key} must not be an empty array.")
+
+    recency_decay = params.get("recency_decay", "off")
+    if not _is_list(recency_decay):
+        JaxDecisionTreeEnv._parse_recency_decay(recency_decay)
 
 
 def expand_sweep(params: dict) -> tuple[dict, list[dict], list[int], list[str]]:
@@ -167,6 +189,13 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
         learning_rate=array("learning_rate"),
         lamda_backup=array("lamda_backup"),
         wm_decay=array("wm_decay"),
+        recency_decay=jnp.asarray(
+            [
+                _resolve_recency_decay(combo["recency_decay"], combo["wm_decay"])
+                for combo in combos
+            ],
+            dtype=jnp.float32,
+        ),
         cost=array("cost"),
         scale_factor=array("scale_factor"),
         shuffle_nodes=array("shuffle_nodes", dtype=np.bool_),
