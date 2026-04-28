@@ -1,3 +1,4 @@
+import json
 import pickle
 import subprocess
 import sys
@@ -10,7 +11,13 @@ import numpy as np
 from modules.a2c import JaxBatchMaskA2C
 from modules.environment import JaxDecisionTreeEnv
 from modules.parallel_a2c import ParallelJaxBatchMaskA2C
-from train_parallel_a2c import build_hypers, expand_sweep, save_results, train_with_progress
+from train_parallel_a2c import (
+    build_hypers,
+    expand_sweep,
+    save_results,
+    simulate_results,
+    train_with_progress,
+)
 
 
 def _small_params(**overrides):
@@ -105,6 +112,7 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
     assert result.metrics.episode_reward.shape == (2, 2, 2)
     assert result.states.optimizer.step.shape == (2, 2)
     np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((2, 2), 2))
+
 
 def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
     fixed, combos, seeds, varied_keys = expand_sweep(
@@ -346,3 +354,48 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
     with open(run_dir / "data_training_jax.p", "rb") as file:
         data = pickle.load(file)
     assert len(data["loss"]) == 2
+
+
+def test_simulate_results_writes_simulate_style_json(tmp_path):
+    fixed, combos, seeds, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
+    env = JaxDecisionTreeEnv(
+        num_nodes=fixed["num_nodes"],
+        t_max=fixed["t_max"],
+        shuffle_nodes=fixed["shuffle_nodes"],
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+    trainer = ParallelJaxBatchMaskA2C(
+        env=env,
+        feature_size=env.observation_shape[0],
+        action_size=env.action_size,
+        hidden_size=fixed["hidden_size"],
+        batch_size=fixed["batch_size"],
+        num_updates=int(fixed["num_episodes"] / fixed["batch_size"]),
+    )
+    result = trainer.train_sweep(build_hypers(combos), seeds)
+    run_dirs = save_results(
+        result,
+        combos,
+        seeds,
+        path=str(tmp_path),
+        experiment="parallel-test",
+        config_path=tmp_path / "config.toml",
+        varied_keys=varied_keys,
+        elapsed_seconds=0.25,
+    )
+
+    simulate_results(
+        result,
+        combos,
+        seeds,
+        run_dirs,
+        num_trials=3,
+        greedy=False,
+        batch_size=2,
+    )
+
+    simulation_path = Path(run_dirs[0]) / "data_simulation.json"
+    assert simulation_path.exists()
+    data = json.loads(simulation_path.read_text())
+    assert set(data) >= {"adj_lists", "starts", "rewards", "actions", "chosen_paths"}
+    assert len(data["actions"]) == 3
