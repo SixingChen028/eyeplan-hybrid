@@ -1,6 +1,7 @@
 import argparse
 import csv
 import json
+import math
 import os
 import sys
 import tomllib
@@ -93,6 +94,63 @@ def _build_row(run_dir: str, varying_params: list[str], eval_file: str) -> dict:
     return row
 
 
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values)
+
+
+def _sample_sd(values: list[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    mean = _mean(values)
+    variance = sum((value - mean) ** 2 for value in values) / (len(values) - 1)
+    return math.sqrt(variance)
+
+
+def _format_value(value) -> str:
+    return str(value)
+
+
+def _format_mean_sd(values: list[float]) -> str:
+    return f"{_mean(values):.3f} ± {_sample_sd(values):.3f}"
+
+
+def _summary_table_rows(rows: list[dict], group_params: list[str]) -> list[dict]:
+    groups = {}
+    for row in rows:
+        key = tuple(row[param] for param in group_params)
+        groups.setdefault(key, []).append(row)
+
+    summary_rows = []
+    for key in sorted(groups):
+        group_rows = groups[key]
+        summary_row = {
+            param: value
+            for param, value in zip(group_params, key, strict=True)
+        }
+        summary_row["reward"] = _format_mean_sd(
+            [float(row["reward_mean"]) for row in group_rows]
+        )
+        summary_row["n_steps"] = _format_mean_sd(
+            [float(row["n_steps_mean"]) for row in group_rows]
+        )
+        summary_rows.append(summary_row)
+    return summary_rows
+
+
+def _print_aligned_table(rows: list[dict], columns: list[str]) -> None:
+    table = [
+        {column: _format_value(row[column]) for column in columns}
+        for row in rows
+    ]
+    widths = {
+        column: max(len(column), *(len(row[column]) for row in table))
+        for column in columns
+    }
+    print("  ".join(column.rjust(widths[column]) for column in columns))
+    for row in table:
+        print("  ".join(row[column].rjust(widths[column]) for column in columns))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Summarize an experiment into results/analysis/<experiment>/summary/evaluation.csv"
@@ -152,6 +210,11 @@ def main() -> None:
     print(f"Runs summarized: {len(rows)}")
     print(f"Varying parameters: {', '.join(varying_params) if varying_params else '(none)'}")
     print(f"Wrote: {output_path}")
+
+    group_params = [param for param in varying_params if param != "seed"]
+    table_rows = _summary_table_rows(rows=rows, group_params=group_params)
+    print()
+    _print_aligned_table(table_rows, group_params + ["reward", "n_steps"])
 
 
 if __name__ == "__main__":
