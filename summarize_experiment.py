@@ -1,5 +1,6 @@
 import argparse
 import csv
+import itertools
 import json
 import math
 import os
@@ -170,6 +171,48 @@ def _param_summary_rows(
     return table_rows, values
 
 
+def _pairwise_rows(
+    rows: list[dict],
+    param: str,
+    param_values: list,
+    varying_params: list[str],
+) -> list[dict]:
+    from scipy.stats import ttest_rel
+
+    value_columns = [_format_value(value) for value in param_values]
+    paired_by_key = {}
+    other_params = [other_param for other_param in varying_params if other_param != param]
+    for row in rows:
+        key = tuple(row[other_param] for other_param in other_params)
+        value = _format_value(row[param])
+        paired_by_key.setdefault(key, {})[value] = row
+
+    test_rows = []
+    for first_value, second_value in itertools.combinations(value_columns, 2):
+        paired_rows = [
+            (group[first_value], group[second_value])
+            for group in paired_by_key.values()
+            if first_value in group and second_value in group
+        ]
+        if len(paired_rows) < 2:
+            continue
+
+        for label, field in [("reward", "reward_mean"), ("steps", "n_steps_mean")]:
+            first = [float(first_row[field]) for first_row, _ in paired_rows]
+            second = [float(second_row[field]) for _, second_row in paired_rows]
+            result = ttest_rel(first, second)
+            test_rows.append({
+                "metric": label,
+                "value_1": first_value,
+                "value_2": second_value,
+                "n": len(paired_rows),
+                "mean_diff": f"{_mean(first) - _mean(second):.3f}",
+                "t": f"{result.statistic:.3f}",
+                "p": f"{result.pvalue:.3g}",
+            })
+    return test_rows
+
+
 def _print_aligned_table(rows: list[dict], columns: list[str]) -> None:
     table = [
         {column: _format_value(row[column]) for column in columns}
@@ -198,6 +241,7 @@ def main() -> None:
     parser.add_argument("--eval_file", type=str, default="eval_summary_jax.json")
     parser.add_argument("--table", action="store_true", help="Print grouped mean ± sd table")
     parser.add_argument("--marginals", action="store_true", help="Print one-parameter summary tables")
+    parser.add_argument("--pairwise", action="store_true", help="Print paired t tests for parameters with up to 4 values")
     args = parser.parse_args()
 
     experiment, run_dirs, config_path = _resolve_experiment_and_runs(
@@ -263,6 +307,27 @@ def main() -> None:
             print()
             print(param)
             _print_aligned_table(table_rows, ["metric"] + value_columns)
+
+    if args.pairwise:
+        for param in group_params:
+            if len(varying_param_values[param]) > 4:
+                continue
+
+            table_rows = _pairwise_rows(
+                rows=rows,
+                param=param,
+                param_values=varying_param_values[param],
+                varying_params=varying_params,
+            )
+            if not table_rows:
+                continue
+
+            print()
+            print(f"{param} pairwise")
+            _print_aligned_table(
+                table_rows,
+                ["metric", "value_1", "value_2", "n", "mean_diff", "t", "p"],
+            )
 
 
 if __name__ == "__main__":
