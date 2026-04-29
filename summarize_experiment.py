@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import os
+import sys
 import tomllib
 
 from modules.analysis_targets import get_summary_analysis_dir, resolve_analysis_target
@@ -117,10 +118,26 @@ def main() -> None:
             f"No run directories found for experiment '{experiment}' under '{args.results_root}'."
         )
 
-    rows = [
-        _build_row(run_dir=run_dir, varying_params=varying_params, eval_file=args.eval_file)
-        for run_dir in sorted(run_dirs)
-    ]
+    rows = []
+    missing_eval_paths = []
+    for run_dir in sorted(run_dirs):
+        eval_path = os.path.join(run_dir, args.eval_file)
+        if not os.path.exists(eval_path):
+            missing_eval_paths.append(eval_path)
+            print(f"Missing evaluation file for run: {eval_path}", file=sys.stderr)
+            continue
+        rows.append(
+            _build_row(run_dir=run_dir, varying_params=varying_params, eval_file=args.eval_file)
+        )
+
+    missing_fraction = len(missing_eval_paths) / len(run_dirs)
+    if missing_fraction > 0.5:
+        print(
+            f"Missing {len(missing_eval_paths)} of {len(run_dirs)} evaluation files; "
+            "not writing summary output.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
 
     output_dir = get_summary_analysis_dir(results_root=args.results_root, experiment=experiment)
     os.makedirs(output_dir, exist_ok=True)
