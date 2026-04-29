@@ -44,6 +44,7 @@ def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
         cost=float(metadata_args.get("cost", 0.01)),
         scale_factor=float(metadata_args.get("scale_factor", 1 / 8)),
         shuffle_nodes=bool(metadata_args.get("shuffle_nodes", True)),
+        canonicalize=bool(metadata_args.get("canonicalize", False)),
         recency_decay=recency_decay,
     )
 
