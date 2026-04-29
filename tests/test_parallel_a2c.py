@@ -114,6 +114,32 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
     np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((2, 2), 2))
 
 
+def test_parallel_sweep_compiles_node_shared_network():
+    fixed, combos, seeds, _ = expand_sweep(
+        _small_params(seed=[0], wm_decay=[1.0], network_type="node_shared")
+    )
+    env = JaxDecisionTreeEnv(
+        num_nodes=fixed["num_nodes"],
+        t_max=fixed["t_max"],
+        shuffle_nodes=fixed["shuffle_nodes"],
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+    trainer = ParallelJaxBatchMaskA2C(
+        env=env,
+        feature_size=env.observation_shape[0],
+        action_size=env.action_size,
+        hidden_size=fixed["hidden_size"],
+        batch_size=fixed["batch_size"],
+        num_updates=int(fixed["num_episodes"] / fixed["batch_size"]),
+        network_type=fixed["network_type"],
+    )
+
+    result = trainer.train_sweep(build_hypers(combos), seeds)
+
+    assert result.metrics.loss.shape == (1, 1, 2)
+    np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((1, 1), 2))
+
+
 def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
     fixed, combos, seeds, varied_keys = expand_sweep(
         _small_params(seed=0, wm_decay=0.5, recency_decay=[0, 0.5])

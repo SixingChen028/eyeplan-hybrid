@@ -128,6 +128,7 @@ if __name__ == '__main__':
         clip_eps=args.ppo_clip_eps,
         ppo_epochs=args.ppo_epochs,
         normalize_advantages=args.ppo_normalize_advantages,
+        network_type=args.network_type,
     )
 
     if state is None:

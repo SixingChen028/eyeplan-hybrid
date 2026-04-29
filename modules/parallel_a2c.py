@@ -13,7 +13,7 @@ from .a2c import (
     _zeros_like_tree,
 )
 from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
-from .network import actor_critic_forward, init_mlp_actor_critic_params, sample_actions
+from .network import NETWORK_MLP, actor_critic_forward, init_actor_critic_params, sample_actions
 
 
 class A2CHyperParams(NamedTuple):
@@ -41,6 +41,7 @@ class ParallelJaxBatchMaskA2C:
         hidden_size: int,
         batch_size: int,
         num_updates: int,
+        network_type: str = NETWORK_MLP,
         adam_beta1: float = 0.9,
         adam_beta2: float = 0.999,
         adam_eps: float = 1e-8,
@@ -51,6 +52,7 @@ class ParallelJaxBatchMaskA2C:
         self.hidden_size = int(hidden_size)
         self.batch_size = int(batch_size)
         self.num_updates = int(num_updates)
+        self.network_type = str(network_type)
 
         self.adam_beta1 = float(adam_beta1)
         self.adam_beta2 = float(adam_beta2)
@@ -65,11 +67,12 @@ class ParallelJaxBatchMaskA2C:
         key = jax.random.PRNGKey(seed)
         key, init_key = jax.random.split(key)
 
-        params = init_mlp_actor_critic_params(
+        params = init_actor_critic_params(
             init_key,
             feature_size=self.feature_size,
             action_size=self.action_size,
             hidden_size=self.hidden_size,
+            network_type=self.network_type,
         )
 
         optimizer = AdamState(
@@ -111,7 +114,7 @@ class ParallelJaxBatchMaskA2C:
                 env_state, obs, action_mask, done, rng_key = carry
                 mask = 1.0 - done.astype(jnp.float32)
 
-                logits, values = actor_critic_forward(params, obs)
+                logits, values = actor_critic_forward(params, obs, action_mask)
                 rng_key, action_key = jax.random.split(rng_key)
                 actions, log_probs, entropies = sample_actions(action_key, logits, action_mask)
 

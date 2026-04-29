@@ -7,7 +7,7 @@ import numpy as np
 
 from .a2c import AdamState, JaxTrainState, _global_norm, _select_not_done, _zeros_like_tree
 from .environment import JaxDecisionTreeEnv
-from .network import actor_critic_forward, apply_action_mask, init_mlp_actor_critic_params, sample_actions
+from .network import NETWORK_MLP, actor_critic_forward, apply_action_mask, init_actor_critic_params, sample_actions
 
 
 class PPORolloutBatch(NamedTuple):
@@ -62,6 +62,7 @@ class JaxBatchMaskPPO:
         ppo_epochs: int = 4,
         normalize_advantages: bool = True,
         max_grad_norm: float = 1.0,
+        network_type: str = NETWORK_MLP,
         adam_beta1: float = 0.9,
         adam_beta2: float = 0.999,
         adam_eps: float = 1e-8,
@@ -81,6 +82,7 @@ class JaxBatchMaskPPO:
         self.ppo_epochs = int(ppo_epochs)
         self.normalize_advantages = bool(normalize_advantages)
         self.max_grad_norm = float(max_grad_norm)
+        self.network_type = str(network_type)
 
         self.adam_beta1 = float(adam_beta1)
         self.adam_beta2 = float(adam_beta2)
@@ -94,11 +96,12 @@ class JaxBatchMaskPPO:
         key = jax.random.PRNGKey(seed)
         key, init_key = jax.random.split(key)
 
-        params = init_mlp_actor_critic_params(
+        params = init_actor_critic_params(
             init_key,
             feature_size=self.feature_size,
             action_size=self.action_size,
             hidden_size=self.hidden_size,
+            network_type=self.network_type,
         )
 
         optimizer = AdamState(
@@ -142,7 +145,7 @@ class JaxBatchMaskPPO:
 
                 mask = 1.0 - done.astype(jnp.float32)
 
-                logits, values = actor_critic_forward(params, obs)
+                logits, values = actor_critic_forward(params, obs, action_mask)
 
                 rng_key, action_key = jax.random.split(rng_key)
                 actions, log_probs, _ = sample_actions(action_key, logits, action_mask)
@@ -287,7 +290,7 @@ class JaxBatchMaskPPO:
         returns = data["returns"]
         advantages = data["advantages"]
 
-        logits, values = actor_critic_forward(params, obs)
+        logits, values = actor_critic_forward(params, obs, action_mask)
         masked_logits = apply_action_mask(logits, action_mask)
 
         log_probs_all = jax.nn.log_softmax(masked_logits, axis=-1)

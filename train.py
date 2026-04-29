@@ -63,6 +63,7 @@ def _args_match(saved_value, current_value) -> bool:
 
 def _validate_resume_metadata(metadata_args: dict, current_args) -> None:
     ignored_keys = {"resume", "path", "jobid", "experiment", "eval_episodes"}
+    missing_defaults = {"network_type": "mlp"}
     mismatches: list[str] = []
     missing_keys: list[str] = []
 
@@ -70,6 +71,8 @@ def _validate_resume_metadata(metadata_args: dict, current_args) -> None:
         if key in ignored_keys:
             continue
         if key not in metadata_args:
+            if key in missing_defaults and _args_match(missing_defaults[key], current_value):
+                continue
             missing_keys.append(key)
             continue
 
@@ -216,6 +219,7 @@ if __name__ == '__main__':
         lamda=args.lamda,
         beta_v=args.beta_v,
         beta_e=args.beta_e,
+        network_type=args.network_type,
     )
 
     if state is None:

@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .environment import JaxDecisionTreeEnv
-from .network import actor_critic_forward, init_mlp_actor_critic_params, sample_actions
+from .network import NETWORK_MLP, actor_critic_forward, init_actor_critic_params, sample_actions
 
 
 class AdamState(NamedTuple):
@@ -114,6 +114,7 @@ class JaxBatchMaskA2C:
         beta_v: float,
         beta_e: float,
         max_grad_norm: float = 1.0,
+        network_type: str = NETWORK_MLP,
         adam_beta1: float = 0.9,
         adam_beta2: float = 0.999,
         adam_eps: float = 1e-8,
@@ -130,6 +131,7 @@ class JaxBatchMaskA2C:
         self.beta_v = float(beta_v)
         self.beta_e = float(beta_e)
         self.max_grad_norm = float(max_grad_norm)
+        self.network_type = str(network_type)
 
         self.adam_beta1 = float(adam_beta1)
         self.adam_beta2 = float(adam_beta2)
@@ -143,11 +145,12 @@ class JaxBatchMaskA2C:
         key = jax.random.PRNGKey(seed)
         key, init_key = jax.random.split(key)
 
-        params = init_mlp_actor_critic_params(
+        params = init_actor_critic_params(
             init_key,
             feature_size=self.feature_size,
             action_size=self.action_size,
             hidden_size=self.hidden_size,
+            network_type=self.network_type,
         )
 
         optimizer = AdamState(
@@ -188,7 +191,7 @@ class JaxBatchMaskA2C:
 
                 mask = 1.0 - done.astype(jnp.float32)
 
-                logits, values = actor_critic_forward(params, obs)
+                logits, values = actor_critic_forward(params, obs, action_mask)
 
                 rng_key, action_key = jax.random.split(rng_key)
                 actions, log_probs, entropies = sample_actions(action_key, logits, action_mask)

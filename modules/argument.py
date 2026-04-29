@@ -75,6 +75,7 @@ class ArgParser:
         self.parser.add_argument('--seed', type = int, default = 15, help = 'random seed')
 
         # nework parameters
+        self.parser.add_argument('--network_type', type = str, choices = ['mlp', 'node_shared'], default = 'mlp', help = 'network architecture')
         self.parser.add_argument('--hidden_size', type = int, default = 128, help = 'hidden size')
 
         # environment parameters

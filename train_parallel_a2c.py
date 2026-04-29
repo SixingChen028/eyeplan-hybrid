@@ -41,6 +41,7 @@ DEFAULT_META = {
 DEFAULT_PARAMS = {
     "jobid": "",
     "seed": 15,
+    "network_type": "mlp",
     "hidden_size": 128,
     "num_nodes": 15,
     "beta_move": 40.0,
@@ -100,6 +101,7 @@ SHAPE_KEYS = {
     "num_episodes",
     "eval_episodes",
     "canonicalize",
+    "network_type",
 }
 
 
@@ -410,7 +412,7 @@ class ParallelJaxSimulator:
         def body_fn(carry):
             state, obs, action_mask, action_seq, step_count, _, rng_key = carry
 
-            logits, _ = actor_critic_forward(params, obs[None, :])
+            logits, _ = actor_critic_forward(params, obs[None, :], action_mask[None, :])
             logits = logits[0]
 
             def greedy_action(_):
@@ -750,6 +752,7 @@ def main() -> None:
         hidden_size=fixed["hidden_size"],
         batch_size=fixed["batch_size"],
         num_updates=num_updates,
+        network_type=fixed["network_type"],
     )
     hypers = build_hypers(combos)
 
