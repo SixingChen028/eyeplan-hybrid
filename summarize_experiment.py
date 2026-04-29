@@ -196,6 +196,8 @@ def main() -> None:
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--config_dir", type=str, default=os.path.join(os.getcwd(), "config"))
     parser.add_argument("--eval_file", type=str, default="eval_summary_jax.json")
+    parser.add_argument("--table", action="store_true", help="Print grouped mean ± sd table")
+    parser.add_argument("--marginals", action="store_true", help="Print one-parameter summary tables")
     args = parser.parse_args()
 
     experiment, run_dirs, config_path = _resolve_experiment_and_runs(
@@ -246,19 +248,21 @@ def main() -> None:
     print(f"Wrote: {output_path}")
 
     group_params = [param for param in varying_params if param != "seed"]
-    table_rows = _summary_table_rows(rows=rows, group_params=group_params)
-    print()
-    _print_aligned_table(table_rows, group_params + ["reward", "n_steps"])
-
-    for param in group_params:
-        table_rows, value_columns = _param_summary_rows(
-            rows=rows,
-            param=param,
-            param_values=varying_param_values[param],
-        )
+    if args.table:
+        table_rows = _summary_table_rows(rows=rows, group_params=group_params)
         print()
-        print(param)
-        _print_aligned_table(table_rows, ["metric"] + value_columns)
+        _print_aligned_table(table_rows, group_params + ["reward", "n_steps"])
+
+    if args.marginals:
+        for param in group_params:
+            table_rows, value_columns = _param_summary_rows(
+                rows=rows,
+                param=param,
+                param_values=varying_param_values[param],
+            )
+            print()
+            print(param)
+            _print_aligned_table(table_rows, ["metric"] + value_columns)
 
 
 if __name__ == "__main__":
