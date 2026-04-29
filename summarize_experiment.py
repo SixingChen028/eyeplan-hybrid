@@ -30,17 +30,16 @@ def _read_toml(path: str) -> dict:
         return tomllib.load(file)
 
 
-def _varying_params_from_config(config_path: str) -> list[str]:
+def _varying_param_values_from_config(config_path: str) -> dict[str, list]:
     config = _read_toml(config_path)
     if "params" not in config or not isinstance(config["params"], dict):
         raise ValueError(f"Config file must contain a [params] table: {config_path}")
 
     params = config["params"]
-    varying = [
-        key for key, value in params.items()
+    return {
+        key: value for key, value in params.items()
         if isinstance(value, list) and len(value) > 1
-    ]
-    return varying
+    }
 
 
 def _resolve_experiment_and_runs(
@@ -114,6 +113,10 @@ def _format_mean_sd(values: list[float]) -> str:
     return f"{_mean(values):.3f} ± {_sample_sd(values):.3f}"
 
 
+def _format_mean(values: list[float]) -> str:
+    return f"{_mean(values):.3f}"
+
+
 def _summary_table_rows(rows: list[dict], group_params: list[str]) -> list[dict]:
     groups = {}
     for row in rows:
@@ -135,6 +138,36 @@ def _summary_table_rows(rows: list[dict], group_params: list[str]) -> list[dict]
         )
         summary_rows.append(summary_row)
     return summary_rows
+
+
+def _param_summary_rows(
+    rows: list[dict],
+    param: str,
+    param_values: list,
+) -> tuple[list[dict], list[str]]:
+    values = [_format_value(value) for value in param_values]
+    groups = {}
+    for row in rows:
+        value = row[param]
+        column = _format_value(value)
+        if column not in groups:
+            groups[column] = []
+        if column not in values:
+            values.append(column)
+        groups[column].append(row)
+
+    values = [value for value in values if value in groups]
+    table_rows = []
+    for label, field in [("reward", "reward_mean"), ("steps", "n_steps_mean")]:
+        table_row = {"metric": label}
+        for value in values:
+            if value not in groups:
+                continue
+            table_row[value] = _format_mean(
+                [float(row[field]) for row in groups[value]]
+            )
+        table_rows.append(table_row)
+    return table_rows, values
 
 
 def _print_aligned_table(rows: list[dict], columns: list[str]) -> None:
@@ -170,7 +203,8 @@ def main() -> None:
         results_root=args.results_root,
         config_dir=args.config_dir,
     )
-    varying_params = _varying_params_from_config(config_path)
+    varying_param_values = _varying_param_values_from_config(config_path)
+    varying_params = list(varying_param_values)
     if not run_dirs:
         raise FileNotFoundError(
             f"No run directories found for experiment '{experiment}' under '{args.results_root}'."
@@ -215,6 +249,16 @@ def main() -> None:
     table_rows = _summary_table_rows(rows=rows, group_params=group_params)
     print()
     _print_aligned_table(table_rows, group_params + ["reward", "n_steps"])
+
+    for param in group_params:
+        table_rows, value_columns = _param_summary_rows(
+            rows=rows,
+            param=param,
+            param_values=varying_param_values[param],
+        )
+        print()
+        print(param)
+        _print_aligned_table(table_rows, ["metric"] + value_columns)
 
 
 if __name__ == "__main__":
