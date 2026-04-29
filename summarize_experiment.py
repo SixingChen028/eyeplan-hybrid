@@ -43,42 +43,81 @@ def _varying_param_values_from_config(config_path: str) -> dict[str, list]:
     }
 
 
-def _resolve_experiment_and_runs(
-    target: str,
-    results_root: str,
-    config_dir: str,
-) -> tuple[str, list[str], str]:
-    if target.endswith(".toml"):
-        config_path = os.path.abspath(os.path.expanduser(target))
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-        experiment = os.path.splitext(os.path.basename(config_path))[0]
-        resolved = resolve_analysis_target(experiment, results_root=results_root)
-        return experiment, resolved.run_dirs, config_path
-
-    resolved = resolve_analysis_target(target, results_root=results_root)
-    config_path = os.path.join(config_dir, f"{resolved.experiment}.toml")
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(
-            f"Config not found for experiment '{resolved.experiment}': {config_path}"
-        )
-    return resolved.experiment, resolved.run_dirs, config_path
+def _value_key(value) -> str:
+    return json.dumps(value, sort_keys=True)
 
 
-def _build_row(run_dir: str, varying_params: list[str], eval_file: str) -> dict:
+def _run_args_from_metadata(run_dir: str) -> dict:
     metadata_path = os.path.join(run_dir, "metadata.json")
     if not os.path.exists(metadata_path):
         raise FileNotFoundError(f"Missing metadata file for run: {metadata_path}")
 
+    metadata = _read_json(metadata_path)
+    args = metadata.get("args")
+    if not isinstance(args, dict):
+        raise ValueError(f"metadata.json must contain an object at key 'args': {metadata_path}")
+    return args
+
+
+def _varying_param_values_from_metadata(run_dirs: list[str]) -> dict[str, list]:
+    ignored_params = {
+        "experiment",
+        "jobid",
+        "parallel_config",
+        "parallel_hyper_index",
+        "parallel_seed_index",
+        "parallel_varied_keys",
+        "path",
+        "resume",
+    }
+    run_args = [_run_args_from_metadata(run_dir) for run_dir in sorted(run_dirs)]
+    common_params = set(run_args[0])
+    for args in run_args[1:]:
+        common_params &= set(args)
+
+    varying_param_values = {}
+    for param in sorted(common_params):
+        if param in ignored_params:
+            continue
+
+        values = []
+        seen = set()
+        for args in run_args:
+            value = args[param]
+            key = _value_key(value)
+            if key not in seen:
+                seen.add(key)
+                values.append(value)
+
+        if len(values) > 1:
+            varying_param_values[param] = values
+
+    return varying_param_values
+
+
+def _resolve_experiment_and_runs(
+    target: str,
+    results_root: str,
+    config_dir: str,
+) -> tuple[str, list[str], str | None]:
+    if target.endswith(".toml"):
+        config_path = os.path.abspath(os.path.expanduser(target))
+        experiment = os.path.splitext(os.path.basename(config_path))[0]
+        resolved = resolve_analysis_target(experiment, results_root=results_root)
+        return experiment, resolved.run_dirs, config_path if os.path.exists(config_path) else None
+
+    resolved = resolve_analysis_target(target, results_root=results_root)
+    config_path = os.path.join(config_dir, f"{resolved.experiment}.toml")
+    return resolved.experiment, resolved.run_dirs, config_path if os.path.exists(config_path) else None
+
+
+def _build_row(run_dir: str, varying_params: list[str], eval_file: str) -> dict:
     eval_path = os.path.join(run_dir, eval_file)
     if not os.path.exists(eval_path):
         raise FileNotFoundError(f"Missing evaluation file for run: {eval_path}")
 
-    metadata = _read_json(metadata_path)
     eval_summary = _read_json(eval_path)
-    args = metadata.get("args")
-    if not isinstance(args, dict):
-        raise ValueError(f"metadata.json must contain an object at key 'args': {metadata_path}")
+    args = _run_args_from_metadata(run_dir)
 
     row = {"run_id": os.path.basename(run_dir)}
     for param in varying_params:
@@ -260,24 +299,19 @@ def main() -> None:
         results_root=args.results_root,
         config_dir=args.config_dir,
     )
-    varying_param_values = _varying_param_values_from_config(config_path)
-    varying_params = list(varying_param_values)
     if not run_dirs:
         raise FileNotFoundError(
             f"No run directories found for experiment '{experiment}' under '{args.results_root}'."
         )
-
-    rows = []
     missing_eval_paths = []
+    summarized_run_dirs = []
     for run_dir in sorted(run_dirs):
         eval_path = os.path.join(run_dir, args.eval_file)
         if not os.path.exists(eval_path):
             missing_eval_paths.append(eval_path)
             print(f"Missing evaluation file for run: {eval_path}", file=sys.stderr)
             continue
-        rows.append(
-            _build_row(run_dir=run_dir, varying_params=varying_params, eval_file=args.eval_file)
-        )
+        summarized_run_dirs.append(run_dir)
 
     missing_fraction = len(missing_eval_paths) / len(run_dirs)
     if missing_fraction > 0.5:
@@ -287,6 +321,20 @@ def main() -> None:
             file=sys.stderr,
         )
         raise SystemExit(1)
+    if config_path is None:
+        varying_param_values = _varying_param_values_from_metadata(summarized_run_dirs)
+        print(
+            "Config file not found; inferred varying parameters from run metadata.",
+            file=sys.stderr,
+        )
+    else:
+        varying_param_values = _varying_param_values_from_config(config_path)
+    varying_params = list(varying_param_values)
+
+    rows = [
+        _build_row(run_dir=run_dir, varying_params=varying_params, eval_file=args.eval_file)
+        for run_dir in summarized_run_dirs
+    ]
 
     output_dir = get_summary_analysis_dir(results_root=args.results_root, experiment=experiment)
     os.makedirs(output_dir, exist_ok=True)
