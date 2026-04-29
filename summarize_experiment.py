@@ -200,17 +200,28 @@ def _pairwise_rows(
         for label, field in [("reward", "reward_mean"), ("steps", "n_steps_mean")]:
             first = [float(first_row[field]) for first_row, _ in paired_rows]
             second = [float(second_row[field]) for _, second_row in paired_rows]
+            diffs = [
+                first_value - second_value
+                for first_value, second_value in zip(first, second, strict=True)
+            ]
             result = ttest_rel(first, second)
             test_rows.append({
                 "metric": label,
                 "value_1": first_value,
                 "value_2": second_value,
                 "n": len(paired_rows),
-                "mean_diff": f"{_mean(first) - _mean(second):.3f}",
-                "t": f"{result.statistic:.3f}",
-                "p": f"{result.pvalue:.3g}",
+                "mean_diff": _mean(diffs),
+                "sd_diff": _sample_sd(diffs),
+                "p": result.pvalue,
             })
     return test_rows
+
+
+def _print_pairwise_rows(rows: list[dict]) -> None:
+    for row in rows:
+        comparison = f"{row['value_1']} vs. {row['value_2']}"
+        diff = f"{row['mean_diff']:.3f} ± {row['sd_diff']:.3f}"
+        print(f"{row['metric']:>6}  {comparison:<14}  {diff:>15}  p = {row['p']:.3g}")
 
 
 def _print_aligned_table(rows: list[dict], columns: list[str]) -> None:
@@ -324,10 +335,7 @@ def main() -> None:
 
             print()
             print(f"{param} pairwise")
-            _print_aligned_table(
-                table_rows,
-                ["metric", "value_1", "value_2", "n", "mean_diff", "t", "p"],
-            )
+            _print_pairwise_rows(table_rows)
 
 
 if __name__ == "__main__":
