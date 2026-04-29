@@ -40,7 +40,7 @@ def _varying_params_from_config(config_path: str) -> list[str]:
         key for key, value in params.items()
         if isinstance(value, list) and len(value) > 1
     ]
-    return sorted(varying)
+    return varying
 
 
 def _resolve_experiment_and_runs(
