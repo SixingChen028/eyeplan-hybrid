@@ -751,20 +751,15 @@ def main() -> None:
     parser.add_argument("--path", help="Override output path from [meta].result_path.")
     parser.add_argument("--experiment", help="Override experiment name. Defaults to [meta].experiment or config stem.")
     parser.add_argument(
-        "--simulate",
-        action="store_true",
-        help="After training, write data_simulation.json for each run using the same defaults as simulate.py.",
-    )
-    parser.add_argument(
         "--simulate-num-trials",
         type=int,
         default=10_240,
-        help="Number of simulation trials per run when --simulate is set.",
+        help="Number of simulation trials per run.",
     )
     parser.add_argument(
         "--simulate-greedy",
         action="store_true",
-        help="Use greedy actions during --simulate, matching simulate.py --greedy.",
+        help="Use greedy actions during simulation, matching simulate.py --greedy.",
     )
     args = parser.parse_args()
 
@@ -828,16 +823,15 @@ def main() -> None:
     for run_dir in run_dirs:
         _log(f"run_dir={run_dir}")
 
-    if args.simulate:
-        simulate_elapsed_seconds = simulate_results(
-            result,
-            combos,
-            seeds,
-            run_dirs,
-            num_trials=int(args.simulate_num_trials),
-            greedy=bool(args.simulate_greedy),
-        )
-        _log(f"parallel_simulate_elapsed_seconds={simulate_elapsed_seconds:.3f}")
+    simulate_elapsed_seconds = simulate_results(
+        result,
+        combos,
+        seeds,
+        run_dirs,
+        num_trials=int(args.simulate_num_trials),
+        greedy=bool(args.simulate_greedy),
+    )
+    _log(f"parallel_simulate_elapsed_seconds={simulate_elapsed_seconds:.3f}")
 
 
 if __name__ == "__main__":
