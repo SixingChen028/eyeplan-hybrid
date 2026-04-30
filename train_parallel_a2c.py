@@ -105,6 +105,17 @@ SHAPE_KEYS = {
 }
 
 
+_CONSOLE_LOG_LINES: list[str] = []
+
+
+def _log(*args, **kwargs) -> None:
+    sep = kwargs.get("sep", " ")
+    end = kwargs.get("end", "\n")
+    line = sep.join(str(arg) for arg in args) + end
+    _CONSOLE_LOG_LINES.append(line)
+    print(*args, **kwargs)
+
+
 def _load_config(path: str) -> tuple[Path, dict]:
     config_path = Path(path)
     if not config_path.exists() and config_path.suffix != ".toml":
@@ -358,7 +369,7 @@ def train_with_progress(
         updates_done = update_end
         updates_per_second = updates_done / elapsed_seconds
         eta_seconds = (num_updates - updates_done) / updates_per_second
-        print(
+        _log(
             "parallel_train_progress "
             f"updates={updates_done}/{num_updates} "
             f"elapsed={_format_duration(elapsed_seconds)} "
@@ -611,7 +622,7 @@ def simulate_results(
         batches_done = batch_idx + 1
         batches_per_second = batches_done / elapsed_seconds
         eta_seconds = (num_batches - batches_done) / batches_per_second
-        print(
+        _log(
             "parallel_simulate_progress "
             f"batches={batches_done}/{num_batches} "
             f"elapsed={_format_duration(elapsed_seconds)} "
@@ -635,7 +646,7 @@ def simulate_results(
             with open(output_path, "w") as file:
                 json.dump(_round_floats(transformed), file)
                 file.write("\n")
-            print(f"simulation_json={output_path}")
+            _log(f"simulation_json={output_path}")
 
     return time.time() - start
 
@@ -707,6 +718,29 @@ def save_results(
             with open(os.path.join(run_dir, EVAL_SUMMARY_NAME), "w") as file:
                 json.dump(eval_summary, file, indent=2, sort_keys=True)
 
+            log_path = os.path.join(run_dir, "training.log")
+            with open(log_path, "w") as file:
+                file.writelines(_CONSOLE_LOG_LINES)
+                file.write(f"run_dir={run_dir}\n")
+                file.write(
+                    "run_summary "
+                    f"hyper_index={hyper_index} "
+                    f"seed={int(seed)} "
+                    f"train_elapsed_seconds={elapsed_seconds:.3f} "
+                    f"eval_elapsed_seconds={eval_elapsed_seconds:.3f}\n"
+                )
+                file.write(
+                    "eval_summary "
+                    f"episodes={eval_summary['num_trials']} "
+                    f"reward_mean={eval_summary['reward_mean']:.6f} "
+                    f"reward_sd={eval_summary['reward_sd']:.6f} "
+                    f"reward_no_cost_mean={eval_summary['reward_no_cost_mean']:.6f} "
+                    f"reward_no_cost_sd={eval_summary['reward_no_cost_sd']:.6f} "
+                    f"n_steps_mean={eval_summary['n_steps_mean']:.3f} "
+                    f"n_steps_sd={eval_summary['n_steps_sd']:.3f}\n"
+                )
+                file.write(f"training_log={log_path}\n")
+
             run_dirs.append(run_dir)
     return run_dirs
 
@@ -760,8 +794,8 @@ def main() -> None:
         f"{device.platform}:{device.device_kind}"
         for device in jax.local_devices()
     )
-    print(f"jax_backend={jax.default_backend()} jax_devices=[{devices}]")
-    print(
+    _log(f"jax_backend={jax.default_backend()} jax_devices=[{devices}]")
+    _log(
         "parallel_run_config "
         f"hyper_combos={len(combos)} "
         f"seeds={len(seeds)} "
@@ -778,7 +812,7 @@ def main() -> None:
         num_updates=num_updates,
         print_frequency=int(fixed["print_frequency"]),
     )
-    print(f"parallel_train_elapsed_seconds={elapsed_seconds:.3f}")
+    _log(f"parallel_train_elapsed_seconds={elapsed_seconds:.3f}")
 
     run_dirs = save_results(
         result,
@@ -790,9 +824,9 @@ def main() -> None:
         varied_keys=varied_keys,
         elapsed_seconds=elapsed_seconds,
     )
-    print(f"saved_runs={len(run_dirs)}")
+    _log(f"saved_runs={len(run_dirs)}")
     for run_dir in run_dirs:
-        print(f"run_dir={run_dir}")
+        _log(f"run_dir={run_dir}")
 
     if args.simulate:
         simulate_elapsed_seconds = simulate_results(
@@ -803,7 +837,7 @@ def main() -> None:
             num_trials=int(args.simulate_num_trials),
             greedy=bool(args.simulate_greedy),
         )
-        print(f"parallel_simulate_elapsed_seconds={simulate_elapsed_seconds:.3f}")
+        _log(f"parallel_simulate_elapsed_seconds={simulate_elapsed_seconds:.3f}")
 
 
 if __name__ == "__main__":

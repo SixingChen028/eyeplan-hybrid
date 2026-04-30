@@ -1,6 +1,8 @@
 import os
+import atexit
 import json
 import pickle
+import sys
 import time
 import math
 import jax
@@ -21,6 +23,31 @@ CHECKPOINT_STATE_NAME = "train_state_latest.p"
 CHECKPOINT_META_NAME = "train_state_latest.json"
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 TRAINING_DATA_NAME = "data_training_jax.p"
+
+
+class _TeeStream:
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for stream in self._streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self):
+        for stream in self._streams:
+            stream.flush()
+
+
+def _tee_console_to_log(run_dir: str):
+    log_path = os.path.join(run_dir, "training.log")
+    log_file = open(log_path, "a", buffering=1)
+    atexit.register(log_file.close)
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    sys.stdout = _TeeStream(original_stdout, log_file)
+    sys.stderr = _TeeStream(original_stderr, log_file)
+    return log_path
 
 
 def _has_resume_key(jobid: str) -> bool:
@@ -114,12 +141,6 @@ if __name__ == '__main__':
     args = parser.args
     num_updates = int(args.num_episodes / args.batch_size)
 
-    devices = ", ".join(
-        f"{device.platform}:{device.device_kind}"
-        for device in jax.local_devices()
-    )
-    print(f"jax_backend={jax.default_backend()} jax_devices=[{devices}]")
-
     state = None
     start_update = 0
     resume_matched_run = False
@@ -175,6 +196,13 @@ if __name__ == '__main__':
                 f"Checkpoint next_update={start_update} exceeds requested num_updates={num_updates}."
             )
 
+    log_path = _tee_console_to_log(exp_path)
+    print(f"training_log={log_path}")
+    devices = ", ".join(
+        f"{device.platform}:{device.device_kind}"
+        for device in jax.local_devices()
+    )
+    print(f"jax_backend={jax.default_backend()} jax_devices=[{devices}]")
     print(f"run_dir={exp_path}")
     print(f"run_metadata={metadata_path}")
     if args.resume:
