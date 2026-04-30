@@ -133,9 +133,9 @@ class JaxBatchMaskPPO:
                 action_mask,
                 episode_reward_accum,
                 episode_length_accum,
-                completed_reward_sum,
-                completed_length_sum,
-                completed_count,
+                first_episode_reward,
+                first_episode_length,
+                has_first_episode,
                 rng_key,
             ) = carry
 
@@ -160,13 +160,14 @@ class JaxBatchMaskPPO:
             next_action_mask = _select_not_done(dones, next_action_mask, reset_action_mask)
             episode_reward_accum = episode_reward_accum + rewards.astype(jnp.float32)
             episode_length_accum = episode_length_accum + one_mask
-            completed_reward_sum = completed_reward_sum + jnp.sum(
-                jnp.where(dones, episode_reward_accum, 0.0)
-            )
-            completed_length_sum = completed_length_sum + jnp.sum(
-                jnp.where(dones, episode_length_accum, 0.0)
-            )
-            completed_count = completed_count + jnp.sum(dones.astype(jnp.float32))
+            done_any = jnp.any(dones)
+            first_done_index = jnp.argmax(dones.astype(jnp.int32))
+            first_candidate_reward = episode_reward_accum[first_done_index]
+            first_candidate_length = episode_length_accum[first_done_index]
+            should_capture = jnp.logical_and(jnp.logical_not(has_first_episode), done_any)
+            first_episode_reward = jnp.where(should_capture, first_candidate_reward, first_episode_reward)
+            first_episode_length = jnp.where(should_capture, first_candidate_length, first_episode_length)
+            has_first_episode = jnp.logical_or(has_first_episode, done_any)
             episode_reward_accum = _select_not_done(dones, episode_reward_accum, zeros)
             episode_length_accum = _select_not_done(dones, episode_length_accum, zeros)
 
@@ -188,9 +189,9 @@ class JaxBatchMaskPPO:
                     next_action_mask,
                     episode_reward_accum,
                     episode_length_accum,
-                    completed_reward_sum,
-                    completed_length_sum,
-                    completed_count,
+                    first_episode_reward,
+                    first_episode_length,
+                    has_first_episode,
                     rng_key,
                 ),
                 output,
@@ -206,7 +207,7 @@ class JaxBatchMaskPPO:
                 zeros,
                 jnp.array(0.0, dtype=jnp.float32),
                 jnp.array(0.0, dtype=jnp.float32),
-                jnp.array(0.0, dtype=jnp.float32),
+                jnp.array(False, dtype=jnp.bool_),
                 rng_key,
             ),
             xs=None,
@@ -219,16 +220,15 @@ class JaxBatchMaskPPO:
             final_action_mask,
             _,
             _,
-            completed_reward_sum,
-            completed_length_sum,
-            completed_count,
+            first_episode_reward,
+            first_episode_length,
+            has_first_episode,
             new_key,
         ) = carry
         _, bootstrap_values = actor_critic_forward(params, final_obs, final_action_mask)
 
-        episode_count = jnp.maximum(completed_count, 1.0)
-        episode_reward = completed_reward_sum / episode_count
-        episode_length = completed_length_sum / episode_count
+        episode_reward = jnp.where(has_first_episode, first_episode_reward, 0.0)
+        episode_length = jnp.where(has_first_episode, first_episode_length, 0.0)
 
         return rollout, bootstrap_values, episode_reward, episode_length, new_key
 
