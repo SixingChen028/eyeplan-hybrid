@@ -85,6 +85,7 @@ class ArgParser:
         self.parser.add_argument('--learning_rate', type = float, default = 1.0, help = 'learning_rate')
         self.parser.add_argument('--lamda_backup', type = float, default = 1.0, help = 'backup discount')
         self.parser.add_argument('--wm_decay', type = float, default = 1.0, help = 'working memory decay')
+        self.parser.add_argument('--q_drop_rate', type = float, default = 0.0, help = 'probability of resetting q to 0 when node is inactive')
         self.parser.add_argument('--t_max', type = int, default = 100, help = 'max time steps per episode')
         self.parser.add_argument('--cost', type = float, default = 0.01, help = 'cost per action')
         self.parser.add_argument('--scale_factor', type = float, default = 1 / 8, help = 'reward scale factor')

@@ -199,6 +199,7 @@ if __name__ == '__main__':
         learning_rate=args.learning_rate,
         lamda_backup=args.lamda_backup,
         wm_decay=args.wm_decay,
+        q_drop_rate=args.q_drop_rate,
         t_max=args.t_max,
         cost=args.cost,
         scale_factor=args.scale_factor,

@@ -29,6 +29,7 @@ class JaxDecisionTreeParams(NamedTuple):
     learning_rate: jax.Array
     lamda_backup: jax.Array
     wm_decay: jax.Array
+    q_drop_rate: jax.Array
     recency_decay: jax.Array
     cost: jax.Array
     scale_factor: jax.Array
@@ -64,6 +65,7 @@ class JaxDecisionTreeEnv:
         learning_rate: float = 0.2,
         lamda_backup: float = 0.0,
         wm_decay: float = 0.8,
+        q_drop_rate: float = 0.0,
         t_max: int = 100,
         cost: float = 0.01,
         scale_factor: float = 1 / 8,
@@ -78,6 +80,7 @@ class JaxDecisionTreeEnv:
         self.learning_rate = float(learning_rate)
         self.lamda_backup = float(lamda_backup)
         self.wm_decay = float(wm_decay)
+        self.q_drop_rate = float(q_drop_rate)
         self.t_max = int(t_max)
         self.cost = float(cost)
         self.scale_factor = float(scale_factor)
@@ -111,6 +114,7 @@ class JaxDecisionTreeEnv:
             learning_rate=jnp.asarray(self.learning_rate, dtype=jnp.float32),
             lamda_backup=jnp.asarray(self.lamda_backup, dtype=jnp.float32),
             wm_decay=jnp.asarray(self.wm_decay, dtype=jnp.float32),
+            q_drop_rate=jnp.asarray(self.q_drop_rate, dtype=jnp.float32),
             recency_decay=jnp.asarray(self._recency_decay_value(), dtype=jnp.float32),
             cost=jnp.asarray(self.cost, dtype=jnp.float32),
             scale_factor=jnp.asarray(self.scale_factor, dtype=jnp.float32),
@@ -360,8 +364,10 @@ class JaxDecisionTreeEnv:
         params: JaxDecisionTreeParams | None = None,
     ) -> JaxDecisionTreeState:
         key, drop_key = jax.random.split(state.rng_key)
+        key, q_drop_key = jax.random.split(key)
 
         wm_decay = self.wm_decay if params is None else params.wm_decay
+        q_drop_rate = self.q_drop_rate if params is None else params.q_drop_rate
         activation = state.activation * wm_decay
         activation = jnp.clip(activation, 0.0, 1.0)
         activation = activation.at[node].set(1.0)
@@ -384,10 +390,15 @@ class JaxDecisionTreeEnv:
 
         keep = jax.random.uniform(drop_key, shape=(self.num_nodes,)) < activation
         activation = jnp.where(keep, activation, 0.0)
+        q_drop_mask = (activation == 0.0) & (
+            jax.random.uniform(q_drop_key, shape=(self.num_nodes,)) < q_drop_rate
+        )
+        q_values = jnp.where(q_drop_mask, 0.0, state.q_values)
 
         return state._replace(
             rng_key=key,
             activation=activation,
+            q_values=q_values,
         )
 
     def get_obs(self, state: JaxDecisionTreeState) -> jax.Array:

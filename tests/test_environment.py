@@ -373,6 +373,42 @@ def test_auto_recency_decay_uses_half_when_wm_decay_is_one():
     np.testing.assert_allclose(recency, expected, atol=1e-6)
 
 
+def test_q_drop_rate_resets_inactive_q_values():
+    env = JaxDecisionTreeEnv(
+        num_nodes=7,
+        wm_decay=0.0,
+        q_drop_rate=1.0,
+        shuffle_nodes=False,
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(12))
+    q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
+    activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
+    state = state._replace(q_values=q_values, activation=activation)
+
+    state = env._update_activation(state, state.root_node, env.default_params())
+
+    inactive_mask = np.asarray(state.activation) == 0.0
+    np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], 0.0, atol=1e-6)
+
+
+def test_q_drop_rate_zero_preserves_inactive_q_values():
+    env = JaxDecisionTreeEnv(
+        num_nodes=7,
+        wm_decay=0.0,
+        q_drop_rate=0.0,
+        shuffle_nodes=False,
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(13))
+    q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
+    activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
+    state = state._replace(q_values=q_values, activation=activation)
+
+    state = env._update_activation(state, state.root_node, env.default_params())
+
+    inactive_mask = np.asarray(state.activation) == 0.0
+    np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], np.asarray(q_values)[inactive_mask], atol=1e-6)
+
+
 def test_move_step_matches_reference_environment():
     reference_env, jax_env, _, state, _, _ = _reset_synced_envs(seed=5)
 

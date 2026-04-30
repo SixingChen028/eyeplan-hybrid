@@ -30,6 +30,7 @@ class ReferenceDecisionTreeEnv:
         learning_rate: float = 0.2,
         lamda_backup: float = 0.0,
         wm_decay: float = 0.8,
+        q_drop_rate: float = 0.0,
         t_max: int = 100,
         cost: float = 0.01,
         scale_factor: float = 1 / 8,
@@ -45,6 +46,7 @@ class ReferenceDecisionTreeEnv:
         self.learning_rate = float(learning_rate)
         self.lamda_backup = float(lamda_backup)
         self.wm_decay = float(wm_decay)
+        self.q_drop_rate = float(q_drop_rate)
         self.t_max = int(t_max)
         self.cost = float(cost)
         self.scale_factor = float(scale_factor)
@@ -220,6 +222,8 @@ class ReferenceDecisionTreeEnv:
 
         keep = self.rng.uniform(size=self.num_nodes) < self.activation
         self.activation[~keep] = 0.0
+        q_drop_mask = (self.activation == 0.0) & (self.rng.uniform(size=self.num_nodes) < self.q_drop_rate)
+        self.q_values[q_drop_mask] = 0.0
 
     def _move(self):
         node = self.root_node
