@@ -173,9 +173,20 @@ class JaxBatchMaskA2C:
         env_state, obs, info = jax.vmap(self.env.reset)(reset_keys)
         action_mask = info["mask"]
         one_mask = jnp.ones((self.num_envs,), dtype=jnp.float32)
+        zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
 
         def body_fn(carry, _):
-            env_state, obs, action_mask, rng_key = carry
+            (
+                env_state,
+                obs,
+                action_mask,
+                episode_reward_accum,
+                episode_length_accum,
+                completed_reward_sum,
+                completed_length_sum,
+                completed_count,
+                rng_key,
+            ) = carry
 
             logits, values = actor_critic_forward(params, obs, action_mask)
 
@@ -196,6 +207,19 @@ class JaxBatchMaskA2C:
             )
             obs = _select_not_done(dones, next_obs, reset_obs)
             action_mask = _select_not_done(dones, next_action_mask, reset_action_mask)
+            episode_reward_accum = episode_reward_accum + rewards.astype(jnp.float32)
+            episode_length_accum = episode_length_accum + one_mask
+
+            completed_reward_sum = completed_reward_sum + jnp.sum(
+                jnp.where(dones, episode_reward_accum, 0.0)
+            )
+            completed_length_sum = completed_length_sum + jnp.sum(
+                jnp.where(dones, episode_length_accum, 0.0)
+            )
+            completed_count = completed_count + jnp.sum(dones.astype(jnp.float32))
+
+            episode_reward_accum = _select_not_done(dones, episode_reward_accum, zeros)
+            episode_length_accum = _select_not_done(dones, episode_length_accum, zeros)
 
             output = RolloutBatch(
                 masks=one_mask,
@@ -206,18 +230,58 @@ class JaxBatchMaskA2C:
                 values=values,
             )
 
-            return (env_state, obs, action_mask, rng_key), output
+            return (
+                (
+                    env_state,
+                    obs,
+                    action_mask,
+                    episode_reward_accum,
+                    episode_length_accum,
+                    completed_reward_sum,
+                    completed_length_sum,
+                    completed_count,
+                    rng_key,
+                ),
+                output,
+            )
 
         carry, rollout = jax.lax.scan(
             body_fn,
-            (env_state, obs, action_mask, rng_key),
+            (
+                env_state,
+                obs,
+                action_mask,
+                zeros,
+                zeros,
+                jnp.array(0.0, dtype=jnp.float32),
+                jnp.array(0.0, dtype=jnp.float32),
+                jnp.array(0.0, dtype=jnp.float32),
+                rng_key,
+            ),
             xs=None,
             length=self.rollout_length,
         )
 
-        _, final_obs, final_action_mask, new_key = carry
+        (
+            _,
+            final_obs,
+            final_action_mask,
+            _,
+            _,
+            completed_reward_sum,
+            completed_length_sum,
+            completed_count,
+            new_key,
+        ) = carry
         _, bootstrap_values = actor_critic_forward(params, final_obs, final_action_mask)
-        return rollout, bootstrap_values, new_key
+        return (
+            rollout,
+            bootstrap_values,
+            completed_reward_sum,
+            completed_length_sum,
+            completed_count,
+            new_key,
+        )
 
     def _discounted_returns_and_advantages(
         self,
@@ -256,7 +320,14 @@ class JaxBatchMaskA2C:
         return returns_rev[::-1], advantages_rev[::-1]
 
     def _loss_and_metrics(self, params: Any, rng_key: jax.Array, beta_e: jax.Array):
-        rollout, bootstrap_values, new_key = self._rollout(params, rng_key)
+        (
+            rollout,
+            bootstrap_values,
+            completed_reward_sum,
+            completed_length_sum,
+            completed_count,
+            new_key,
+        ) = self._rollout(params, rng_key)
 
         returns, advantages = self._discounted_returns_and_advantages(
             rewards=rollout.rewards,
@@ -278,14 +349,17 @@ class JaxBatchMaskA2C:
         )
 
         loss = policy_loss + self.beta_v * value_loss + beta_e * entropy_loss
+        episode_count = jnp.maximum(completed_count, 1.0)
+        episode_reward = completed_reward_sum / episode_count
+        episode_length = completed_length_sum / episode_count
 
         metrics = StepMetrics(
             loss=loss,
             policy_loss=policy_loss,
             value_loss=value_loss,
             entropy_loss=entropy_loss,
-            episode_reward=jnp.mean(jnp.sum(rollout.rewards, axis=0)),
-            episode_length=jnp.mean(jnp.sum(rollout.masks, axis=0)),
+            episode_reward=episode_reward,
+            episode_length=episode_length,
             grad_norm=jnp.array(0.0, dtype=jnp.float32),
             param_norm=jnp.array(0.0, dtype=jnp.float32),
         )

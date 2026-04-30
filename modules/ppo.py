@@ -124,9 +124,20 @@ class JaxBatchMaskPPO:
         env_state, obs, info = jax.vmap(self.env.reset)(reset_keys)
         action_mask = info["mask"]
         one_mask = jnp.ones((self.num_envs,), dtype=jnp.float32)
+        zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
 
         def body_fn(carry, _):
-            env_state, obs, action_mask, rng_key = carry
+            (
+                env_state,
+                obs,
+                action_mask,
+                episode_reward_accum,
+                episode_length_accum,
+                completed_reward_sum,
+                completed_length_sum,
+                completed_count,
+                rng_key,
+            ) = carry
 
             logits, values = actor_critic_forward(params, obs, action_mask)
 
@@ -147,6 +158,17 @@ class JaxBatchMaskPPO:
             )
             next_obs = _select_not_done(dones, next_obs, reset_obs)
             next_action_mask = _select_not_done(dones, next_action_mask, reset_action_mask)
+            episode_reward_accum = episode_reward_accum + rewards.astype(jnp.float32)
+            episode_length_accum = episode_length_accum + one_mask
+            completed_reward_sum = completed_reward_sum + jnp.sum(
+                jnp.where(dones, episode_reward_accum, 0.0)
+            )
+            completed_length_sum = completed_length_sum + jnp.sum(
+                jnp.where(dones, episode_length_accum, 0.0)
+            )
+            completed_count = completed_count + jnp.sum(dones.astype(jnp.float32))
+            episode_reward_accum = _select_not_done(dones, episode_reward_accum, zeros)
+            episode_length_accum = _select_not_done(dones, episode_length_accum, zeros)
 
             output = PPORolloutBatch(
                 obs=obs,
@@ -159,20 +181,54 @@ class JaxBatchMaskPPO:
                 values=values,
             )
 
-            return (env_state, next_obs, next_action_mask, rng_key), output
+            return (
+                (
+                    env_state,
+                    next_obs,
+                    next_action_mask,
+                    episode_reward_accum,
+                    episode_length_accum,
+                    completed_reward_sum,
+                    completed_length_sum,
+                    completed_count,
+                    rng_key,
+                ),
+                output,
+            )
 
         carry, rollout = jax.lax.scan(
             body_fn,
-            (env_state, obs, action_mask, rng_key),
+            (
+                env_state,
+                obs,
+                action_mask,
+                zeros,
+                zeros,
+                jnp.array(0.0, dtype=jnp.float32),
+                jnp.array(0.0, dtype=jnp.float32),
+                jnp.array(0.0, dtype=jnp.float32),
+                rng_key,
+            ),
             xs=None,
             length=self.rollout_length,
         )
 
-        _, final_obs, final_action_mask, new_key = carry
+        (
+            _,
+            final_obs,
+            final_action_mask,
+            _,
+            _,
+            completed_reward_sum,
+            completed_length_sum,
+            completed_count,
+            new_key,
+        ) = carry
         _, bootstrap_values = actor_critic_forward(params, final_obs, final_action_mask)
 
-        episode_reward = jnp.mean(jnp.sum(rollout.rewards, axis=0))
-        episode_length = jnp.mean(jnp.sum(rollout.not_done_masks, axis=0))
+        episode_count = jnp.maximum(completed_count, 1.0)
+        episode_reward = completed_reward_sum / episode_count
+        episode_length = completed_length_sum / episode_count
 
         return rollout, bootstrap_values, episode_reward, episode_length, new_key
 
