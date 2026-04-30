@@ -66,13 +66,38 @@ def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, 
     num_updates = len(data["episode_reward"])
     updates = np.arange(1, num_updates + 1)
     env_steps = updates * num_envs * rollout_length
+    if all(key in data for key in ("episode_count", "episode_reward_sum", "episode_length_sum")):
+        episode_count = np.asarray(data["episode_count"], dtype=np.float64)
+        episode_reward_sum = np.asarray(data["episode_reward_sum"], dtype=np.float64)
+        episode_length_sum = np.asarray(data["episode_length_sum"], dtype=np.float64)
+        episode_reward = np.divide(
+            episode_reward_sum,
+            episode_count,
+            out=np.full_like(episode_reward_sum, np.nan),
+            where=episode_count > 0,
+        )
+        episode_length = np.divide(
+            episode_length_sum,
+            episode_count,
+            out=np.full_like(episode_length_sum, np.nan),
+            where=episode_count > 0,
+        )
+    else:
+        episode_count = np.ones((num_updates,), dtype=np.float64)
+        episode_reward_sum = np.asarray(data["episode_reward"], dtype=np.float64)
+        episode_length_sum = np.asarray(data["episode_length"], dtype=np.float64)
+        episode_reward = episode_reward_sum
+        episode_length = episode_length_sum
 
     df = pd.DataFrame(
         {
             "update": updates,
             "env_steps": env_steps,
-            "episode_reward": np.asarray(data["episode_reward"], dtype=np.float64),
-            "episode_length": np.asarray(data["episode_length"], dtype=np.float64),
+            "episode_reward": episode_reward,
+            "episode_length": episode_length,
+            "episode_count": episode_count,
+            "episode_reward_sum": episode_reward_sum,
+            "episode_length_sum": episode_length_sum,
             "loss": np.asarray(data["loss"], dtype=np.float64),
             "policy_loss": np.asarray(data["policy_loss"], dtype=np.float64),
             "value_loss": np.asarray(data["value_loss"], dtype=np.float64),
@@ -82,8 +107,15 @@ def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, 
         }
     )
 
-    df["episode_reward_ma"] = df["episode_reward"].rolling(ma_window, min_periods=1).mean()
-    df["episode_length_ma"] = df["episode_length"].rolling(ma_window, min_periods=1).mean()
+    rolling_episode_count = df["episode_count"].rolling(ma_window, min_periods=1).sum()
+    df["episode_reward_ma"] = (
+        df["episode_reward_sum"].rolling(ma_window, min_periods=1).sum()
+        / rolling_episode_count
+    )
+    df["episode_length_ma"] = (
+        df["episode_length_sum"].rolling(ma_window, min_periods=1).sum()
+        / rolling_episode_count
+    )
     df["loss_ma"] = df["loss"].rolling(ma_window, min_periods=1).mean()
 
     summary = {

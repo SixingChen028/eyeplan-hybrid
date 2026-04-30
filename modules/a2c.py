@@ -31,6 +31,9 @@ class StepMetrics(NamedTuple):
     entropy_loss: jax.Array
     episode_reward: jax.Array
     episode_length: jax.Array
+    episode_count: jax.Array
+    episode_reward_sum: jax.Array
+    episode_length_sum: jax.Array
     grad_norm: jax.Array
     param_norm: jax.Array
 
@@ -48,6 +51,8 @@ class RolloutState(NamedTuple):
     env_state: Any
     obs: jax.Array
     action_mask: jax.Array
+    running_return: jax.Array
+    running_length: jax.Array
 
 
 def _zero_step_metrics(dtype=jnp.float32):
@@ -59,6 +64,9 @@ def _zero_step_metrics(dtype=jnp.float32):
         entropy_loss=zero,
         episode_reward=zero,
         episode_length=zero,
+        episode_count=zero,
+        episode_reward_sum=zero,
+        episode_length_sum=zero,
         grad_norm=zero,
         param_norm=zero,
     )
@@ -176,14 +184,31 @@ class JaxBatchMaskA2C:
             env_state=env_state,
             obs=obs,
             action_mask=info["mask"],
+            running_return=jnp.zeros((self.num_envs,), dtype=jnp.float32),
+            running_length=jnp.zeros((self.num_envs,), dtype=jnp.float32),
         )
 
         return JaxTrainState(params=params, optimizer=optimizer, rollout_state=rollout_state, rng_key=key)
+
+    def ensure_rollout_state(self, state: JaxTrainState) -> JaxTrainState:
+        rollout_state = state.rollout_state
+        if hasattr(rollout_state, "running_return") and hasattr(rollout_state, "running_length"):
+            return state
+        rollout_state = RolloutState(
+            env_state=rollout_state.env_state,
+            obs=rollout_state.obs,
+            action_mask=rollout_state.action_mask,
+            running_return=jnp.zeros((self.num_envs,), dtype=jnp.float32),
+            running_length=jnp.zeros((self.num_envs,), dtype=jnp.float32),
+        )
+        return state._replace(rollout_state=rollout_state)
 
     def _rollout(self, params: Any, rollout_state: RolloutState, rng_key: jax.Array):
         env_state = rollout_state.env_state
         obs = rollout_state.obs
         action_mask = rollout_state.action_mask
+        running_return = rollout_state.running_return
+        running_length = rollout_state.running_length
         one_mask = jnp.ones((self.num_envs,), dtype=jnp.float32)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
 
@@ -192,11 +217,11 @@ class JaxBatchMaskA2C:
                 env_state,
                 obs,
                 action_mask,
-                episode_reward_accum,
-                episode_length_accum,
-                first_episode_reward,
-                first_episode_length,
-                has_first_episode,
+                running_return,
+                running_length,
+                episode_reward_sum,
+                episode_length_sum,
+                episode_count,
                 rng_key,
             ) = carry
 
@@ -219,16 +244,16 @@ class JaxBatchMaskA2C:
             )
             obs = _select_not_done(dones, next_obs, reset_obs)
             action_mask = _select_not_done(dones, next_action_mask, reset_action_mask)
-            episode_reward_accum = episode_reward_accum + rewards.astype(jnp.float32)
-            episode_length_accum = episode_length_accum + one_mask
+            running_return = running_return + rewards.astype(jnp.float32)
+            running_length = running_length + one_mask
 
-            capture_mask = jnp.logical_and(dones, jnp.logical_not(has_first_episode))
-            first_episode_reward = jnp.where(capture_mask, episode_reward_accum, first_episode_reward)
-            first_episode_length = jnp.where(capture_mask, episode_length_accum, first_episode_length)
-            has_first_episode = jnp.logical_or(has_first_episode, dones)
+            completed = dones.astype(jnp.float32)
+            episode_reward_sum = episode_reward_sum + jnp.sum(running_return * completed)
+            episode_length_sum = episode_length_sum + jnp.sum(running_length * completed)
+            episode_count = episode_count + jnp.sum(completed)
 
-            episode_reward_accum = _select_not_done(dones, episode_reward_accum, zeros)
-            episode_length_accum = _select_not_done(dones, episode_length_accum, zeros)
+            running_return = _select_not_done(dones, running_return, zeros)
+            running_length = _select_not_done(dones, running_length, zeros)
 
             output = RolloutBatch(
                 masks=one_mask,
@@ -244,11 +269,11 @@ class JaxBatchMaskA2C:
                     env_state,
                     obs,
                     action_mask,
-                    episode_reward_accum,
-                    episode_length_accum,
-                    first_episode_reward,
-                    first_episode_length,
-                    has_first_episode,
+                    running_return,
+                    running_length,
+                    episode_reward_sum,
+                    episode_length_sum,
+                    episode_count,
                     rng_key,
                 ),
                 output,
@@ -260,30 +285,42 @@ class JaxBatchMaskA2C:
                 env_state,
                 obs,
                 action_mask,
-                zeros,
-                zeros,
-                zeros,
-                zeros,
-                jnp.zeros((self.num_envs,), dtype=jnp.bool_),
+                running_return,
+                running_length,
+                jnp.array(0.0, dtype=jnp.float32),
+                jnp.array(0.0, dtype=jnp.float32),
+                jnp.array(0.0, dtype=jnp.float32),
                 rng_key,
             ),
             xs=None,
             length=self.rollout_length,
         )
 
-        (final_env_state, final_obs, final_action_mask, _, _, first_episode_reward, first_episode_length, has_first_episode, new_key) = carry
+        (
+            final_env_state,
+            final_obs,
+            final_action_mask,
+            final_running_return,
+            final_running_length,
+            episode_reward_sum,
+            episode_length_sum,
+            episode_count,
+            new_key,
+        ) = carry
         _, bootstrap_values = actor_critic_forward(params, final_obs, final_action_mask)
         next_rollout_state = RolloutState(
             env_state=final_env_state,
             obs=final_obs,
             action_mask=final_action_mask,
+            running_return=final_running_return,
+            running_length=final_running_length,
         )
         return (
             rollout,
             bootstrap_values,
-            first_episode_reward,
-            first_episode_length,
-            has_first_episode,
+            episode_reward_sum,
+            episode_length_sum,
+            episode_count,
             next_rollout_state,
             new_key,
         )
@@ -328,9 +365,9 @@ class JaxBatchMaskA2C:
         (
             rollout,
             bootstrap_values,
-            first_episode_reward,
-            first_episode_length,
-            has_first_episode,
+            episode_reward_sum,
+            episode_length_sum,
+            episode_count,
             next_rollout_state,
             new_key,
         ) = self._rollout(params, rollout_state, rng_key)
@@ -355,10 +392,9 @@ class JaxBatchMaskA2C:
         )
 
         loss = policy_loss + self.beta_v * value_loss + beta_e * entropy_loss
-        completed_mask = has_first_episode.astype(jnp.float32)
-        completed_count = jnp.maximum(jnp.sum(completed_mask), 1.0)
-        episode_reward = jnp.sum(first_episode_reward * completed_mask) / completed_count
-        episode_length = jnp.sum(first_episode_length * completed_mask) / completed_count
+        completed_count = jnp.maximum(episode_count, 1.0)
+        episode_reward = episode_reward_sum / completed_count
+        episode_length = episode_length_sum / completed_count
 
         metrics = StepMetrics(
             loss=loss,
@@ -367,6 +403,9 @@ class JaxBatchMaskA2C:
             entropy_loss=entropy_loss,
             episode_reward=episode_reward,
             episode_length=episode_length,
+            episode_count=episode_count,
+            episode_reward_sum=episode_reward_sum,
+            episode_length_sum=episode_length_sum,
             grad_norm=jnp.array(0.0, dtype=jnp.float32),
             param_norm=jnp.array(0.0, dtype=jnp.float32),
         )
@@ -455,6 +494,14 @@ class JaxBatchMaskA2C:
         (state, metric_sums), _ = jax.lax.scan(body_fn, init, entropy_schedule)
         num_steps = jnp.asarray(entropy_schedule.shape[0], dtype=jnp.float32)
         mean_metrics = jax.tree_util.tree_map(lambda x: x / num_steps, metric_sums)
+        completed_count = jnp.maximum(metric_sums.episode_count, 1.0)
+        mean_metrics = mean_metrics._replace(
+            episode_reward=metric_sums.episode_reward_sum / completed_count,
+            episode_length=metric_sums.episode_length_sum / completed_count,
+            episode_count=metric_sums.episode_count,
+            episode_reward_sum=metric_sums.episode_reward_sum,
+            episode_length_sum=metric_sums.episode_length_sum,
+        )
         return state, mean_metrics
 
     def train_step(self, state: JaxTrainState, beta_e: float | None = None):
@@ -479,6 +526,9 @@ class JaxBatchMaskA2C:
             "entropy_loss": [],
             "episode_length": [],
             "episode_reward": [],
+            "episode_count": [],
+            "episode_reward_sum": [],
+            "episode_length_sum": [],
             "grad_norm": [],
             "param_norm": [],
             "step_time_s": [],
@@ -497,6 +547,9 @@ class JaxBatchMaskA2C:
             data["entropy_loss"].append(float(metrics.entropy_loss))
             data["episode_length"].append(float(metrics.episode_length))
             data["episode_reward"].append(float(metrics.episode_reward))
+            data["episode_count"].append(float(metrics.episode_count))
+            data["episode_reward_sum"].append(float(metrics.episode_reward_sum))
+            data["episode_length_sum"].append(float(metrics.episode_length_sum))
             data["grad_norm"].append(float(metrics.grad_norm))
             data["param_norm"].append(float(metrics.param_norm))
             data["step_time_s"].append(step_time)
