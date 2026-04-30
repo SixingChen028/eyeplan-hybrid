@@ -162,6 +162,19 @@ def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
     assert env.observation_shape[0] == JaxDecisionTreeEnv(num_nodes=fixed["num_nodes"]).observation_shape[0] + fixed["num_nodes"]
 
 
+def test_parallel_sweep_allows_q_drop_rate_arrays():
+    fixed, combos, seeds, varied_keys = expand_sweep(
+        _small_params(seed=0, wm_decay=0.5, q_drop_rate=[0.0, 0.25])
+    )
+
+    assert varied_keys == ["q_drop_rate"]
+    assert len(combos) == 2
+    assert seeds == [0]
+
+    hypers = build_hypers(combos)
+    np.testing.assert_allclose(np.asarray(hypers.env.q_drop_rate), np.array([0.0, 0.25], dtype=np.float32))
+
+
 def test_parallel_sweep_rejects_recency_decay_arrays_with_off():
     try:
         expand_sweep(_small_params(seed=0, recency_decay=["off", 0.5]))

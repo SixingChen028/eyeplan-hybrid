@@ -49,6 +49,7 @@ DEFAULT_PARAMS = {
     "learning_rate": 1.0,
     "lamda_backup": 1.0,
     "wm_decay": 1.0,
+    "q_drop_rate": 0.0,
     "t_max": 100,
     "cost": 0.01,
     "scale_factor": 1 / 8,
@@ -78,6 +79,7 @@ ENV_SWEEP_KEYS = {
     "learning_rate",
     "lamda_backup",
     "wm_decay",
+    "q_drop_rate",
     "recency_decay",
     "cost",
     "scale_factor",
@@ -212,6 +214,7 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
         learning_rate=array("learning_rate"),
         lamda_backup=array("lamda_backup"),
         wm_decay=array("wm_decay"),
+        q_drop_rate=array("q_drop_rate"),
         recency_decay=jnp.asarray(
             [
                 _resolve_recency_decay(combo["recency_decay"], combo["wm_decay"])
@@ -243,6 +246,7 @@ def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
         learning_rate=args["learning_rate"],
         lamda_backup=args["lamda_backup"],
         wm_decay=args["wm_decay"],
+        q_drop_rate=args["q_drop_rate"],
         t_max=args["t_max"],
         cost=args["cost"],
         scale_factor=args["scale_factor"],
@@ -260,6 +264,7 @@ def _env_cache_key(args: dict) -> tuple:
         "learning_rate",
         "lamda_backup",
         "wm_decay",
+        "q_drop_rate",
         "t_max",
         "cost",
         "scale_factor",
