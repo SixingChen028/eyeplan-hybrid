@@ -81,7 +81,7 @@ def init_node_shared_actor_critic_params(
             "b": jnp.zeros((1,), dtype=jnp.float32),
         },
         "global_fc": {
-            "w": _xavier_uniform(k4, hidden_size * 4 + 2, hidden_size),
+            "w": _xavier_uniform(k4, hidden_size * 2 + 2, hidden_size),
             "b": jnp.zeros((hidden_size,), dtype=jnp.float32),
         },
         "terminate": {
@@ -211,13 +211,11 @@ def _node_shared_forward(
     node_embeddings = jax.nn.relu(_linear(h1, params["node_fc2"]))
     node_logits = _linear(node_embeddings, params["node_policy"]).squeeze(-1)
 
-    all_mean = jnp.mean(node_embeddings, axis=-2)
-    all_max = jnp.max(node_embeddings, axis=-2)
     legal_mean = _masked_mean(node_embeddings, legal_nodes)
     legal_max = _masked_max(node_embeddings, legal_nodes)
 
     global_features = jnp.concatenate(
-        [all_mean, all_max, legal_mean, legal_max, fixation_point, time_elapsed],
+        [legal_mean, legal_max, fixation_point, time_elapsed],
         axis=-1,
     )
     global_hidden = jax.nn.relu(_linear(global_features, params["global_fc"]))
