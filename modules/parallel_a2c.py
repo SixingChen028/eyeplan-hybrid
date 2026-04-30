@@ -210,14 +210,20 @@ class ParallelJaxBatchMaskA2C:
         )
         entropy_loss = -jnp.mean(jnp.sum(rollout.entropies * rollout.masks, axis=0))
         loss = policy_loss + hyper.beta_v * value_loss + beta_e * entropy_loss
+        episode_reward_sum = jnp.sum(rollout.rewards)
+        episode_length_sum = jnp.sum(rollout.masks)
+        episode_count = jnp.asarray(self.batch_size, dtype=jnp.float32)
 
         metrics = StepMetrics(
             loss=loss,
             policy_loss=policy_loss,
             value_loss=value_loss,
             entropy_loss=entropy_loss,
-            episode_reward=jnp.mean(jnp.sum(rollout.rewards, axis=0)),
-            episode_length=jnp.mean(jnp.sum(rollout.masks, axis=0)),
+            episode_reward=episode_reward_sum / episode_count,
+            episode_length=episode_length_sum / episode_count,
+            episode_count=episode_count,
+            episode_reward_sum=episode_reward_sum,
+            episode_length_sum=episode_length_sum,
             grad_norm=jnp.array(0.0, dtype=jnp.float32),
             param_norm=jnp.array(0.0, dtype=jnp.float32),
         )

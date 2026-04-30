@@ -135,6 +135,8 @@ if __name__ == '__main__':
 
     if state is None:
         state = trainer.init_state(seed=args.seed)
+    else:
+        state = trainer.ensure_rollout_state(state)
 
     entropy_schedule = np.linspace(
         args.beta_e_init,
@@ -152,6 +154,9 @@ if __name__ == '__main__':
         "approx_kl": [],
         "episode_length": [],
         "episode_reward": [],
+        "episode_count": [],
+        "episode_reward_sum": [],
+        "episode_length_sum": [],
         "step_time_s": [],
         "cumulative_time_s": [],
     }
@@ -255,6 +260,17 @@ if __name__ == '__main__':
                 lambda x: np.full((chunk_updates,), x, dtype=np.float32),
                 chunk_metrics_mean,
             )
+            episode_count = np.zeros((chunk_updates,), dtype=np.float32)
+            episode_reward_sum = np.zeros((chunk_updates,), dtype=np.float32)
+            episode_length_sum = np.zeros((chunk_updates,), dtype=np.float32)
+            episode_count[-1] = chunk_metrics_mean.episode_count
+            episode_reward_sum[-1] = chunk_metrics_mean.episode_reward_sum
+            episode_length_sum[-1] = chunk_metrics_mean.episode_length_sum
+            chunk_metrics = chunk_metrics._replace(
+                episode_count=episode_count,
+                episode_reward_sum=episode_reward_sum,
+                episode_length_sum=episode_length_sum,
+            )
         chunk_end_wall = time.time()
         is_first_chunk = chunk_start == start_update
 
@@ -275,6 +291,9 @@ if __name__ == '__main__':
         data["approx_kl"].extend(chunk_metrics.approx_kl.tolist())
         data["episode_length"].extend(chunk_metrics.episode_length.tolist())
         data["episode_reward"].extend(chunk_metrics.episode_reward.tolist())
+        data["episode_count"].extend(chunk_metrics.episode_count.tolist())
+        data["episode_reward_sum"].extend(chunk_metrics.episode_reward_sum.tolist())
+        data["episode_length_sum"].extend(chunk_metrics.episode_length_sum.tolist())
         data["step_time_s"].extend([avg_step_time] * chunk_updates)
         data["cumulative_time_s"].extend(cumulative_values.tolist())
 
@@ -304,8 +323,17 @@ if __name__ == '__main__':
 
                 data_index = chunk_data_start + chunk_index
                 window = slice(window_start_idx, data_index + 1)
-                avg_episode_reward = float(np.mean(data["episode_reward"][window]))
-                avg_episode_length = float(np.mean(data["episode_length"][window]))
+                episode_count = float(np.sum(data["episode_count"][window]))
+                avg_episode_reward = (
+                    float(np.sum(data["episode_reward_sum"][window]) / episode_count)
+                    if episode_count > 0
+                    else float("nan")
+                )
+                avg_episode_length = (
+                    float(np.sum(data["episode_length_sum"][window]) / episode_count)
+                    if episode_count > 0
+                    else float("nan")
+                )
                 avg_loss = float(np.mean(data["loss"][window]))
                 avg_policy_loss = float(np.mean(data["policy_loss"][window]))
                 avg_value_loss = float(np.mean(data["value_loss"][window]))
@@ -317,7 +345,7 @@ if __name__ == '__main__':
                     col_sep.join(
                         [
                             f"{update_index + 1:>8d}",
-                            f"{(update_index + 1) * args.num_envs * args.rollout_length:>10d}",
+                            f"{int(episode_count):>10d}",
                             _fmt_num(avg_episode_reward),
                             _fmt_num(avg_episode_length),
                             _fmt_num(avg_loss),
