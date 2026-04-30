@@ -20,6 +20,7 @@ class AdamState(NamedTuple):
 class JaxTrainState(NamedTuple):
     params: Any
     optimizer: AdamState
+    rollout_state: Any
     rng_key: jax.Array
 
 
@@ -41,6 +42,12 @@ class RolloutBatch(NamedTuple):
     log_probs: jax.Array
     entropies: jax.Array
     values: jax.Array
+
+
+class RolloutState(NamedTuple):
+    env_state: Any
+    obs: jax.Array
+    action_mask: jax.Array
 
 
 def _zero_step_metrics(dtype=jnp.float32):
@@ -148,7 +155,7 @@ class JaxBatchMaskA2C:
 
     def init_state(self, seed: int = 0) -> JaxTrainState:
         key = jax.random.PRNGKey(seed)
-        key, init_key = jax.random.split(key)
+        key, init_key, reset_key = jax.random.split(key, 3)
 
         params = init_actor_critic_params(
             init_key,
@@ -163,15 +170,20 @@ class JaxBatchMaskA2C:
             m=_zeros_like_tree(params),
             v=_zeros_like_tree(params),
         )
-
-        return JaxTrainState(params=params, optimizer=optimizer, rng_key=key)
-
-    def _rollout(self, params: Any, rng_key: jax.Array):
-        rng_key, reset_key = jax.random.split(rng_key)
         reset_keys = jax.random.split(reset_key, self.num_envs)
-
         env_state, obs, info = jax.vmap(self.env.reset)(reset_keys)
-        action_mask = info["mask"]
+        rollout_state = RolloutState(
+            env_state=env_state,
+            obs=obs,
+            action_mask=info["mask"],
+        )
+
+        return JaxTrainState(params=params, optimizer=optimizer, rollout_state=rollout_state, rng_key=key)
+
+    def _rollout(self, params: Any, rollout_state: RolloutState, rng_key: jax.Array):
+        env_state = rollout_state.env_state
+        obs = rollout_state.obs
+        action_mask = rollout_state.action_mask
         one_mask = jnp.ones((self.num_envs,), dtype=jnp.float32)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
 
@@ -210,14 +222,10 @@ class JaxBatchMaskA2C:
             episode_reward_accum = episode_reward_accum + rewards.astype(jnp.float32)
             episode_length_accum = episode_length_accum + one_mask
 
-            done_any = jnp.any(dones)
-            first_done_index = jnp.argmax(dones.astype(jnp.int32))
-            first_candidate_reward = episode_reward_accum[first_done_index]
-            first_candidate_length = episode_length_accum[first_done_index]
-            should_capture = jnp.logical_and(jnp.logical_not(has_first_episode), done_any)
-            first_episode_reward = jnp.where(should_capture, first_candidate_reward, first_episode_reward)
-            first_episode_length = jnp.where(should_capture, first_candidate_length, first_episode_length)
-            has_first_episode = jnp.logical_or(has_first_episode, done_any)
+            capture_mask = jnp.logical_and(dones, jnp.logical_not(has_first_episode))
+            first_episode_reward = jnp.where(capture_mask, episode_reward_accum, first_episode_reward)
+            first_episode_length = jnp.where(capture_mask, episode_length_accum, first_episode_length)
+            has_first_episode = jnp.logical_or(has_first_episode, dones)
 
             episode_reward_accum = _select_not_done(dones, episode_reward_accum, zeros)
             episode_length_accum = _select_not_done(dones, episode_length_accum, zeros)
@@ -254,33 +262,29 @@ class JaxBatchMaskA2C:
                 action_mask,
                 zeros,
                 zeros,
-                jnp.array(0.0, dtype=jnp.float32),
-                jnp.array(0.0, dtype=jnp.float32),
-                jnp.array(False, dtype=jnp.bool_),
+                zeros,
+                zeros,
+                jnp.zeros((self.num_envs,), dtype=jnp.bool_),
                 rng_key,
             ),
             xs=None,
             length=self.rollout_length,
         )
 
-        (
-            _,
-            final_obs,
-            final_action_mask,
-            _,
-            _,
-            first_episode_reward,
-            first_episode_length,
-            has_first_episode,
-            new_key,
-        ) = carry
+        (final_env_state, final_obs, final_action_mask, _, _, first_episode_reward, first_episode_length, has_first_episode, new_key) = carry
         _, bootstrap_values = actor_critic_forward(params, final_obs, final_action_mask)
+        next_rollout_state = RolloutState(
+            env_state=final_env_state,
+            obs=final_obs,
+            action_mask=final_action_mask,
+        )
         return (
             rollout,
             bootstrap_values,
             first_episode_reward,
             first_episode_length,
             has_first_episode,
+            next_rollout_state,
             new_key,
         )
 
@@ -320,15 +324,16 @@ class JaxBatchMaskA2C:
 
         return returns_rev[::-1], advantages_rev[::-1]
 
-    def _loss_and_metrics(self, params: Any, rng_key: jax.Array, beta_e: jax.Array):
+    def _loss_and_metrics(self, params: Any, rollout_state: RolloutState, rng_key: jax.Array, beta_e: jax.Array):
         (
             rollout,
             bootstrap_values,
             first_episode_reward,
             first_episode_length,
             has_first_episode,
+            next_rollout_state,
             new_key,
-        ) = self._rollout(params, rng_key)
+        ) = self._rollout(params, rollout_state, rng_key)
 
         returns, advantages = self._discounted_returns_and_advantages(
             rewards=rollout.rewards,
@@ -350,8 +355,10 @@ class JaxBatchMaskA2C:
         )
 
         loss = policy_loss + self.beta_v * value_loss + beta_e * entropy_loss
-        episode_reward = jnp.where(has_first_episode, first_episode_reward, 0.0)
-        episode_length = jnp.where(has_first_episode, first_episode_length, 0.0)
+        completed_mask = has_first_episode.astype(jnp.float32)
+        completed_count = jnp.maximum(jnp.sum(completed_mask), 1.0)
+        episode_reward = jnp.sum(first_episode_reward * completed_mask) / completed_count
+        episode_length = jnp.sum(first_episode_length * completed_mask) / completed_count
 
         metrics = StepMetrics(
             loss=loss,
@@ -364,7 +371,7 @@ class JaxBatchMaskA2C:
             param_norm=jnp.array(0.0, dtype=jnp.float32),
         )
 
-        return loss, (metrics, new_key)
+        return loss, (metrics, next_rollout_state, new_key)
 
     def _optimizer_update(self, params: Any, grads: Any, optimizer: AdamState, grad_norm: jax.Array | None = None):
         if grad_norm is None:
@@ -402,10 +409,10 @@ class JaxBatchMaskA2C:
         return params, AdamState(step=step, m=m, v=v)
 
     def _train_step(self, state: JaxTrainState, beta_e: jax.Array):
-        (loss, (metrics, new_key)), grads = jax.value_and_grad(
+        (loss, (metrics, next_rollout_state, new_key)), grads = jax.value_and_grad(
             self._loss_and_metrics,
             has_aux=True,
-        )(state.params, state.rng_key, beta_e)
+        )(state.params, state.rollout_state, state.rng_key, beta_e)
 
         del loss
 
@@ -421,7 +428,12 @@ class JaxBatchMaskA2C:
             grad_norm=grad_norm,
             param_norm=param_norm,
         )
-        new_state = JaxTrainState(params=params, optimizer=optimizer, rng_key=new_key)
+        new_state = JaxTrainState(
+            params=params,
+            optimizer=optimizer,
+            rollout_state=next_rollout_state,
+            rng_key=new_key,
+        )
 
         return new_state, metrics
 

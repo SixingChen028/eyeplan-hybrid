@@ -81,7 +81,7 @@ class ParallelJaxBatchMaskA2C:
             v=_zeros_like_tree(params),
         )
 
-        return JaxTrainState(params=params, optimizer=optimizer, rng_key=key)
+        return JaxTrainState(params=params, optimizer=optimizer, rollout_state=None, rng_key=key)
 
     def _rollout(self, params: Any, rng_key: jax.Array, env_params: JaxDecisionTreeParams):
         rng_key, reset_key = jax.random.split(rng_key)
@@ -103,6 +103,7 @@ class ParallelJaxBatchMaskA2C:
                 rng_key, _ = jax.random.split(rng_key)
                 output = RolloutBatch(
                     masks=zero_output,
+                    not_done_masks=zero_output,
                     rewards=zero_output,
                     log_probs=zero_output,
                     entropies=zero_output,
@@ -135,6 +136,7 @@ class ParallelJaxBatchMaskA2C:
 
                 output = RolloutBatch(
                     masks=mask,
+                    not_done_masks=mask,
                     rewards=rewards.astype(jnp.float32) * mask,
                     log_probs=log_probs * mask,
                     entropies=entropies * mask,
@@ -276,7 +278,7 @@ class ParallelJaxBatchMaskA2C:
             grad_norm=grad_norm,
         )
         metrics = metrics._replace(grad_norm=grad_norm, param_norm=param_norm)
-        return JaxTrainState(params=params, optimizer=optimizer, rng_key=new_key), metrics
+        return JaxTrainState(params=params, optimizer=optimizer, rollout_state=state.rollout_state, rng_key=new_key), metrics
 
     def _train_one(self, hyper: A2CHyperParams, seed: jax.Array):
         state = self.init_state(seed)
