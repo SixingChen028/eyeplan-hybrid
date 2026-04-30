@@ -5,12 +5,19 @@ from pathlib import Path
 import simulate
 
 
-def _write_metadata(run_dir: Path, *, num_episodes: int = 100, batch_size: int = 10) -> None:
+def _write_metadata(
+    run_dir: Path,
+    *,
+    num_updates: int = 10,
+    num_envs: int = 10,
+    rollout_length: int = 10,
+) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     metadata = {
         "args": {
-            "num_episodes": num_episodes,
-            "batch_size": batch_size,
+            "num_updates": num_updates,
+            "num_envs": num_envs,
+            "rollout_length": rollout_length,
         }
     }
     (run_dir / "metadata.json").write_text(json.dumps(metadata))

@@ -53,13 +53,13 @@ class JaxBatchMaskPPO:
         feature_size: int,
         action_size: int,
         hidden_size: int,
-        batch_size: int,
+        num_envs: int,
         lr: float,
         gamma: float,
         lamda: float,
         beta_v: float,
         beta_e: float,
-        rollout_steps: int | None = None,
+        rollout_length: int | None = None,
         clip_eps: float = 0.2,
         ppo_epochs: int = 4,
         normalize_advantages: bool = True,
@@ -74,10 +74,10 @@ class JaxBatchMaskPPO:
         self.action_size = int(action_size)
         self.hidden_size = int(hidden_size)
 
-        self.batch_size = int(batch_size)
-        self.rollout_steps = int(self.env.t_max if rollout_steps is None else rollout_steps)
-        if self.rollout_steps <= 0:
-            raise ValueError("rollout_steps must be positive")
+        self.num_envs = int(num_envs)
+        self.rollout_length = int(self.env.t_max if rollout_length is None else rollout_length)
+        if self.rollout_length <= 0:
+            raise ValueError("rollout_length must be positive")
         self.lr = float(lr)
         self.gamma = float(gamma)
         self.lamda = float(lamda)
@@ -119,11 +119,11 @@ class JaxBatchMaskPPO:
 
     def _rollout(self, params: Any, rng_key: jax.Array):
         rng_key, reset_key = jax.random.split(rng_key)
-        reset_keys = jax.random.split(reset_key, self.batch_size)
+        reset_keys = jax.random.split(reset_key, self.num_envs)
 
         env_state, obs, info = jax.vmap(self.env.reset)(reset_keys)
         action_mask = info["mask"]
-        one_mask = jnp.ones((self.batch_size,), dtype=jnp.float32)
+        one_mask = jnp.ones((self.num_envs,), dtype=jnp.float32)
 
         def body_fn(carry, _):
             env_state, obs, action_mask, rng_key = carry
@@ -136,7 +136,7 @@ class JaxBatchMaskPPO:
             next_env_state, next_obs, rewards, dones, _, info = jax.vmap(self.env.step)(env_state, actions)
             next_action_mask = info["mask"]
 
-            reset_keys = jax.random.split(reset_key, self.batch_size)
+            reset_keys = jax.random.split(reset_key, self.num_envs)
             reset_env_state, reset_obs, reset_info = jax.vmap(self.env.reset)(reset_keys)
             reset_action_mask = reset_info["mask"]
 
@@ -165,7 +165,7 @@ class JaxBatchMaskPPO:
             body_fn,
             (env_state, obs, action_mask, rng_key),
             xs=None,
-            length=self.rollout_steps,
+            length=self.rollout_length,
         )
 
         _, final_obs, final_action_mask, new_key = carry

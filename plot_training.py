@@ -39,20 +39,22 @@ def _read_batch_geometry(run_dir: str) -> tuple[int, int]:
         metadata = json.load(file)
 
     metadata_args = metadata.get("args", {})
-    if "batch_size" not in metadata_args:
-        raise KeyError(f"batch_size not found in metadata args: {metadata_path}")
+    if "num_envs" not in metadata_args:
+        raise KeyError(f"num_envs not found in metadata args: {metadata_path}")
+    if "rollout_length" not in metadata_args:
+        raise KeyError(f"rollout_length not found in metadata args: {metadata_path}")
 
-    batch_size = int(metadata_args["batch_size"])
-    if batch_size <= 0:
-        raise ValueError(f"batch_size must be positive in metadata: {metadata_path}")
-    rollout_steps = int(metadata_args.get("rollout_steps", 1))
-    if rollout_steps <= 0:
-        raise ValueError(f"rollout_steps must be positive in metadata: {metadata_path}")
-    return batch_size, rollout_steps
+    num_envs = int(metadata_args["num_envs"])
+    if num_envs <= 0:
+        raise ValueError(f"num_envs must be positive in metadata: {metadata_path}")
+    rollout_length = int(metadata_args["rollout_length"])
+    if rollout_length <= 0:
+        raise ValueError(f"rollout_length must be positive in metadata: {metadata_path}")
+    return num_envs, rollout_length
 
 
 def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, output_prefix: str) -> dict:
-    batch_size, rollout_steps = _read_batch_geometry(run_dir)
+    num_envs, rollout_length = _read_batch_geometry(run_dir)
     data_path = os.path.join(run_dir, data_file)
 
     if not os.path.exists(data_path):
@@ -63,7 +65,7 @@ def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, 
 
     num_updates = len(data["episode_reward"])
     updates = np.arange(1, num_updates + 1)
-    env_steps = updates * batch_size * rollout_steps
+    env_steps = updates * num_envs * rollout_length
 
     df = pd.DataFrame(
         {

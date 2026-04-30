@@ -90,7 +90,7 @@ def _args_match(saved_value, current_value) -> bool:
 
 def _validate_resume_metadata(metadata_args: dict, current_args) -> None:
     ignored_keys = {"resume", "path", "jobid", "experiment", "eval_episodes"}
-    missing_defaults = {"network_type": "mlp", "rollout_steps": 100}
+    missing_defaults = {"network_type": "mlp"}
     mismatches: list[str] = []
     missing_keys: list[str] = []
 
@@ -139,7 +139,7 @@ def _load_existing_training_data(path: str, keys: list[str], max_updates: int) -
 if __name__ == '__main__':
     parser = ArgParser()
     args = parser.args
-    num_updates = int(args.num_episodes / (args.batch_size * args.rollout_steps))
+    num_updates = int(args.num_updates)
 
     state = None
     start_update = 0
@@ -241,8 +241,8 @@ if __name__ == '__main__':
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=args.hidden_size,
-        batch_size=args.batch_size,
-        rollout_steps=args.rollout_steps,
+        num_envs=args.num_envs,
+        rollout_length=args.rollout_length,
         lr=args.lr,
         max_grad_norm=args.max_grad_norm,
         gamma=args.gamma,
@@ -286,11 +286,10 @@ if __name__ == '__main__':
 
     print(
         "run_config "
-        f"batch_size={args.batch_size} "
-        f"rollout_steps={args.rollout_steps} "
-        f"num_episodes={args.num_episodes} "
-        f"eval_episodes={args.eval_episodes} "
+        f"num_envs={args.num_envs} "
+        f"rollout_length={args.rollout_length} "
         f"num_updates={num_updates} "
+        f"eval_episodes={args.eval_episodes} "
         f"t_max={args.t_max} "
         f"print_frequency={args.print_frequency} "
         f"checkpoint_frequency={args.checkpoint_frequency} "
@@ -447,7 +446,7 @@ if __name__ == '__main__':
                     col_sep.join(
                         [
                             f"{update_index + 1:>8d}",
-                            f"{(update_index + 1) * args.batch_size * args.rollout_steps:>10d}",
+                            f"{(update_index + 1) * args.num_envs * args.rollout_length:>10d}",
                             _fmt_num(avg_episode_reward),
                             _fmt_num(avg_episode_length),
                             _fmt_num(avg_loss),
@@ -522,7 +521,6 @@ if __name__ == '__main__':
         "train_elapsed_seconds": float(train_elapsed_seconds),
         "eval_elapsed_seconds": float(eval_elapsed_seconds),
         "num_updates": int(num_updates),
-        "num_episodes": int(args.num_episodes),
     }
     eval_summary_path = os.path.join(exp_path, EVAL_SUMMARY_NAME)
     with open(eval_summary_path, "w") as file:
