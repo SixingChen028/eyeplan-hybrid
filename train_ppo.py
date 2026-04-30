@@ -51,7 +51,7 @@ def _load_resume_state(checkpoint_state_path: str, checkpoint_meta_path: str):
 if __name__ == '__main__':
     parser = ArgParser()
     args = parser.args
-    num_updates = int(args.num_episodes / args.batch_size)
+    num_updates = int(args.num_updates)
 
     state = None
     start_update = 0
@@ -119,7 +119,8 @@ if __name__ == '__main__':
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=args.hidden_size,
-        batch_size=args.batch_size,
+        num_envs=args.num_envs,
+        rollout_length=args.rollout_length,
         lr=args.lr,
         max_grad_norm=args.max_grad_norm,
         gamma=args.gamma,
@@ -157,10 +158,10 @@ if __name__ == '__main__':
 
     print(
         "run_config "
-        f"batch_size={args.batch_size} "
-        f"num_episodes={args.num_episodes} "
-        f"eval_episodes={args.eval_episodes} "
+        f"num_envs={args.num_envs} "
+        f"rollout_length={args.rollout_length} "
         f"num_updates={num_updates} "
+        f"eval_episodes={args.eval_episodes} "
         f"t_max={args.t_max} "
         f"ppo_epochs={args.ppo_epochs} "
         f"ppo_clip_eps={args.ppo_clip_eps} "
@@ -316,7 +317,7 @@ if __name__ == '__main__':
                     col_sep.join(
                         [
                             f"{update_index + 1:>8d}",
-                            f"{(update_index + 1) * args.batch_size:>10d}",
+                            f"{(update_index + 1) * args.num_envs * args.rollout_length:>10d}",
                             _fmt_num(avg_episode_reward),
                             _fmt_num(avg_episode_length),
                             _fmt_num(avg_loss),
