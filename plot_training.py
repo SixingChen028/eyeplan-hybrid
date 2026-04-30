@@ -30,7 +30,7 @@ def _run_is_processed(output_dir: str, output_prefix: str) -> bool:
     return all(os.path.exists(path) for path in paths.values())
 
 
-def _read_batch_size(run_dir: str) -> int:
+def _read_batch_geometry(run_dir: str) -> tuple[int, int]:
     metadata_path = os.path.join(run_dir, "metadata.json")
     if not os.path.exists(metadata_path):
         raise FileNotFoundError(f"Run metadata not found: {metadata_path}")
@@ -45,11 +45,14 @@ def _read_batch_size(run_dir: str) -> int:
     batch_size = int(metadata_args["batch_size"])
     if batch_size <= 0:
         raise ValueError(f"batch_size must be positive in metadata: {metadata_path}")
-    return batch_size
+    rollout_steps = int(metadata_args.get("rollout_steps", 1))
+    if rollout_steps <= 0:
+        raise ValueError(f"rollout_steps must be positive in metadata: {metadata_path}")
+    return batch_size, rollout_steps
 
 
 def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, output_prefix: str) -> dict:
-    batch_size = _read_batch_size(run_dir)
+    batch_size, rollout_steps = _read_batch_geometry(run_dir)
     data_path = os.path.join(run_dir, data_file)
 
     if not os.path.exists(data_path):
@@ -60,12 +63,12 @@ def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, 
 
     num_updates = len(data["episode_reward"])
     updates = np.arange(1, num_updates + 1)
-    episodes = updates * batch_size
+    env_steps = updates * batch_size * rollout_steps
 
     df = pd.DataFrame(
         {
             "update": updates,
-            "episodes": episodes,
+            "env_steps": env_steps,
             "episode_reward": np.asarray(data["episode_reward"], dtype=np.float64),
             "episode_length": np.asarray(data["episode_length"], dtype=np.float64),
             "loss": np.asarray(data["loss"], dtype=np.float64),
@@ -84,7 +87,7 @@ def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, 
     summary = {
         "run_dir": run_dir,
         "num_updates": int(num_updates),
-        "num_episodes": int(df["episodes"].iloc[-1]) if num_updates > 0 else 0,
+        "num_env_steps": int(df["env_steps"].iloc[-1]) if num_updates > 0 else 0,
         "final_episode_reward": round(float(df["episode_reward"].iloc[-1]), 6) if num_updates > 0 else np.nan,
         "final_episode_reward_ma": round(float(df["episode_reward_ma"].iloc[-1]), 6) if num_updates > 0 else np.nan,
         "final_episode_length": round(float(df["episode_length"].iloc[-1]), 6) if num_updates > 0 else np.nan,
@@ -108,36 +111,36 @@ def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, 
     plt.figure(figsize=(12, 9))
 
     ax = plt.subplot(2, 2, 1)
-    ax.plot(df["episodes"], df["episode_reward"], alpha=0.35, linewidth=1, label="reward")
-    ax.plot(df["episodes"], df["episode_reward_ma"], linewidth=2, label=f"reward ma({ma_window})")
+    ax.plot(df["env_steps"], df["episode_reward"], alpha=0.35, linewidth=1, label="reward")
+    ax.plot(df["env_steps"], df["episode_reward_ma"], linewidth=2, label=f"reward ma({ma_window})")
     ax.set_title("Episode Reward")
-    ax.set_xlabel("Episodes")
+    ax.set_xlabel("Environment Steps")
     ax.set_ylabel("Reward")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8)
 
     ax = plt.subplot(2, 2, 2)
-    ax.plot(df["episodes"], df["episode_length"], alpha=0.35, linewidth=1, label="length")
-    ax.plot(df["episodes"], df["episode_length_ma"], linewidth=2, label=f"length ma({ma_window})")
+    ax.plot(df["env_steps"], df["episode_length"], alpha=0.35, linewidth=1, label="length")
+    ax.plot(df["env_steps"], df["episode_length_ma"], linewidth=2, label=f"length ma({ma_window})")
     ax.set_title("Episode Length")
-    ax.set_xlabel("Episodes")
+    ax.set_xlabel("Environment Steps")
     ax.set_ylabel("Steps")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8)
 
     ax = plt.subplot(2, 2, 3)
-    ax.plot(df["episodes"], df["loss"], alpha=0.35, linewidth=1, label="loss")
-    ax.plot(df["episodes"], df["loss_ma"], linewidth=2, label=f"loss ma({ma_window})")
+    ax.plot(df["env_steps"], df["loss"], alpha=0.35, linewidth=1, label="loss")
+    ax.plot(df["env_steps"], df["loss_ma"], linewidth=2, label=f"loss ma({ma_window})")
     ax.set_title("Training Loss")
-    ax.set_xlabel("Episodes")
+    ax.set_xlabel("Environment Steps")
     ax.set_ylabel("Loss")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8)
 
     ax = plt.subplot(2, 2, 4)
-    ax.plot(df["episodes"], df["step_time_s"] * 1000.0, linewidth=1.5, label="step ms")
+    ax.plot(df["env_steps"], df["step_time_s"] * 1000.0, linewidth=1.5, label="step ms")
     ax.set_title("Per-Update Runtime")
-    ax.set_xlabel("Episodes")
+    ax.set_xlabel("Environment Steps")
     ax.set_ylabel("Milliseconds")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8)

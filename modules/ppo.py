@@ -16,6 +16,7 @@ class PPORolloutBatch(NamedTuple):
     actions: jax.Array
     old_log_probs: jax.Array
     masks: jax.Array
+    not_done_masks: jax.Array
     rewards: jax.Array
     values: jax.Array
 
@@ -58,6 +59,7 @@ class JaxBatchMaskPPO:
         lamda: float,
         beta_v: float,
         beta_e: float,
+        rollout_steps: int | None = None,
         clip_eps: float = 0.2,
         ppo_epochs: int = 4,
         normalize_advantages: bool = True,
@@ -73,6 +75,9 @@ class JaxBatchMaskPPO:
         self.hidden_size = int(hidden_size)
 
         self.batch_size = int(batch_size)
+        self.rollout_steps = int(self.env.t_max if rollout_steps is None else rollout_steps)
+        if self.rollout_steps <= 0:
+            raise ValueError("rollout_steps must be positive")
         self.lr = float(lr)
         self.gamma = float(gamma)
         self.lamda = float(lamda)
@@ -118,120 +123,92 @@ class JaxBatchMaskPPO:
 
         env_state, obs, info = jax.vmap(self.env.reset)(reset_keys)
         action_mask = info["mask"]
-        done = jnp.zeros((self.batch_size,), dtype=jnp.bool_)
-        zero_output = jnp.zeros((self.batch_size,), dtype=jnp.float32)
-        zero_actions = jnp.zeros((self.batch_size,), dtype=jnp.int32)
+        one_mask = jnp.ones((self.batch_size,), dtype=jnp.float32)
 
         def body_fn(carry, _):
-            env_state, obs, action_mask, done, rng_key = carry
+            env_state, obs, action_mask, rng_key = carry
 
-            def done_branch(carry):
-                env_state, obs, action_mask, done, rng_key = carry
-                rng_key, _ = jax.random.split(rng_key)
+            logits, values = actor_critic_forward(params, obs, action_mask)
 
-                output = PPORolloutBatch(
-                    obs=obs,
-                    action_mask=action_mask,
-                    actions=zero_actions,
-                    old_log_probs=zero_output,
-                    masks=zero_output,
-                    rewards=zero_output,
-                    values=zero_output,
-                )
-                return (env_state, obs, action_mask, done, rng_key), output
+            rng_key, action_key, reset_key = jax.random.split(rng_key, 3)
+            actions, log_probs, _ = sample_actions(action_key, logits, action_mask)
 
-            def active_branch(carry):
-                env_state, obs, action_mask, done, rng_key = carry
+            next_env_state, next_obs, rewards, dones, _, info = jax.vmap(self.env.step)(env_state, actions)
+            next_action_mask = info["mask"]
 
-                mask = 1.0 - done.astype(jnp.float32)
+            reset_keys = jax.random.split(reset_key, self.batch_size)
+            reset_env_state, reset_obs, reset_info = jax.vmap(self.env.reset)(reset_keys)
+            reset_action_mask = reset_info["mask"]
 
-                logits, values = actor_critic_forward(params, obs, action_mask)
-
-                rng_key, action_key = jax.random.split(rng_key)
-                actions, log_probs, _ = sample_actions(action_key, logits, action_mask)
-
-                next_env_state, next_obs, rewards, dones, _, info = jax.vmap(self.env.step)(env_state, actions)
-                next_action_mask = info["mask"]
-
-                env_state = jax.tree_util.tree_map(
-                    lambda new, old: _select_not_done(done, new, old),
-                    next_env_state,
-                    env_state,
-                )
-                next_obs = _select_not_done(done, next_obs, obs)
-                next_action_mask = _select_not_done(done, next_action_mask, action_mask)
-
-                done = jnp.logical_or(done, dones)
-
-                rewards = rewards.astype(jnp.float32) * mask
-                values = values * mask
-                log_probs = log_probs * mask
-
-                output = PPORolloutBatch(
-                    obs=obs,
-                    action_mask=action_mask,
-                    actions=actions,
-                    old_log_probs=log_probs,
-                    masks=mask,
-                    rewards=rewards,
-                    values=values,
-                )
-
-                return (env_state, next_obs, next_action_mask, done, rng_key), output
-
-            return jax.lax.cond(
-                jnp.all(done),
-                done_branch,
-                active_branch,
-                carry,
+            env_state = jax.tree_util.tree_map(
+                lambda stepped, reset: _select_not_done(dones, stepped, reset),
+                next_env_state,
+                reset_env_state,
             )
+            next_obs = _select_not_done(dones, next_obs, reset_obs)
+            next_action_mask = _select_not_done(dones, next_action_mask, reset_action_mask)
+
+            output = PPORolloutBatch(
+                obs=obs,
+                action_mask=action_mask,
+                actions=actions,
+                old_log_probs=log_probs,
+                masks=one_mask,
+                not_done_masks=1.0 - dones.astype(jnp.float32),
+                rewards=rewards.astype(jnp.float32),
+                values=values,
+            )
+
+            return (env_state, next_obs, next_action_mask, rng_key), output
 
         carry, rollout = jax.lax.scan(
             body_fn,
-            (env_state, obs, action_mask, done, rng_key),
+            (env_state, obs, action_mask, rng_key),
             xs=None,
-            length=self.env.t_max,
+            length=self.rollout_steps,
         )
 
-        _, _, _, done, new_key = carry
+        _, final_obs, final_action_mask, new_key = carry
+        _, bootstrap_values = actor_critic_forward(params, final_obs, final_action_mask)
 
         episode_reward = jnp.mean(jnp.sum(rollout.rewards, axis=0))
-        episode_length = jnp.mean(jnp.sum(rollout.masks, axis=0))
+        episode_length = jnp.mean(jnp.sum(rollout.not_done_masks, axis=0))
 
-        del done
+        return rollout, bootstrap_values, episode_reward, episode_length, new_key
 
-        return rollout, episode_reward, episode_length, new_key
-
-    def _discounted_returns_and_advantages(self, rewards: jax.Array, values: jax.Array, masks: jax.Array):
-        batch_size = rewards.shape[1]
-        padded_values = jnp.concatenate(
-            [values, jnp.zeros((1, batch_size), dtype=values.dtype)],
-            axis=0,
-        )
-
+    def _discounted_returns_and_advantages(
+        self,
+        rewards: jax.Array,
+        values: jax.Array,
+        not_done_masks: jax.Array,
+        bootstrap_values: jax.Array,
+        masks: jax.Array,
+    ):
+        next_values = jnp.concatenate([values[1:], bootstrap_values[None, :]], axis=0)
         rewards_rev = rewards[::-1]
-        values_rev = padded_values[:-1][::-1]
-        next_values_rev = padded_values[1:][::-1]
+        values_rev = values[::-1]
+        next_values_rev = next_values[::-1]
+        not_done_masks_rev = not_done_masks[::-1]
 
         def body_fn(carry, xs):
             R, advantage = carry
-            reward, value, value_next = xs
+            reward, value, value_next, not_done_mask = xs
 
-            R = reward + self.gamma * R
-            delta = reward + self.gamma * value_next - value
-            advantage = delta + self.gamma * self.lamda * advantage
+            R = reward + self.gamma * R * not_done_mask
+            delta = reward + self.gamma * value_next * not_done_mask - value
+            advantage = delta + self.gamma * self.lamda * advantage * not_done_mask
 
             return (R, advantage), (R, advantage)
 
         init = (
-            jnp.zeros((batch_size,), dtype=rewards.dtype),
-            jnp.zeros((batch_size,), dtype=rewards.dtype),
+            jnp.zeros((rewards.shape[1],), dtype=rewards.dtype),
+            jnp.zeros((rewards.shape[1],), dtype=rewards.dtype),
         )
 
         (_, _), (returns_rev, advantages_rev) = jax.lax.scan(
             body_fn,
             init,
-            (rewards_rev, values_rev, next_values_rev),
+            (rewards_rev, values_rev, next_values_rev, not_done_masks_rev),
         )
 
         returns = returns_rev[::-1]
@@ -330,9 +307,15 @@ class JaxBatchMaskPPO:
         return next_state, jnp.array([loss, policy_loss, value_loss, entropy_loss, clip_fraction, approx_kl])
 
     def _train_step(self, state: JaxTrainState, beta_e: jax.Array):
-        rollout, episode_reward, episode_length, new_key = self._rollout(state.params, state.rng_key)
+        rollout, bootstrap_values, episode_reward, episode_length, new_key = self._rollout(state.params, state.rng_key)
 
-        returns, advantages = self._discounted_returns_and_advantages(rollout.rewards, rollout.values, rollout.masks)
+        returns, advantages = self._discounted_returns_and_advantages(
+            rollout.rewards,
+            rollout.values,
+            rollout.not_done_masks,
+            bootstrap_values,
+            rollout.masks,
+        )
 
         flat = {
             "obs": rollout.obs.reshape((-1, self.feature_size)),
