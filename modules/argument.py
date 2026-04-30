@@ -95,10 +95,11 @@ class ArgParser:
         self.parser.add_argument('--mask_fixation', type = parse_bool, default = True, help = 'if mask fixations')
 
         # training parameters
-        self.parser.add_argument('--num_episodes', type = int, default = 16_000_000, help = 'training episodes')
+        self.parser.add_argument('--num_episodes', type = int, default = 16_000_000, help = 'training environment-step budget')
         self.parser.add_argument('--eval_episodes', type = int, default = 102_400, help = 'evaluation episodes')
         self.parser.add_argument('--lr', type = float, default = 1e-3, help = 'learning rate')
         self.parser.add_argument('--batch_size', type = int, default = 512, help = 'batch_size')
+        self.parser.add_argument('--rollout_steps', type = int, default = 32, help = 'environment steps per update (per parallel env)')
         self.parser.add_argument('--max_grad_norm', type = float, default = 1.0, help = 'gradient clipping')
         self.parser.add_argument('--gamma', type = float, default = 1.0, help = 'temporal discount')
         self.parser.add_argument('--lamda', type = float, default = 0.8, help = 'generalized advantage estimation coefficient')

@@ -101,9 +101,10 @@ def _round_floats(value):
 def _expected_num_updates(metadata_args: dict) -> int:
     num_episodes = int(metadata_args.get("num_episodes", 0))
     batch_size = int(metadata_args.get("batch_size", 0))
-    if batch_size <= 0:
+    rollout_steps = int(metadata_args.get("rollout_steps", 1))
+    if batch_size <= 0 or rollout_steps <= 0:
         return 0
-    return num_episodes // batch_size
+    return num_episodes // (batch_size * rollout_steps)
 
 
 def _read_checkpoint_next_update(run_dir: str) -> int | None:
