@@ -14,6 +14,8 @@ wm_decay = [1.0, 0.5]
 lamda_backup = 1.0
 # network
 # training
+algo = 'ppo'
+
 seed = [1, 2, 3]
 num_updates = 30_000
 num_envs = 128
