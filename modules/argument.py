@@ -76,17 +76,17 @@ class ArgParser:
 
         # nework parameters
         self.parser.add_argument('--network_type', type = str, choices = ['mlp', 'node_shared'], default = 'mlp', help = 'network architecture')
-        self.parser.add_argument('--hidden_size', type = int, default = 128, help = 'hidden size')
+        self.parser.add_argument('--hidden_size', type = int, default = 256, help = 'hidden size')
 
         # environment parameters
         self.parser.add_argument('--num_nodes', type = int, default = 15, help = 'number of nodes')
-        self.parser.add_argument('--beta_move', type = float, default = 40.0, help = 'decision temperature')
+        self.parser.add_argument('--beta_move', type = float, default = 100.0, help = 'decision temperature')
         self.parser.add_argument('--eps_move', type = float, default = 0.0, help = 'decision lapse rate')
         self.parser.add_argument('--learning_rate', type = float, default = 1.0, help = 'learning_rate')
         self.parser.add_argument('--lamda_backup', type = float, default = 1.0, help = 'backup discount')
         self.parser.add_argument('--wm_decay', type = float, default = 1.0, help = 'working memory decay')
         self.parser.add_argument('--q_drop_rate', type = float, default = 0.0, help = 'probability of resetting q to 0 when node is inactive')
-        self.parser.add_argument('--t_max', type = int, default = 100, help = 'max time steps per episode')
+        self.parser.add_argument('--t_max', type = int, default = 50, help = 'max time steps per episode')
         self.parser.add_argument('--cost', type = float, default = 0.01, help = 'cost per action')
         self.parser.add_argument('--scale_factor', type = float, default = 1 / 8, help = 'reward scale factor')
         self.parser.add_argument('--shuffle_nodes', type = parse_bool, default = True, help = 'if shuffle nodes')
@@ -95,11 +95,11 @@ class ArgParser:
         self.parser.add_argument('--mask_fixation', type = parse_bool, default = True, help = 'if mask fixations')
 
         # training parameters
-        self.parser.add_argument('--num_updates', type = int, default = 976, help = 'number of training updates')
+        self.parser.add_argument('--num_updates', type = int, default = 50_000, help = 'number of training updates')
         self.parser.add_argument('--eval_episodes', type = int, default = 102_400, help = 'evaluation episodes')
         self.parser.add_argument('--lr', type = float, default = 1e-3, help = 'learning rate')
-        self.parser.add_argument('--num_envs', type = int, default = 512, help = 'number of parallel environments')
-        self.parser.add_argument('--rollout_length', type = int, default = 32, help = 'environment steps per update (per environment)')
+        self.parser.add_argument('--num_envs', type = int, default = 128, help = 'number of parallel environments')
+        self.parser.add_argument('--rollout_length', type = int, default = 50, help = 'environment steps per update (per environment)')
         self.parser.add_argument('--max_grad_norm', type = float, default = 1.0, help = 'gradient clipping')
         self.parser.add_argument('--gamma', type = float, default = 1.0, help = 'temporal discount')
         self.parser.add_argument('--lamda', type = float, default = 0.8, help = 'generalized advantage estimation coefficient')
