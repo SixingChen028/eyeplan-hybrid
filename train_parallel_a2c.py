@@ -57,10 +57,11 @@ DEFAULT_PARAMS = {
     "canonicalize": False,
     "recency_decay": "off",
     "mask_fixation": True,
-    "num_episodes": 16_000_000,
+    "num_updates": 31_250,
+    "num_envs": 64,
+    "rollout_length": 100,
     "eval_episodes": 102_400,
     "lr": 5e-4,
-    "batch_size": 64,
     "max_grad_norm": 1.0,
     "gamma": 1.0,
     "lamda": 0.9,
@@ -98,9 +99,10 @@ SWEEP_KEYS = ENV_SWEEP_KEYS | TRAIN_SWEEP_KEYS | {"seed"}
 SHAPE_KEYS = {
     "num_nodes",
     "hidden_size",
-    "batch_size",
+    "num_envs",
+    "rollout_length",
     "t_max",
-    "num_episodes",
+    "num_updates",
     "eval_episodes",
     "canonicalize",
     "network_type",
@@ -202,6 +204,19 @@ def expand_sweep(params: dict) -> tuple[dict, list[dict], list[int], list[str]]:
         combo.update(dict(zip(varied_keys, values)))
         combos.append(combo)
     return fixed, combos, seeds, varied_keys
+
+
+def _resolve_training_geometry(params: dict) -> tuple[int, int, int]:
+    if "num_updates" in params and "num_envs" in params and "rollout_length" in params:
+        return int(params["num_updates"]), int(params["num_envs"]), int(params["rollout_length"])
+
+    if "num_episodes" in params and "batch_size" in params:
+        num_updates = int(params["num_episodes"] / params["batch_size"])
+        return num_updates, int(params["batch_size"]), int(params["t_max"])
+
+    raise ValueError(
+        "Training geometry must be specified as num_updates + num_envs + rollout_length."
+    )
 
 
 def build_hypers(combos: list[dict]) -> A2CHyperParams:
@@ -717,8 +732,7 @@ def save_results(
                 "n_steps_sd": float(eval_stats["n_steps_sd"]),
                 "train_elapsed_seconds": float(elapsed_seconds),
                 "eval_elapsed_seconds": float(eval_elapsed_seconds),
-                "num_updates": int(run_args["num_episodes"] / run_args["batch_size"]),
-                "num_episodes": int(run_args["num_episodes"]),
+                "num_updates": int(run_args["num_updates"]),
             }
             with open(os.path.join(run_dir, EVAL_SUMMARY_NAME), "w") as file:
                 json.dump(eval_summary, file, indent=2, sort_keys=True)
@@ -777,14 +791,18 @@ def main() -> None:
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or str(meta.get("experiment", config_path.stem))
 
-    num_updates = int(fixed["num_episodes"] / fixed["batch_size"])
+    num_updates, num_envs, rollout_length = _resolve_training_geometry(fixed)
+    if int(fixed["t_max"]) != rollout_length:
+        raise ValueError(
+            f"rollout_length ({rollout_length}) must equal t_max ({fixed['t_max']}) for parallel A2C."
+        )
     env = _env_from_args(combos[0])
     trainer = ParallelJaxBatchMaskA2C(
         env=env,
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        batch_size=fixed["batch_size"],
+        batch_size=num_envs,
         num_updates=num_updates,
         network_type=fixed["network_type"],
     )
@@ -800,7 +818,8 @@ def main() -> None:
         f"hyper_combos={len(combos)} "
         f"seeds={len(seeds)} "
         f"num_updates={num_updates} "
-        f"batch_size={fixed['batch_size']} "
+        f"num_envs={num_envs} "
+        f"rollout_length={rollout_length} "
         f"t_max={fixed['t_max']} "
         f"varied_keys={','.join(varied_keys)}"
     )
