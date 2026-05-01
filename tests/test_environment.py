@@ -667,6 +667,7 @@ def test_backup_steps_zero_disables_ancestor_backup():
         root_node=jnp.asarray(0, dtype=jnp.int32),
         points=points,
         node=jnp.asarray(1, dtype=jnp.int32),
+        activation=jnp.ones((3,), dtype=jnp.float32),
     )
 
     np.testing.assert_allclose(np.asarray(updated), np.array([0.0, 3.0, 0.0], dtype=np.float32), atol=1e-6)
@@ -686,6 +687,52 @@ def test_backup_steps_limits_ancestor_depth():
         root_node=jnp.asarray(4, dtype=jnp.int32),
         points=points,
         node=jnp.asarray(0, dtype=jnp.int32),
+        activation=jnp.ones((5,), dtype=jnp.float32),
     )
 
     np.testing.assert_allclose(np.asarray(updated), np.array([1.0, 3.0, 0.0, 0.0, 0.0], dtype=np.float32), atol=1e-6)
+
+
+def test_wm_backup_ignores_inactive_child_q_during_ancestor_backup():
+    child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
+    parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
+    points = jnp.array([0.0, 5.0, 0.0], dtype=jnp.float32)
+    activation = jnp.array([1.0, 1.0, 0.0], dtype=jnp.float32)
+
+    env_no_wm_backup = JaxDecisionTreeEnv(
+        num_nodes=3,
+        learning_rate=1.0,
+        lamda_backup=1.0,
+        backup_steps=1,
+        wm_backup=False,
+        shuffle_nodes=False,
+    )
+    updated_no_wm_backup = env_no_wm_backup._update_q(
+        q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),
+        child_nodes=child_nodes,
+        parent_nodes=parent_nodes,
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        points=points,
+        node=jnp.asarray(1, dtype=jnp.int32),
+        activation=activation,
+    )
+    np.testing.assert_allclose(np.asarray(updated_no_wm_backup), np.array([10.0, 5.0, 10.0], dtype=np.float32), atol=1e-6)
+
+    env_wm_backup = JaxDecisionTreeEnv(
+        num_nodes=3,
+        learning_rate=1.0,
+        lamda_backup=1.0,
+        backup_steps=1,
+        wm_backup=True,
+        shuffle_nodes=False,
+    )
+    updated_wm_backup = env_wm_backup._update_q(
+        q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),
+        child_nodes=child_nodes,
+        parent_nodes=parent_nodes,
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        points=points,
+        node=jnp.asarray(1, dtype=jnp.int32),
+        activation=activation,
+    )
+    np.testing.assert_allclose(np.asarray(updated_wm_backup), np.array([5.0, 5.0, 10.0], dtype=np.float32), atol=1e-6)

@@ -244,6 +244,7 @@ if __name__ == '__main__':
         lamda_backup=args.lamda_backup,
         backup_steps=args.backup_steps,
         wm_decay=args.wm_decay,
+        wm_backup=args.wm_backup,
         q_drop_rate=args.q_drop_rate,
         t_max=args.t_max,
         cost=args.cost,

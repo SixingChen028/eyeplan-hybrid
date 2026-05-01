@@ -38,6 +38,7 @@ class ReferenceDecisionTreeEnv:
         shuffle_nodes: bool = True,
         canonicalize: bool = False,
         recency_decay="off",
+        wm_backup: bool = False,
         point_set=None,
         seed: int | None = None,
     ):
@@ -55,6 +56,7 @@ class ReferenceDecisionTreeEnv:
         self.shuffle_nodes = bool(shuffle_nodes)
         self.canonicalize = bool(canonicalize)
         self.use_recency_obs, self.recency_decay_auto, self.recency_decay = self._parse_recency_decay(recency_decay)
+        self.wm_backup = bool(wm_backup)
 
         if point_set is None:
             point_set = [-8, -4, -2, -1, 1, 2, 4, 8]
@@ -168,12 +170,14 @@ class ReferenceDecisionTreeEnv:
                 known[node] = True
         return known
 
-    def _bellman_target(self, node: int) -> float:
+    def _bellman_target(self, node: int, active_only: bool = False) -> float:
         children = self.child_nodes[node]
         if children[0] < 0:  # node is terminal
             return self.points[node]
 
         child_q = self.q_values[children]
+        if active_only:
+            child_q = np.where(self.activation[children] > 0.0, child_q, 0.0)
         return self.points[node] + np.max(child_q)
 
     def _update_q(self, node: int):
@@ -186,7 +190,7 @@ class ReferenceDecisionTreeEnv:
         while weight > 1e-6 and current != self.root_node and steps < self.backup_steps:
             ancestor = self.parent_nodes[current]
 
-            target = self._bellman_target(ancestor)
+            target = self._bellman_target(ancestor, active_only=self.wm_backup)
             step_size = self.learning_rate * weight
             self.q_values[ancestor] += step_size * (target - self.q_values[ancestor])
             weight *= self.lamda_backup

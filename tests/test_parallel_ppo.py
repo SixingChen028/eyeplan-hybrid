@@ -18,6 +18,7 @@ def _build_hypers():
         cost=jnp.asarray([0.01, 0.01], dtype=jnp.float32),
         scale_factor=jnp.asarray([1.0, 1.0], dtype=jnp.float32),
         shuffle_nodes=jnp.asarray([False, False], dtype=np.bool_),
+        wm_backup=jnp.asarray([False, False], dtype=np.bool_),
     )
     return PPOHyperParams(
         env=env,
@@ -44,6 +45,7 @@ def _build_single_hyper():
         cost=jnp.asarray([0.01], dtype=jnp.float32),
         scale_factor=jnp.asarray([1.0], dtype=jnp.float32),
         shuffle_nodes=jnp.asarray([False], dtype=np.bool_),
+        wm_backup=jnp.asarray([False], dtype=np.bool_),
     )
     return PPOHyperParams(
         env=env,

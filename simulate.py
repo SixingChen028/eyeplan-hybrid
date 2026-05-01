@@ -41,6 +41,7 @@ def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
         lamda_backup=float(metadata_args.get("lamda_backup", 1.0)),
         backup_steps=int(metadata_args.get("backup_steps", 100)),
         wm_decay=float(metadata_args.get("wm_decay", 1.0)),
+        wm_backup=bool(metadata_args.get("wm_backup", False)),
         q_drop_rate=float(metadata_args.get("q_drop_rate", 0.0)),
         t_max=int(metadata_args.get("t_max", 100)),
         cost=float(metadata_args.get("cost", 0.01)),

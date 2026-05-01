@@ -35,6 +35,7 @@ class JaxDecisionTreeParams(NamedTuple):
     cost: jax.Array
     scale_factor: jax.Array
     shuffle_nodes: jax.Array
+    wm_backup: jax.Array
 
 
 class JaxDecisionTreeEnv:
@@ -74,6 +75,7 @@ class JaxDecisionTreeEnv:
         shuffle_nodes: bool = True,
         canonicalize: bool = False,
         recency_decay="off",
+        wm_backup: bool = False,
         point_set=None,
     ):
         self.num_nodes = int(num_nodes)
@@ -90,6 +92,7 @@ class JaxDecisionTreeEnv:
         self.shuffle_nodes = bool(shuffle_nodes)
         self.canonicalize = bool(canonicalize)
         self.use_recency_obs, self.recency_decay_auto, self.recency_decay = self._parse_recency_decay(recency_decay)
+        self.wm_backup = bool(wm_backup)
 
         if point_set is None:
             point_set = [-8, -4, -2, -1, 1, 2, 4, 8]
@@ -123,6 +126,7 @@ class JaxDecisionTreeEnv:
             cost=jnp.asarray(self.cost, dtype=jnp.float32),
             scale_factor=jnp.asarray(self.scale_factor, dtype=jnp.float32),
             shuffle_nodes=jnp.asarray(self.shuffle_nodes, dtype=jnp.bool_),
+            wm_backup=jnp.asarray(self.wm_backup, dtype=jnp.bool_),
         )
 
     def _one_hot(self, label: jax.Array) -> jax.Array:
@@ -273,13 +277,20 @@ class JaxDecisionTreeEnv:
         known = (parent_nodes >= 0) & expanded[parent_safe]
         return known.at[root_node].set(True)
 
-    def _bellman_target(self, q_values, child_nodes, points, node):
+    def _bellman_target(self, q_values, child_nodes, points, node, activation=None):
         children = child_nodes[node]
         child_q = q_values.at[children].get(
             mode="fill",
             fill_value=0.0,
             wrap_negative_indices=False,
         )
+        if activation is not None:
+            child_active = activation.at[children].get(
+                mode="fill",
+                fill_value=0.0,
+                wrap_negative_indices=False,
+            )
+            child_q = jnp.where(child_active > 0.0, child_q, 0.0)
         return points[node] + jnp.max(child_q)
 
     def _update_q(
@@ -290,11 +301,13 @@ class JaxDecisionTreeEnv:
         root_node,
         points,
         node,
+        activation,
         params: JaxDecisionTreeParams | None = None,
     ):
         learning_rate = self.learning_rate if params is None else params.learning_rate
         lamda_backup = self.lamda_backup if params is None else params.lamda_backup
         backup_steps = self.backup_steps if params is None else params.backup_steps
+        wm_backup = self.wm_backup if params is None else params.wm_backup
 
         target = self._bellman_target(q_values, child_nodes, points, node)
         node_step = learning_rate * (target - q_values[node])
@@ -310,7 +323,12 @@ class JaxDecisionTreeEnv:
         def body_fn(carry):
             current, weight, steps, q_values = carry
             ancestor = parent_nodes[current]
-            target = self._bellman_target(q_values, child_nodes, points, ancestor)
+            target = jax.lax.cond(
+                wm_backup,
+                lambda _: self._bellman_target(q_values, child_nodes, points, ancestor, activation),
+                lambda _: self._bellman_target(q_values, child_nodes, points, ancestor),
+                operand=None,
+            )
             step_size = learning_rate * weight
             new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
             q_values = q_values.at[ancestor].set(new_value)
@@ -357,6 +375,7 @@ class JaxDecisionTreeEnv:
             state.root_node,
             state.points,
             node,
+            state.activation,
             params,
         )
 

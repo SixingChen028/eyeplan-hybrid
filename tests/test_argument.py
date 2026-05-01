@@ -60,6 +60,8 @@ def test_arg_parser_parses_seed_and_bool_flags(monkeypatch):
             "auto",
             "--q_drop_rate",
             "0.25",
+            "--wm_backup",
+            "true",
         ],
     )
 
@@ -73,3 +75,4 @@ def test_arg_parser_parses_seed_and_bool_flags(monkeypatch):
     assert args.backup_steps == 12
     assert args.recency_decay == "auto"
     assert args.q_drop_rate == 0.25
+    assert args.wm_backup is True

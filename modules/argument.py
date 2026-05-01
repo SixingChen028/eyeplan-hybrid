@@ -86,6 +86,7 @@ class ArgParser:
         self.parser.add_argument('--lamda_backup', type = float, default = 1.0, help = 'backup discount')
         self.parser.add_argument('--backup_steps', type = int, default = 100, help = 'max number of ancestor backups in update_q (0 disables backup)')
         self.parser.add_argument('--wm_decay', type = float, default = 1.0, help = 'working memory decay')
+        self.parser.add_argument('--wm_backup', type = parse_bool, default = False, help = 'if backup in update_q should only use active child nodes')
         self.parser.add_argument('--q_drop_rate', type = float, default = 0.0, help = 'probability of resetting q to 0 when node is inactive')
         self.parser.add_argument('--t_max', type = int, default = 50, help = 'max time steps per episode')
         self.parser.add_argument('--cost', type = float, default = 0.01, help = 'cost per action')
