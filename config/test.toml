@@ -1,33 +1,30 @@
-# config/parallel-a2c.toml
-[meta]
-experiment = "test"
-result_path = "./results"
+[sbatch]
+time = "8:00:00"
+mem_per_cpu = "1000M"
 
 [params]
-# fixed shape params
+# environment
 num_nodes = 15
-hidden_size = 256
-batch_size = 256
-t_max = 30
-num_episodes = 32_000_000
-eval_episodes = 51200
-
-# env params
-cost = 0.02
+t_max = 50
+cost = 0.01
 beta_move = 100.0
 eps_move = 0.0
 learning_rate = 1.0
-lamda_backup = [0.2, 0.5, 0.8]
-wm_decay = [0.2, 0.5, 0.8]
-shuffle_nodes = true
-scale_factor = 0.125
-
-# training params
+wm_decay = [0.5, 1.0]
+backup_steps = [1, 8]
+# network
+hidden_size = 256
+# training
 seed = [1, 2, 3]
-lr = [0.0005, 0.001]
+num_updates = 10_000
+num_envs = 128
+rollout_length = 50
+# GAE
 gamma = 1.0
+lr = 0.001
 lamda = 0.8
-beta_v = 0.05
+# loss
 beta_e_init = 0.02
-beta_e_final = 0.01
+beta_e_final = 0.0001
+beta_v = 0.05
 max_grad_norm = 2.0
