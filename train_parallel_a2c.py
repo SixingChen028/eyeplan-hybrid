@@ -530,6 +530,7 @@ def train_with_progress(
     seeds: list[int],
     *,
     num_updates: int,
+    env_steps_per_update: int,
     print_frequency: int,
 ) -> tuple[ParallelA2CResult, float, str]:
     if print_frequency <= 0:
@@ -551,6 +552,20 @@ def train_with_progress(
     start = time.time()
     metrics_chunks = []
     gpu_samples: list[dict[str, float]] = []
+    col_sep = "   "
+    header = col_sep.join(
+        [
+            f"{'update':>8}",
+            f"{'ep_num':>10}",
+            f"{'elapsed':>8}",
+            f"{'ETA':>8}",
+            f"{'upd/s':>8}",
+            f"{'gpu%':>8}",
+            f"{'mem%':>8}",
+        ]
+    )
+    _log(header)
+    _log("-" * len(header))
 
     for update_start in range(0, num_updates, print_frequency):
         update_end = min(update_start + print_frequency, num_updates)
@@ -566,19 +581,23 @@ def train_with_progress(
         gpu_stats = _query_gpu_stats()
         if gpu_stats is not None:
             gpu_samples.append(gpu_stats)
-            gpu_fragment = (
-                f" gpu_util_mean={gpu_stats['gpu_util_mean']:.1f}%"
-                f" gpu_mem_util_mean={gpu_stats['gpu_mem_util_mean']:.1f}%"
-            )
+            gpu_util_text = f"{gpu_stats['gpu_util_mean']:.1f}"
+            gpu_mem_text = f"{gpu_stats['gpu_mem_util_mean']:.1f}"
         else:
-            gpu_fragment = ""
+            gpu_util_text = "n/a"
+            gpu_mem_text = "n/a"
         _log(
-            "parallel_train_progress "
-            f"updates={updates_done}/{num_updates} "
-            f"elapsed={_format_duration(elapsed_seconds)} "
-            f"eta={_format_duration(eta_seconds)} "
-            f"updates_per_second={updates_per_second:.3f}"
-            f"{gpu_fragment}",
+            col_sep.join(
+                [
+                    f"{updates_done:>8d}",
+                    f"{updates_done * env_steps_per_update:>10d}",
+                    f"{_format_duration(elapsed_seconds):>8}",
+                    f"{_format_duration(eta_seconds):>8}",
+                    f"{updates_per_second:>8.3f}",
+                    f"{gpu_util_text:>8}",
+                    f"{gpu_mem_text:>8}",
+                ]
+            ),
             flush=True,
         )
 
@@ -1024,6 +1043,7 @@ def main() -> None:
         hypers,
         seeds,
         num_updates=num_updates,
+        env_steps_per_update=num_envs * rollout_length,
         print_frequency=int(fixed["print_frequency"]),
     )
     _log(f"parallel_train_elapsed_seconds={elapsed_seconds:.3f}")
