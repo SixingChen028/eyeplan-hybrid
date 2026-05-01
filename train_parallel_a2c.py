@@ -1051,6 +1051,11 @@ def main() -> None:
         action="store_true",
         help="Use greedy actions during simulation, matching simulate.py --greedy.",
     )
+    parser.add_argument(
+        "--skip-simulate",
+        action="store_true",
+        help="Skip post-training simulation.",
+    )
     args, override_tokens = parser.parse_known_args()
 
     config_path, config = _load_config(args.config)
@@ -1128,15 +1133,18 @@ def main() -> None:
     for run_dir in run_dirs:
         _log(f"run_dir={run_dir}")
 
-    simulate_elapsed_seconds = simulate_results(
-        result,
-        combos,
-        seeds,
-        run_dirs,
-        num_trials=int(args.simulate_num_trials),
-        greedy=bool(args.simulate_greedy),
-    )
-    _log(f"parallel_simulate_elapsed_seconds={simulate_elapsed_seconds:.3f}")
+    if args.skip_simulate:
+        _log("parallel_simulate_skipped=true")
+    else:
+        simulate_elapsed_seconds = simulate_results(
+            result,
+            combos,
+            seeds,
+            run_dirs,
+            num_trials=int(args.simulate_num_trials),
+            greedy=bool(args.simulate_greedy),
+        )
+        _log(f"parallel_simulate_elapsed_seconds={simulate_elapsed_seconds:.3f}")
 
 
 if __name__ == "__main__":
