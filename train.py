@@ -334,6 +334,10 @@ if __name__ == '__main__':
     def _fmt_num(value: float, width: int = 8, decimals: int = 3) -> str:
         return f"{value: {width}.{decimals}f}"
 
+    def _fmt_k(value: float, width: int = 10) -> str:
+        rounded_thousands = int(round(value / 1000.0))
+        return f"{rounded_thousands}K".rjust(width)
+
     def _hhmmss(total_seconds: float) -> str:
         total_rounded = max(int(round(total_seconds)), 0)
         hours, remainder = divmod(total_rounded, 3600)
@@ -485,6 +489,7 @@ if __name__ == '__main__':
 
                 data_index = chunk_data_start + chunk_index
                 window = slice(window_start_idx, data_index + 1)
+                cumulative_episode_count = float(np.sum(data["episode_count"][:data_index + 1]))
                 episode_count = float(np.sum(data["episode_count"][window]))
                 avg_episode_reward = (
                     float(np.sum(data["episode_reward_sum"][window]) / episode_count)
@@ -515,7 +520,7 @@ if __name__ == '__main__':
                     col_sep.join(
                         [
                             f"{update_index + 1:>8d}",
-                            f"{int(episode_count):>10d}",
+                            _fmt_k(cumulative_episode_count),
                             _fmt_num(avg_episode_reward),
                             _fmt_num(avg_episode_length),
                             _fmt_num(avg_loss),
