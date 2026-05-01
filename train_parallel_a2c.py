@@ -4,6 +4,9 @@ import itertools
 import json
 import os
 import pickle
+import shutil
+import statistics
+import subprocess
 import time
 import tomllib
 from argparse import Namespace
@@ -118,6 +121,71 @@ def _log(*args, **kwargs) -> None:
     line = sep.join(str(arg) for arg in args) + end
     _CONSOLE_LOG_LINES.append(line)
     print(*args, **kwargs)
+
+
+def _query_gpu_stats() -> dict[str, float] | None:
+    if shutil.which("nvidia-smi") is None:
+        return None
+    command = [
+        "nvidia-smi",
+        "--query-gpu=utilization.gpu,utilization.memory,memory.used,memory.total",
+        "--format=csv,noheader,nounits",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return None
+
+    lines = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    gpu_utils: list[float] = []
+    mem_utils: list[float] = []
+    for line in lines:
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) != 4:
+            continue
+        gpu_util = float(parts[0])
+        _ = float(parts[1])
+        mem_used = float(parts[2])
+        mem_total = float(parts[3])
+        gpu_utils.append(gpu_util)
+        mem_utils.append((mem_used / mem_total) * 100.0 if mem_total > 0 else 0.0)
+
+    if not gpu_utils:
+        return None
+    return {
+        "gpu_util_mean": float(sum(gpu_utils) / len(gpu_utils)),
+        "gpu_util_max": float(max(gpu_utils)),
+        "gpu_mem_util_mean": float(sum(mem_utils) / len(mem_utils)),
+        "gpu_mem_util_max": float(max(mem_utils)),
+    }
+
+
+def _summarize_gpu_samples(samples: list[dict[str, float]]) -> str:
+    if not samples:
+        return "parallel_train_gpu_summary unavailable=true"
+
+    gpu_util_mean = [sample["gpu_util_mean"] for sample in samples]
+    gpu_util_max = [sample["gpu_util_max"] for sample in samples]
+    gpu_mem_mean = [sample["gpu_mem_util_mean"] for sample in samples]
+    gpu_mem_max = [sample["gpu_mem_util_max"] for sample in samples]
+
+    return (
+        "parallel_train_gpu_summary "
+        f"samples={len(samples)} "
+        f"gpu_util_mean={statistics.mean(gpu_util_mean):.1f} "
+        f"gpu_util_p95={np.percentile(np.asarray(gpu_util_mean), 95):.1f} "
+        f"gpu_util_peak={max(gpu_util_max):.1f} "
+        f"gpu_mem_util_mean={statistics.mean(gpu_mem_mean):.1f} "
+        f"gpu_mem_util_peak={max(gpu_mem_max):.1f}"
+    )
 
 
 def _load_config(path: str) -> tuple[Path, dict]:
@@ -463,11 +531,13 @@ def train_with_progress(
     *,
     num_updates: int,
     print_frequency: int,
-) -> tuple[ParallelA2CResult, float]:
+) -> tuple[ParallelA2CResult, float, str]:
     if print_frequency <= 0:
         start = time.time()
         result = jax.block_until_ready(trainer.train_sweep(hypers, seeds))
-        return result, time.time() - start
+        gpu_stats = _query_gpu_stats()
+        samples = [gpu_stats] if gpu_stats is not None else []
+        return result, time.time() - start, _summarize_gpu_samples(samples)
 
     schedule = _entropy_schedule(hypers, num_updates)
     states = jax.block_until_ready(trainer.init_sweep_states(hypers, seeds))
@@ -480,6 +550,7 @@ def train_with_progress(
 
     start = time.time()
     metrics_chunks = []
+    gpu_samples: list[dict[str, float]] = []
 
     for update_start in range(0, num_updates, print_frequency):
         update_end = min(update_start + print_frequency, num_updates)
@@ -492,12 +563,22 @@ def train_with_progress(
         updates_done = update_end
         updates_per_second = updates_done / elapsed_seconds
         eta_seconds = (num_updates - updates_done) / updates_per_second
+        gpu_stats = _query_gpu_stats()
+        if gpu_stats is not None:
+            gpu_samples.append(gpu_stats)
+            gpu_fragment = (
+                f" gpu_util_mean={gpu_stats['gpu_util_mean']:.1f}%"
+                f" gpu_mem_util_mean={gpu_stats['gpu_mem_util_mean']:.1f}%"
+            )
+        else:
+            gpu_fragment = ""
         _log(
             "parallel_train_progress "
             f"updates={updates_done}/{num_updates} "
             f"elapsed={_format_duration(elapsed_seconds)} "
             f"eta={_format_duration(eta_seconds)} "
-            f"updates_per_second={updates_per_second:.3f}",
+            f"updates_per_second={updates_per_second:.3f}"
+            f"{gpu_fragment}",
             flush=True,
         )
 
@@ -505,7 +586,11 @@ def train_with_progress(
         lambda *chunks: jnp.concatenate(chunks, axis=2),
         *metrics_chunks,
     )
-    return ParallelA2CResult(states=states, metrics=metrics), time.time() - start
+    return (
+        ParallelA2CResult(states=states, metrics=metrics),
+        time.time() - start,
+        _summarize_gpu_samples(gpu_samples),
+    )
 
 
 class ParallelJaxSimulator:
@@ -934,7 +1019,7 @@ def main() -> None:
         f"varied_keys={','.join(varied_keys)}"
     )
 
-    result, elapsed_seconds = train_with_progress(
+    result, elapsed_seconds, gpu_summary_line = train_with_progress(
         trainer,
         hypers,
         seeds,
@@ -942,6 +1027,7 @@ def main() -> None:
         print_frequency=int(fixed["print_frequency"]),
     )
     _log(f"parallel_train_elapsed_seconds={elapsed_seconds:.3f}")
+    _log(gpu_summary_line)
 
     run_dirs = save_results(
         result,
