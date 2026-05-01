@@ -7,6 +7,7 @@ import pickle
 import shutil
 import statistics
 import subprocess
+import threading
 import time
 import tomllib
 from argparse import Namespace
@@ -181,6 +182,40 @@ def _summarize_gpu_samples(samples: list[dict[str, float]]) -> str:
         f"gpu_mem_util_mean={statistics.mean(gpu_mem_mean):.1f} "
         f"gpu_mem_util_peak={max(gpu_mem_max):.1f}"
     )
+
+
+class _GpuSampler:
+    def __init__(self, interval_seconds: float = 0.5):
+        self._interval_seconds = float(interval_seconds)
+        self._samples: list[dict[str, float]] = []
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if shutil.which("nvidia-smi") is None:
+            return
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        if self._thread is None:
+            return
+        self._stop_event.set()
+        self._thread.join(timeout=self._interval_seconds * 3.0)
+        self._thread = None
+
+    def snapshot_from(self, start_index: int) -> list[dict[str, float]]:
+        return list(self._samples[start_index:])
+
+    def count(self) -> int:
+        return len(self._samples)
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            sample = _query_gpu_stats()
+            if sample is not None:
+                self._samples.append(sample)
+            self._stop_event.wait(self._interval_seconds)
 
 
 def _load_config(path: str) -> tuple[Path, dict]:
@@ -545,6 +580,8 @@ def train_with_progress(
     start = time.time()
     metrics_chunks = []
     gpu_samples: list[dict[str, float]] = []
+    gpu_sampler = _GpuSampler(interval_seconds=0.5)
+    gpu_sampler.start()
     col_sep = "   "
     header = col_sep.join(
         [
@@ -560,47 +597,60 @@ def train_with_progress(
     _log(header)
     _log("-" * len(header))
 
-    for update_start in range(0, num_updates, print_frequency):
-        update_end = min(update_start + print_frequency, num_updates)
-        chunk = schedule[:, update_start:update_end]
-        result = jax.block_until_ready(trainer.train_sweep_chunk(states, hypers, chunk))
-        states = result.states
-        metrics_chunks.append(result.metrics)
-        _append_per_run_progress_logs(
-            run_dirs,
-            result.metrics,
-            num_hypers=num_hypers,
-            num_seeds=len(seeds),
-            update_end=update_end,
-            env_steps_per_update=env_steps_per_update,
-        )
+    try:
+        for update_start in range(0, num_updates, print_frequency):
+            update_end = min(update_start + print_frequency, num_updates)
+            chunk = schedule[:, update_start:update_end]
+            chunk_sample_start = gpu_sampler.count()
 
-        elapsed_seconds = time.time() - start
-        updates_done = update_end
-        updates_per_second = updates_done / elapsed_seconds
-        eta_seconds = (num_updates - updates_done) / updates_per_second
-        gpu_stats = _query_gpu_stats()
-        if gpu_stats is not None:
-            gpu_samples.append(gpu_stats)
-            gpu_util_text = f"{gpu_stats['gpu_util_mean']:.1f}"
-            gpu_mem_text = f"{gpu_stats['gpu_mem_util_mean']:.1f}"
-        else:
-            gpu_util_text = "n/a"
-            gpu_mem_text = "n/a"
-        _log(
-            col_sep.join(
-                [
-                    f"{updates_done:>8d}",
-                    f"{updates_done * env_steps_per_update:>10d}",
-                    f"{_format_duration(elapsed_seconds):>8}",
-                    f"{_format_duration(eta_seconds):>8}",
-                    f"{updates_per_second:>8.3f}",
-                    f"{gpu_util_text:>8}",
-                    f"{gpu_mem_text:>8}",
-                ]
-            ),
-            flush=True,
-        )
+            result = jax.block_until_ready(trainer.train_sweep_chunk(states, hypers, chunk))
+            states = result.states
+            metrics_chunks.append(result.metrics)
+            _append_per_run_progress_logs(
+                run_dirs,
+                result.metrics,
+                num_hypers=num_hypers,
+                num_seeds=len(seeds),
+                update_end=update_end,
+                env_steps_per_update=env_steps_per_update,
+            )
+
+            elapsed_seconds = time.time() - start
+            updates_done = update_end
+            updates_per_second = updates_done / elapsed_seconds
+            eta_seconds = (num_updates - updates_done) / updates_per_second
+
+            chunk_gpu_samples = gpu_sampler.snapshot_from(chunk_sample_start)
+            if chunk_gpu_samples:
+                gpu_stats = {
+                    "gpu_util_mean": float(statistics.mean([s["gpu_util_mean"] for s in chunk_gpu_samples])),
+                    "gpu_util_max": float(max(s["gpu_util_max"] for s in chunk_gpu_samples)),
+                    "gpu_mem_util_mean": float(statistics.mean([s["gpu_mem_util_mean"] for s in chunk_gpu_samples])),
+                    "gpu_mem_util_max": float(max(s["gpu_mem_util_max"] for s in chunk_gpu_samples)),
+                }
+                gpu_samples.append(gpu_stats)
+                gpu_util_text = f"{gpu_stats['gpu_util_mean']:.1f}"
+                gpu_mem_text = f"{gpu_stats['gpu_mem_util_mean']:.1f}"
+            else:
+                gpu_util_text = "n/a"
+                gpu_mem_text = "n/a"
+
+            _log(
+                col_sep.join(
+                    [
+                        f"{updates_done:>8d}",
+                        f"{updates_done * env_steps_per_update:>10d}",
+                        f"{_format_duration(elapsed_seconds):>8}",
+                        f"{_format_duration(eta_seconds):>8}",
+                        f"{updates_per_second:>8.3f}",
+                        f"{gpu_util_text:>8}",
+                        f"{gpu_mem_text:>8}",
+                    ]
+                ),
+                flush=True,
+            )
+    finally:
+        gpu_sampler.stop()
 
     metrics = jax.tree_util.tree_map(
         lambda *chunks: jnp.concatenate(chunks, axis=2),
