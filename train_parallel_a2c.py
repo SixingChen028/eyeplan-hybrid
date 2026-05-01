@@ -215,6 +215,43 @@ def _resolve_training_geometry(params: dict) -> tuple[int, int, int]:
     )
 
 
+def _parse_cli_value(raw: str, template_value):
+    if isinstance(template_value, bool):
+        lowered = raw.strip().lower()
+        if lowered in {"1", "true", "t", "yes", "y", "on"}:
+            return True
+        if lowered in {"0", "false", "f", "no", "n", "off"}:
+            return False
+        raise ValueError(f"Invalid boolean value: {raw!r}")
+    if isinstance(template_value, int) and not isinstance(template_value, bool):
+        return int(raw)
+    if isinstance(template_value, float):
+        return float(raw)
+    return raw
+
+
+def _apply_cli_param_overrides(params: dict, override_tokens: list[str]) -> dict:
+    if not override_tokens:
+        return dict(params)
+    if len(override_tokens) % 2 != 0:
+        raise ValueError("Parameter overrides must be provided as '--key value' pairs.")
+
+    merged = dict(DEFAULT_PARAMS)
+    merged.update(params)
+    updated = dict(params)
+    it = iter(override_tokens)
+    for key_token, value_token in zip(it, it):
+        if not key_token.startswith("--"):
+            raise ValueError(f"Invalid override key {key_token!r}; expected '--<name>'.")
+        key = key_token[2:]
+        if key not in merged:
+            raise ValueError(f"Unknown parameter override: {key}")
+        if _is_list(params.get(key)):
+            raise ValueError(f"Cannot override params.{key} because it is varied in the config.")
+        updated[key] = _parse_cli_value(value_token, merged[key])
+    return updated
+
+
 def build_hypers(combos: list[dict]) -> A2CHyperParams:
     def array(key: str, dtype=jnp.float32):
         return jnp.asarray([combo[key] for combo in combos], dtype=dtype)
@@ -349,7 +386,7 @@ def _entropy_schedule(hypers: A2CHyperParams, num_updates: int) -> jax.Array:
     ).astype(jnp.float32)
 
 
-def _per_run_progress_lines(data: dict[str, list[float]], batch_size: int, print_frequency: int) -> list[str]:
+def _per_run_progress_lines(data: dict[str, list[float]], env_steps_per_update: int, print_frequency: int) -> list[str]:
     if print_frequency <= 0:
         return []
 
@@ -403,7 +440,7 @@ def _per_run_progress_lines(data: dict[str, list[float]], batch_size: int, print
             col_sep.join(
                 [
                     f"{update_index + 1:>8d}",
-                    f"{(update_index + 1) * batch_size:>10d}",
+                    f"{(update_index + 1) * env_steps_per_update:>10d}",
                     _fmt_num(avg_episode_reward),
                     _fmt_num(avg_episode_length),
                     _fmt_num(avg_loss),
@@ -810,7 +847,7 @@ def save_results(
                 file.writelines(
                     _per_run_progress_lines(
                         data=data,
-                        batch_size=int(run_args["batch_size"]),
+                        env_steps_per_update=int(run_args["num_envs"]) * int(run_args["rollout_length"]),
                         print_frequency=int(run_args["print_frequency"]),
                     )
                 )
@@ -853,12 +890,12 @@ def main() -> None:
         action="store_true",
         help="Use greedy actions during simulation, matching simulate.py --greedy.",
     )
-    args = parser.parse_args()
+    args, override_tokens = parser.parse_known_args()
 
     config_path, config = _load_config(args.config)
     meta = dict(DEFAULT_META)
     meta.update(config.get("meta", {}))
-    params = config.get("params", {})
+    params = _apply_cli_param_overrides(config.get("params", {}), override_tokens)
 
     fixed, combos, seeds, varied_keys = expand_sweep(params)
     output_path = args.path or str(meta["result_path"])
