@@ -12,6 +12,8 @@ cat <<EOT
 #SBATCH --time=00:15:00
 #SBATCH --mem=10GB
 #SBATCH --gres=gpu:1
+#SBATCH --account=torch_pr_279_tandon_priority
+
 
 module purge
 
