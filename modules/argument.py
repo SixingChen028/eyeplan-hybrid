@@ -96,6 +96,7 @@ class ArgParser:
         self.parser.add_argument('--mask_fixation', type = parse_bool, default = True, help = 'if mask fixations')
 
         # training parameters
+        self.parser.add_argument('--algo', type = str, choices = ['a2c', 'ppo'], default = 'a2c', help = 'training algorithm')
         self.parser.add_argument('--num_updates', type = int, default = 50_000, help = 'number of training updates')
         self.parser.add_argument('--eval_episodes', type = int, default = 102_400, help = 'evaluation episodes')
         self.parser.add_argument('--lr', type = float, default = 1e-3, help = 'learning rate')

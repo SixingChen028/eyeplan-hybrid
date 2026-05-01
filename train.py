@@ -16,6 +16,7 @@ from modules.run_dirs import (
 )
 from modules.environment import JaxDecisionTreeEnv
 from modules.a2c import JaxBatchMaskA2C, save_jax_params, save_jax_tree, load_jax_tree
+from modules.ppo import JaxBatchMaskPPO
 from modules.simulation import JaxSimulator
 
 
@@ -251,6 +252,23 @@ if __name__ == '__main__':
         beta_v=args.beta_v,
         beta_e=args.beta_e,
         network_type=args.network_type,
+    ) if args.algo == "a2c" else JaxBatchMaskPPO(
+        env=env,
+        feature_size=env.observation_shape[0],
+        action_size=env.action_size,
+        hidden_size=args.hidden_size,
+        num_envs=args.num_envs,
+        rollout_length=args.rollout_length,
+        lr=args.lr,
+        max_grad_norm=args.max_grad_norm,
+        gamma=args.gamma,
+        lamda=args.lamda,
+        beta_v=args.beta_v,
+        beta_e=args.beta_e,
+        clip_eps=args.ppo_clip_eps,
+        ppo_epochs=args.ppo_epochs,
+        normalize_advantages=args.ppo_normalize_advantages,
+        network_type=args.network_type,
     )
 
     if state is None:
@@ -275,12 +293,17 @@ if __name__ == '__main__':
         "episode_count": [],
         "episode_reward_sum": [],
         "episode_length_sum": [],
-        "grad_norm": [],
-        "param_norm": [],
         "step_time_s": [],
         "cumulative_time_s": [],
     }
-    training_data_path = os.path.join(exp_path, TRAINING_DATA_NAME)
+    if args.algo == "a2c":
+        data["grad_norm"] = []
+        data["param_norm"] = []
+    else:
+        data["clip_fraction"] = []
+        data["approx_kl"] = []
+    training_data_name = TRAINING_DATA_NAME if args.algo == "a2c" else "data_training_jax_ppo.p"
+    training_data_path = os.path.join(exp_path, training_data_name)
     data_keys = list(data.keys())
     if args.resume and start_update > 0 and os.path.exists(training_data_path):
         restored_data = _load_existing_training_data(
@@ -292,11 +315,14 @@ if __name__ == '__main__':
 
     print(
         "run_config "
+        f"algo={args.algo} "
         f"num_envs={args.num_envs} "
         f"rollout_length={args.rollout_length} "
         f"num_updates={num_updates} "
         f"eval_episodes={args.eval_episodes} "
         f"t_max={args.t_max} "
+        f"ppo_epochs={args.ppo_epochs} "
+        f"ppo_clip_eps={args.ppo_clip_eps} "
         f"print_frequency={args.print_frequency} "
         f"checkpoint_frequency={args.checkpoint_frequency} "
         f"log_full_metrics={args.log_full_metrics}"
@@ -321,6 +347,8 @@ if __name__ == '__main__':
         return _hhmmss(eta_seconds)
 
     if args.print_frequency > 0:
+        metric_col_1 = "grad_n" if args.algo == "a2c" else "clipfrac"
+        metric_col_2 = "param_n" if args.algo == "a2c" else "approx_kl"
         header = col_sep.join(
             [
                 f"{'update':>8}",
@@ -331,8 +359,8 @@ if __name__ == '__main__':
                 f"{'policy':>8}",
                 f"{'value':>8}",
                 f"{'entropy':>8}",
-                f"{'grad_n':>8}",
-                f"{'param_n':>8}",
+                f"{metric_col_1:>8}",
+                f"{metric_col_2:>8}",
                 f"{'elapsed':>8}",
                 f"{'ETA':>8}",
             ]
@@ -422,8 +450,12 @@ if __name__ == '__main__':
         data["episode_count"].extend(chunk_metrics.episode_count.tolist())
         data["episode_reward_sum"].extend(chunk_metrics.episode_reward_sum.tolist())
         data["episode_length_sum"].extend(chunk_metrics.episode_length_sum.tolist())
-        data["grad_norm"].extend(chunk_metrics.grad_norm.tolist())
-        data["param_norm"].extend(chunk_metrics.param_norm.tolist())
+        if args.algo == "a2c":
+            data["grad_norm"].extend(chunk_metrics.grad_norm.tolist())
+            data["param_norm"].extend(chunk_metrics.param_norm.tolist())
+        else:
+            data["clip_fraction"].extend(chunk_metrics.clip_fraction.tolist())
+            data["approx_kl"].extend(chunk_metrics.approx_kl.tolist())
         data["step_time_s"].extend([avg_step_time] * chunk_updates)
         data["cumulative_time_s"].extend(cumulative_values.tolist())
 
@@ -468,8 +500,16 @@ if __name__ == '__main__':
                 avg_policy_loss = float(np.mean(data["policy_loss"][window]))
                 avg_value_loss = float(np.mean(data["value_loss"][window]))
                 avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
-                avg_grad_norm = float(np.mean(data["grad_norm"][window]))
-                avg_param_norm = float(np.mean(data["param_norm"][window]))
+                if args.algo == "a2c":
+                    avg_grad_norm = float(np.mean(data["grad_norm"][window]))
+                    avg_param_norm = float(np.mean(data["param_norm"][window]))
+                    extra_col_1 = _fmt_num(avg_grad_norm)
+                    extra_col_2 = _fmt_num(avg_param_norm)
+                else:
+                    avg_clip_fraction = float(np.mean(data["clip_fraction"][window]))
+                    avg_approx_kl = float(np.mean(data["approx_kl"][window]))
+                    extra_col_1 = _fmt_num(avg_clip_fraction)
+                    extra_col_2 = _fmt_num(avg_approx_kl)
 
                 print(
                     col_sep.join(
@@ -482,8 +522,8 @@ if __name__ == '__main__':
                             _fmt_num(avg_policy_loss),
                             _fmt_num(avg_value_loss),
                             _fmt_num(avg_entropy_loss),
-                            _fmt_num(avg_grad_norm),
-                            _fmt_num(avg_param_norm),
+                            extra_col_1,
+                            extra_col_2,
                             f"{elapsed_display:>8}",
                             f"{eta_display:>8}",
                         ]
@@ -556,6 +596,7 @@ if __name__ == '__main__':
         json.dump(eval_summary, file, indent=2, sort_keys=True)
     print(f"eval_summary_path={eval_summary_path}")
 
-    save_jax_params(state.params, os.path.join(exp_path, 'net_jax.p'))
+    model_params_name = "net_jax.p" if args.algo == "a2c" else "net_jax_ppo.p"
+    save_jax_params(state.params, os.path.join(exp_path, model_params_name))
     with open(training_data_path, 'wb') as file:
         pickle.dump(data, file)
