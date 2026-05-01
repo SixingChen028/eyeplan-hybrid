@@ -11,7 +11,7 @@ import numpy as np
 from modules.a2c import JaxBatchMaskA2C
 from modules.environment import JaxDecisionTreeEnv
 from modules.parallel_a2c import ParallelJaxBatchMaskA2C
-from train_parallel_a2c import (
+from train_parallel import (
     build_hypers,
     expand_sweep,
     save_results,
