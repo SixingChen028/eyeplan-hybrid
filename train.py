@@ -32,22 +32,37 @@ class _TeeStream:
 
     def write(self, data):
         for stream in self._streams:
-            stream.write(data)
+            try:
+                stream.write(data)
+            except Exception:
+                continue
         return len(data)
 
     def flush(self):
         for stream in self._streams:
-            stream.flush()
+            try:
+                stream.flush()
+            except Exception:
+                continue
 
 
 def _tee_console_to_log(run_dir: str):
     log_path = os.path.join(run_dir, "training.log")
     log_file = open(log_path, "a", buffering=1)
-    atexit.register(log_file.close)
     original_stdout = sys.stdout
     original_stderr = sys.stderr
     sys.stdout = _TeeStream(original_stdout, log_file)
     sys.stderr = _TeeStream(original_stderr, log_file)
+
+    def _restore_streams_and_close_log():
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        try:
+            log_file.close()
+        except Exception:
+            pass
+
+    atexit.register(_restore_streams_and_close_log)
     return log_path
 
 
