@@ -28,6 +28,7 @@ class JaxDecisionTreeParams(NamedTuple):
     eps_move: jax.Array
     learning_rate: jax.Array
     lamda_backup: jax.Array
+    backup_steps: jax.Array
     wm_decay: jax.Array
     q_drop_rate: jax.Array
     recency_decay: jax.Array
@@ -64,6 +65,7 @@ class JaxDecisionTreeEnv:
         eps_move: float = 0.02,
         learning_rate: float = 0.2,
         lamda_backup: float = 0.0,
+        backup_steps: int = 100,
         wm_decay: float = 0.8,
         q_drop_rate: float = 0.0,
         t_max: int = 100,
@@ -79,6 +81,7 @@ class JaxDecisionTreeEnv:
         self.eps_move = float(eps_move)
         self.learning_rate = float(learning_rate)
         self.lamda_backup = float(lamda_backup)
+        self.backup_steps = int(backup_steps)
         self.wm_decay = float(wm_decay)
         self.q_drop_rate = float(q_drop_rate)
         self.t_max = int(t_max)
@@ -113,6 +116,7 @@ class JaxDecisionTreeEnv:
             eps_move=jnp.asarray(self.eps_move, dtype=jnp.float32),
             learning_rate=jnp.asarray(self.learning_rate, dtype=jnp.float32),
             lamda_backup=jnp.asarray(self.lamda_backup, dtype=jnp.float32),
+            backup_steps=jnp.asarray(self.backup_steps, dtype=jnp.int32),
             wm_decay=jnp.asarray(self.wm_decay, dtype=jnp.float32),
             q_drop_rate=jnp.asarray(self.q_drop_rate, dtype=jnp.float32),
             recency_decay=jnp.asarray(self._recency_decay_value(), dtype=jnp.float32),
@@ -290,30 +294,37 @@ class JaxDecisionTreeEnv:
     ):
         learning_rate = self.learning_rate if params is None else params.learning_rate
         lamda_backup = self.lamda_backup if params is None else params.lamda_backup
+        backup_steps = self.backup_steps if params is None else params.backup_steps
 
         target = self._bellman_target(q_values, child_nodes, points, node)
         node_step = learning_rate * (target - q_values[node])
         q_values = q_values.at[node].add(node_step)
 
         def cond_fn(carry):
-            current, weight, _ = carry
+            current, weight, steps, _ = carry
             parent = parent_nodes[current]
             has_parent = parent >= 0
-            return (weight > 1e-6) & (current != root_node) & has_parent
+            has_budget = steps < backup_steps
+            return (weight > 1e-6) & (current != root_node) & has_parent & has_budget
 
         def body_fn(carry):
-            current, weight, q_values = carry
+            current, weight, steps, q_values = carry
             ancestor = parent_nodes[current]
             target = self._bellman_target(q_values, child_nodes, points, ancestor)
             step_size = learning_rate * weight
             new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
             q_values = q_values.at[ancestor].set(new_value)
-            return ancestor, weight * lamda_backup, q_values
+            return ancestor, weight * lamda_backup, steps + 1, q_values
 
-        _, _, q_values = jax.lax.while_loop(
+        _, _, _, q_values = jax.lax.while_loop(
             cond_fn,
             body_fn,
-            (node, jnp.asarray(lamda_backup, dtype=q_values.dtype), q_values),
+            (
+                node,
+                jnp.asarray(lamda_backup, dtype=q_values.dtype),
+                jnp.asarray(0, dtype=jnp.int32),
+                q_values,
+            ),
         )
         return q_values
 

@@ -651,3 +651,41 @@ def test_visit_all_once_then_terminate_is_optimal_jax():
     chosen_path = np.asarray(state.chosen_path)[: int(state.chosen_path_len)]
     chosen_scaled = float(points[chosen_path].sum()) * env.scale_factor
     np.testing.assert_allclose(chosen_scaled, optimal_scaled, atol=1e-6)
+
+
+def test_backup_steps_zero_disables_ancestor_backup():
+    env = JaxDecisionTreeEnv(num_nodes=3, learning_rate=1.0, lamda_backup=1.0, backup_steps=0, shuffle_nodes=False)
+    q_values = jnp.array([0.0, 0.0, 0.0], dtype=jnp.float32)
+    child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
+    parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
+    points = jnp.array([0.0, 3.0, 1.0], dtype=jnp.float32)
+
+    updated = env._update_q(
+        q_values=q_values,
+        child_nodes=child_nodes,
+        parent_nodes=parent_nodes,
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        points=points,
+        node=jnp.asarray(1, dtype=jnp.int32),
+    )
+
+    np.testing.assert_allclose(np.asarray(updated), np.array([0.0, 3.0, 0.0], dtype=np.float32), atol=1e-6)
+
+
+def test_backup_steps_limits_ancestor_depth():
+    env = JaxDecisionTreeEnv(num_nodes=5, learning_rate=1.0, lamda_backup=1.0, backup_steps=1, shuffle_nodes=False)
+    q_values = jnp.zeros((5,), dtype=jnp.float32)
+    child_nodes = jnp.array([[-1, -1], [0, -1], [1, -1], [2, -1], [3, -1]], dtype=jnp.int32)
+    parent_nodes = jnp.array([1, 2, 3, 4, -1], dtype=jnp.int32)
+    points = jnp.array([1.0, 2.0, 4.0, 8.0, 16.0], dtype=jnp.float32)
+
+    updated = env._update_q(
+        q_values=q_values,
+        child_nodes=child_nodes,
+        parent_nodes=parent_nodes,
+        root_node=jnp.asarray(4, dtype=jnp.int32),
+        points=points,
+        node=jnp.asarray(0, dtype=jnp.int32),
+    )
+
+    np.testing.assert_allclose(np.asarray(updated), np.array([1.0, 3.0, 0.0, 0.0, 0.0], dtype=np.float32), atol=1e-6)

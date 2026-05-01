@@ -54,6 +54,8 @@ def test_arg_parser_parses_seed_and_bool_flags(monkeypatch):
             "true",
             "--lamda_backup",
             "0.6",
+            "--backup_steps",
+            "12",
             "--recency_decay",
             "auto",
             "--q_drop_rate",
@@ -68,5 +70,6 @@ def test_arg_parser_parses_seed_and_bool_flags(monkeypatch):
     assert args.canonicalize is True
     assert args.ppo_normalize_advantages is True
     assert args.lamda_backup == 0.6
+    assert args.backup_steps == 12
     assert args.recency_decay == "auto"
     assert args.q_drop_rate == 0.25

@@ -29,6 +29,7 @@ class ReferenceDecisionTreeEnv:
         eps_move: float = 0.02,
         learning_rate: float = 0.2,
         lamda_backup: float = 0.0,
+        backup_steps: int = 100,
         wm_decay: float = 0.8,
         q_drop_rate: float = 0.0,
         t_max: int = 100,
@@ -45,6 +46,7 @@ class ReferenceDecisionTreeEnv:
         self.eps_move = float(eps_move)
         self.learning_rate = float(learning_rate)
         self.lamda_backup = float(lamda_backup)
+        self.backup_steps = int(backup_steps)
         self.wm_decay = float(wm_decay)
         self.q_drop_rate = float(q_drop_rate)
         self.t_max = int(t_max)
@@ -180,7 +182,8 @@ class ReferenceDecisionTreeEnv:
 
         current = node
         weight = self.lamda_backup
-        while weight > 1e-6 and current != self.root_node:
+        steps = 0
+        while weight > 1e-6 and current != self.root_node and steps < self.backup_steps:
             ancestor = self.parent_nodes[current]
 
             target = self._bellman_target(ancestor)
@@ -188,6 +191,7 @@ class ReferenceDecisionTreeEnv:
             self.q_values[ancestor] += step_size * (target - self.q_values[ancestor])
             weight *= self.lamda_backup
             current = ancestor
+            steps += 1
 
     def _decay_fixation_recency(self):
         self.fixation_recency *= self._recency_decay_value()

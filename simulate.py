@@ -39,6 +39,7 @@ def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
         eps_move=float(metadata_args.get("eps_move", 0.0)),
         learning_rate=float(metadata_args.get("learning_rate", 1.0)),
         lamda_backup=float(metadata_args.get("lamda_backup", 1.0)),
+        backup_steps=int(metadata_args.get("backup_steps", 100)),
         wm_decay=float(metadata_args.get("wm_decay", 1.0)),
         q_drop_rate=float(metadata_args.get("q_drop_rate", 0.0)),
         t_max=int(metadata_args.get("t_max", 100)),
