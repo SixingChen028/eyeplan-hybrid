@@ -185,8 +185,7 @@ def _simulate_run(
     greedy: bool,
     skip_timeout_trials: bool,
     detailed: bool,
-) -> tuple[int, int]:
-    print(f"run_dir={run_dir}")
+) -> tuple[str, int, int, int]:
 
     metadata = _read_metadata(run_dir)
     metadata_args = _read_metadata_args(run_dir)
@@ -194,10 +193,8 @@ def _simulate_run(
 
     params_path = _resolve_params_path_from_metadata(run_dir, metadata)
     params = load_jax_params(params_path)
-    print(f"params_path={params_path}")
 
     seed = int(metadata_args.get("seed", 15))
-    print(f"seed={seed}")
     simulator = JaxSimulator(env)
     data = simulator.simulate(
         params=params,
@@ -219,7 +216,7 @@ def _simulate_run(
         json.dump(_round_floats(transformed), file)
         file.write("\n")
 
-    return len(data["action_seqs"]), len(transformed["actions"])
+    return params_path, seed, len(data["action_seqs"]), len(transformed["actions"])
 
 
 def main() -> None:
@@ -286,14 +283,13 @@ def main() -> None:
 
     for experiment, run_dir in runs_to_simulate:
         try:
-            print(f"experiment={experiment}")
             output_path = args.output
             if output_path == "":
                 output_name = "data_simulation_detailed.json" if args.detailed else "data_simulation.json"
                 output_path = os.path.join(run_dir, output_name)
             output_path = os.path.abspath(os.path.expanduser(output_path))
 
-            num_trials_raw, num_trials_exported = _simulate_run(
+            params_path, seed, num_trials_raw, num_trials_exported = _simulate_run(
                 run_dir=run_dir,
                 output_path=output_path,
                 num_trials=num_trials,
@@ -301,10 +297,15 @@ def main() -> None:
                 skip_timeout_trials=args.skip_timeout_trials,
                 detailed=args.detailed,
             )
-
-            print(f"output_json={output_path}")
-            print(f"num_trials_raw={num_trials_raw}")
-            print(f"num_trials_exported={num_trials_exported}")
+            print(
+                f"output_json={output_path} "
+                f"run_dir={run_dir} "
+                f"params_path={params_path} "
+                f"seed={seed} "
+                f"num_trials_raw={num_trials_raw} "
+                f"num_trials_exported={num_trials_exported} "
+                f"experiment={experiment}"
+            )
         except Exception:
             had_error = True
             print(f"Error simulating run: {run_dir}", file=sys.stderr)
