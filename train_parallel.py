@@ -711,13 +711,14 @@ def train_with_progress(
                 gpu_util_text = "n/a"
                 gpu_mem_text = "n/a"
 
-            _log(
-                "parallel_train_progress "
-                f"updates={updates_done}/{num_updates} "
-                f"elapsed={elapsed_seconds:.3f} "
-                f"updates_per_second={updates_per_second:.6f}",
-                flush=True,
-            )
+            if not has_run_dirs:
+                _log(
+                    "parallel_train_progress "
+                    f"updates={updates_done}/{num_updates} "
+                    f"elapsed={elapsed_seconds:.3f} "
+                    f"updates_per_second={updates_per_second:.6f}",
+                    flush=True,
+                )
             _log(
                 col_sep.join(
                     [
