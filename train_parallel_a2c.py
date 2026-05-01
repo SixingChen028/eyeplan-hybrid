@@ -349,6 +349,76 @@ def _entropy_schedule(hypers: A2CHyperParams, num_updates: int) -> jax.Array:
     ).astype(jnp.float32)
 
 
+def _per_run_progress_lines(data: dict[str, list[float]], batch_size: int, print_frequency: int) -> list[str]:
+    if print_frequency <= 0:
+        return []
+
+    col_sep = "   "
+
+    def _fmt_num(value: float, width: int = 8, decimals: int = 3) -> str:
+        return f"{value: {width}.{decimals}f}"
+
+    num_updates = len(data["loss"])
+    if num_updates == 0:
+        return []
+
+    header = col_sep.join(
+        [
+            f"{'update':>8}",
+            f"{'ep_num':>10}",
+            f"{'ep_rew':>8}",
+            f"{'ep_len':>8}",
+            f"{'loss':>8}",
+            f"{'policy':>8}",
+            f"{'value':>8}",
+            f"{'entropy':>8}",
+            f"{'grad_n':>8}",
+            f"{'param_n':>8}",
+        ]
+    )
+    lines = [header + "\n", ("-" * len(header)) + "\n"]
+
+    window_start_idx = 0
+    for update_index in range(num_updates):
+        should_log = (
+            update_index == 0
+            or (update_index + 1) % print_frequency == 0
+            or (update_index + 1) == num_updates
+        )
+        if not should_log:
+            continue
+
+        data_index = update_index
+        window = slice(window_start_idx, data_index + 1)
+        avg_episode_reward = float(np.mean(data["episode_reward"][window]))
+        avg_episode_length = float(np.mean(data["episode_length"][window]))
+        avg_loss = float(np.mean(data["loss"][window]))
+        avg_policy_loss = float(np.mean(data["policy_loss"][window]))
+        avg_value_loss = float(np.mean(data["value_loss"][window]))
+        avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
+        avg_grad_norm = float(np.mean(data["grad_norm"][window]))
+        avg_param_norm = float(np.mean(data["param_norm"][window]))
+
+        lines.append(
+            col_sep.join(
+                [
+                    f"{update_index + 1:>8d}",
+                    f"{(update_index + 1) * batch_size:>10d}",
+                    _fmt_num(avg_episode_reward),
+                    _fmt_num(avg_episode_length),
+                    _fmt_num(avg_loss),
+                    _fmt_num(avg_policy_loss),
+                    _fmt_num(avg_value_loss),
+                    _fmt_num(avg_entropy_loss),
+                    _fmt_num(avg_grad_norm),
+                    _fmt_num(avg_param_norm),
+                ]
+            ) + "\n"
+        )
+        window_start_idx = data_index + 1
+    return lines
+
+
 def train_with_progress(
     trainer: ParallelJaxBatchMaskA2C,
     hypers: A2CHyperParams,
@@ -737,6 +807,13 @@ def save_results(
             with open(log_path, "w") as file:
                 file.writelines(_CONSOLE_LOG_LINES)
                 file.write(f"run_dir={run_dir}\n")
+                file.writelines(
+                    _per_run_progress_lines(
+                        data=data,
+                        batch_size=int(run_args["batch_size"]),
+                        print_frequency=int(run_args["print_frequency"]),
+                    )
+                )
                 file.write(
                     "run_summary "
                     f"hyper_index={hyper_index} "
