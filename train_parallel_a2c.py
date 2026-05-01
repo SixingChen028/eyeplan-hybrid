@@ -112,14 +112,7 @@ SHAPE_KEYS = {
 }
 
 
-_CONSOLE_LOG_LINES: list[str] = []
-
-
 def _log(*args, **kwargs) -> None:
-    sep = kwargs.get("sep", " ")
-    end = kwargs.get("end", "\n")
-    line = sep.join(str(arg) for arg in args) + end
-    _CONSOLE_LOG_LINES.append(line)
     print(*args, **kwargs)
 
 
@@ -454,19 +447,8 @@ def _entropy_schedule(hypers: A2CHyperParams, num_updates: int) -> jax.Array:
     ).astype(jnp.float32)
 
 
-def _per_run_progress_lines(data: dict[str, list[float]], env_steps_per_update: int, print_frequency: int) -> list[str]:
-    if print_frequency <= 0:
-        return []
-
+def _init_per_run_training_logs(run_dirs: list[str]) -> None:
     col_sep = "   "
-
-    def _fmt_num(value: float, width: int = 8, decimals: int = 3) -> str:
-        return f"{value: {width}.{decimals}f}"
-
-    num_updates = len(data["loss"])
-    if num_updates == 0:
-        return []
-
     header = col_sep.join(
         [
             f"{'update':>8}",
@@ -481,47 +463,50 @@ def _per_run_progress_lines(data: dict[str, list[float]], env_steps_per_update: 
             f"{'param_n':>8}",
         ]
     )
-    lines = [header + "\n", ("-" * len(header)) + "\n"]
+    for run_dir in run_dirs:
+        log_path = os.path.join(run_dir, "training.log")
+        with open(log_path, "w") as file:
+            file.write(f"run_dir={run_dir}\n")
+            file.write(header + "\n")
+            file.write("-" * len(header) + "\n")
 
-    window_start_idx = 0
-    for update_index in range(num_updates):
-        should_log = (
-            update_index == 0
-            or (update_index + 1) % print_frequency == 0
-            or (update_index + 1) == num_updates
-        )
-        if not should_log:
-            continue
 
-        data_index = update_index
-        window = slice(window_start_idx, data_index + 1)
-        avg_episode_reward = float(np.mean(data["episode_reward"][window]))
-        avg_episode_length = float(np.mean(data["episode_length"][window]))
-        avg_loss = float(np.mean(data["loss"][window]))
-        avg_policy_loss = float(np.mean(data["policy_loss"][window]))
-        avg_value_loss = float(np.mean(data["value_loss"][window]))
-        avg_entropy_loss = float(np.mean(data["entropy_loss"][window]))
-        avg_grad_norm = float(np.mean(data["grad_norm"][window]))
-        avg_param_norm = float(np.mean(data["param_norm"][window]))
+def _append_per_run_progress_logs(
+    run_dirs: list[str],
+    chunk_metrics,
+    *,
+    num_hypers: int,
+    num_seeds: int,
+    update_end: int,
+    env_steps_per_update: int,
+) -> None:
+    metrics = jax.tree_util.tree_map(lambda x: np.asarray(jax.device_get(x)), chunk_metrics)
+    run_dirs_by_index = np.asarray(run_dirs, dtype=object).reshape((num_hypers, num_seeds))
+    col_sep = "   "
 
-        lines.append(
-            col_sep.join(
+    def _fmt_num(value: float, width: int = 8, decimals: int = 3) -> str:
+        return f"{value: {width}.{decimals}f}"
+
+    for hyper_index in range(num_hypers):
+        for seed_index in range(num_seeds):
+            run_dir = str(run_dirs_by_index[hyper_index, seed_index])
+            log_path = os.path.join(run_dir, "training.log")
+            line = col_sep.join(
                 [
-                    f"{update_index + 1:>8d}",
-                    f"{(update_index + 1) * env_steps_per_update:>10d}",
-                    _fmt_num(avg_episode_reward),
-                    _fmt_num(avg_episode_length),
-                    _fmt_num(avg_loss),
-                    _fmt_num(avg_policy_loss),
-                    _fmt_num(avg_value_loss),
-                    _fmt_num(avg_entropy_loss),
-                    _fmt_num(avg_grad_norm),
-                    _fmt_num(avg_param_norm),
+                    f"{update_end:>8d}",
+                    f"{update_end * env_steps_per_update:>10d}",
+                    _fmt_num(float(np.mean(metrics.episode_reward[hyper_index, seed_index]))),
+                    _fmt_num(float(np.mean(metrics.episode_length[hyper_index, seed_index]))),
+                    _fmt_num(float(np.mean(metrics.loss[hyper_index, seed_index]))),
+                    _fmt_num(float(np.mean(metrics.policy_loss[hyper_index, seed_index]))),
+                    _fmt_num(float(np.mean(metrics.value_loss[hyper_index, seed_index]))),
+                    _fmt_num(float(np.mean(metrics.entropy_loss[hyper_index, seed_index]))),
+                    _fmt_num(float(np.mean(metrics.grad_norm[hyper_index, seed_index]))),
+                    _fmt_num(float(np.mean(metrics.param_norm[hyper_index, seed_index]))),
                 ]
-            ) + "\n"
-        )
-        window_start_idx = data_index + 1
-    return lines
+            )
+            with open(log_path, "a") as file:
+                file.write(line + "\n")
 
 
 def train_with_progress(
@@ -529,6 +514,8 @@ def train_with_progress(
     hypers: A2CHyperParams,
     seeds: list[int],
     *,
+    run_dirs: list[str],
+    num_hypers: int,
     num_updates: int,
     env_steps_per_update: int,
     print_frequency: int,
@@ -548,6 +535,7 @@ def train_with_progress(
         hypers,
         schedule[:, :warmup_updates],
     )
+    _init_per_run_training_logs(run_dirs)
 
     start = time.time()
     metrics_chunks = []
@@ -573,6 +561,14 @@ def train_with_progress(
         result = jax.block_until_ready(trainer.train_sweep_chunk(states, hypers, chunk))
         states = result.states
         metrics_chunks.append(result.metrics)
+        _append_per_run_progress_logs(
+            run_dirs,
+            result.metrics,
+            num_hypers=num_hypers,
+            num_seeds=len(seeds),
+            update_end=update_end,
+            env_steps_per_update=env_steps_per_update,
+        )
 
         elapsed_seconds = time.time() - start
         updates_done = update_end
@@ -882,15 +878,12 @@ def save_results(
     result,
     combos: list[dict],
     seeds: list[int],
+    run_dirs: list[str],
     *,
-    path: str,
-    experiment: str,
-    config_path: Path,
-    varied_keys: list[str],
     elapsed_seconds: float,
 ) -> list[str]:
-    run_dirs: list[str] = []
     simulators: dict[tuple, JaxSimulator] = {}
+    run_dirs_by_index = np.asarray(run_dirs, dtype=object).reshape((len(combos), len(seeds)))
     for hyper_index, combo in enumerate(combos):
         env_key = _env_cache_key(combo)
         if env_key not in simulators:
@@ -900,17 +893,7 @@ def save_results(
         for seed_index, seed in enumerate(seeds):
             run_args = dict(combo)
             run_args["seed"] = int(seed)
-            run_args["parallel_config"] = str(config_path)
-            run_args["parallel_hyper_index"] = int(hyper_index)
-            run_args["parallel_seed_index"] = int(seed_index)
-            run_args["parallel_varied_keys"] = list(varied_keys)
-
-            run_dir = create_timestamped_run_dir(
-                path=path,
-                experiment=experiment,
-                jobid=_run_jobid(str(combo.get("jobid", "")), hyper_index, seed),
-            )
-            write_run_metadata(run_dir=run_dir, args=Namespace(**run_args), cwd=os.getcwd())
+            run_dir = str(run_dirs_by_index[hyper_index, seed_index])
 
             state = _state_slice(result.states, hyper_index, seed_index)
             data = _metric_data(result.metrics, hyper_index, seed_index, elapsed_seconds)
@@ -945,16 +928,8 @@ def save_results(
                 json.dump(eval_summary, file, indent=2, sort_keys=True)
 
             log_path = os.path.join(run_dir, "training.log")
-            with open(log_path, "w") as file:
-                file.writelines(_CONSOLE_LOG_LINES)
-                file.write(f"run_dir={run_dir}\n")
-                file.writelines(
-                    _per_run_progress_lines(
-                        data=data,
-                        env_steps_per_update=int(run_args["num_envs"]) * int(run_args["rollout_length"]),
-                        print_frequency=int(run_args["print_frequency"]),
-                    )
-                )
+            with open(log_path, "a") as file:
+                file.write("\n")
                 file.write(
                     "run_summary "
                     f"hyper_index={hyper_index} "
@@ -973,7 +948,34 @@ def save_results(
                     f"n_steps_sd={eval_summary['n_steps_sd']:.3f}\n"
                 )
                 file.write(f"training_log={log_path}\n")
+    return run_dirs
 
+
+def prepare_run_dirs(
+    combos: list[dict],
+    seeds: list[int],
+    *,
+    path: str,
+    experiment: str,
+    config_path: Path,
+    varied_keys: list[str],
+) -> list[str]:
+    run_dirs: list[str] = []
+    for hyper_index, combo in enumerate(combos):
+        for seed_index, seed in enumerate(seeds):
+            run_args = dict(combo)
+            run_args["seed"] = int(seed)
+            run_args["parallel_config"] = str(config_path)
+            run_args["parallel_hyper_index"] = int(hyper_index)
+            run_args["parallel_seed_index"] = int(seed_index)
+            run_args["parallel_varied_keys"] = list(varied_keys)
+
+            run_dir = create_timestamped_run_dir(
+                path=path,
+                experiment=experiment,
+                jobid=_run_jobid(str(combo.get("jobid", "")), hyper_index, seed),
+            )
+            write_run_metadata(run_dir=run_dir, args=Namespace(**run_args), cwd=os.getcwd())
             run_dirs.append(run_dir)
     return run_dirs
 
@@ -1037,11 +1039,22 @@ def main() -> None:
         f"t_max={fixed['t_max']} "
         f"varied_keys={','.join(varied_keys)}"
     )
+    run_dirs = prepare_run_dirs(
+        combos,
+        seeds,
+        path=output_path,
+        experiment=experiment,
+        config_path=config_path,
+        varied_keys=varied_keys,
+    )
+    _log(f"prepared_runs={len(run_dirs)}")
 
     result, elapsed_seconds, gpu_summary_line = train_with_progress(
         trainer,
         hypers,
         seeds,
+        run_dirs=run_dirs,
+        num_hypers=len(combos),
         num_updates=num_updates,
         env_steps_per_update=num_envs * rollout_length,
         print_frequency=int(fixed["print_frequency"]),
@@ -1053,10 +1066,7 @@ def main() -> None:
         result,
         combos,
         seeds,
-        path=output_path,
-        experiment=experiment,
-        config_path=config_path,
-        varied_keys=varied_keys,
+        run_dirs,
         elapsed_seconds=elapsed_seconds,
     )
     _log(f"saved_runs={len(run_dirs)}")
