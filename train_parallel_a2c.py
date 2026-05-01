@@ -210,10 +210,6 @@ def _resolve_training_geometry(params: dict) -> tuple[int, int, int]:
     if "num_updates" in params and "num_envs" in params and "rollout_length" in params:
         return int(params["num_updates"]), int(params["num_envs"]), int(params["rollout_length"])
 
-    if "num_episodes" in params and "batch_size" in params:
-        num_updates = int(params["num_episodes"] / params["batch_size"])
-        return num_updates, int(params["batch_size"]), int(params["t_max"])
-
     raise ValueError(
         "Training geometry must be specified as num_updates + num_envs + rollout_length."
     )
