@@ -113,7 +113,7 @@ class ArgParser:
         self.parser.add_argument('--print_frequency', type = int, default = 100, help = 'print training logs every n updates (0 to disable)')
         self.parser.add_argument('--checkpoint_frequency', type = int, default = 0, help = 'checkpoint cadence: <0 disable, 0 save at each update chunk end, >0 save every n updates')
         self.parser.add_argument('--log_full_metrics', type = parse_bool, default = True, help = 'if collect per-update metrics on host (set false to reduce host sync overhead)')
-        self.parser.add_argument('--ppo_epochs', type = int, default = 4, help = 'number of PPO epochs per rollout update')
+        self.parser.add_argument('--ppo_epochs', type = int, default = 2, help = 'number of PPO epochs per rollout update')
         self.parser.add_argument('--ppo_clip_eps', type = float, default = 0.2, help = 'PPO clipping epsilon')
         self.parser.add_argument('--ppo_normalize_advantages', type = parse_bool, default = True, help = 'if normalize PPO advantages')
 
