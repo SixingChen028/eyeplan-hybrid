@@ -1,197 +1,209 @@
 import argparse
 import json
 import os
-import pickle
 import sys
 import traceback
 
-from modules.analysis_targets import (
-    get_run_analysis_dir,
-    resolve_analysis_target,
-)
-
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
-def _output_paths(output_dir: str, output_prefix: str) -> dict[str, str]:
-    return {
-        "csv_path": os.path.join(output_dir, f"{output_prefix}_curves.csv"),
-        "summary_json_path": os.path.join(output_dir, f"{output_prefix}_summary.json"),
-        "fig_path": os.path.join(output_dir, f"{output_prefix}_curves.png"),
-    }
+from modules.analysis_targets import (
+    get_run_analysis_dir,
+    get_summary_analysis_dir,
+    resolve_analysis_target,
+)
 
 
-def _run_is_processed(output_dir: str, output_prefix: str) -> bool:
-    paths = _output_paths(output_dir, output_prefix)
-    return all(os.path.exists(path) for path in paths.values())
+def _value_key(value) -> str:
+    return json.dumps(value, sort_keys=True)
 
 
-def _read_batch_geometry(run_dir: str) -> tuple[int, int]:
+def _run_args_from_metadata(run_dir: str) -> dict:
     metadata_path = os.path.join(run_dir, "metadata.json")
     if not os.path.exists(metadata_path):
-        raise FileNotFoundError(f"Run metadata not found: {metadata_path}")
-
+        raise FileNotFoundError(f"Missing metadata file for run: {metadata_path}")
     with open(metadata_path, "r") as file:
         metadata = json.load(file)
-
-    metadata_args = metadata.get("args", {})
-    if "num_envs" not in metadata_args:
-        raise KeyError(f"num_envs not found in metadata args: {metadata_path}")
-    if "rollout_length" not in metadata_args:
-        raise KeyError(f"rollout_length not found in metadata args: {metadata_path}")
-
-    num_envs = int(metadata_args["num_envs"])
-    if num_envs <= 0:
-        raise ValueError(f"num_envs must be positive in metadata: {metadata_path}")
-    rollout_length = int(metadata_args["rollout_length"])
-    if rollout_length <= 0:
-        raise ValueError(f"rollout_length must be positive in metadata: {metadata_path}")
-    return num_envs, rollout_length
+    args = metadata.get("args")
+    if not isinstance(args, dict):
+        raise ValueError(f"metadata.json must contain an object at key 'args': {metadata_path}")
+    return args
 
 
-def _analyze_run(run_dir: str, output_dir: str, ma_window: int, data_file: str, output_prefix: str) -> dict:
-    num_envs, rollout_length = _read_batch_geometry(run_dir)
+def _varying_params_from_metadata(run_dirs: list[str]) -> list[str]:
+    ignored_params = {
+        "experiment",
+        "jobid",
+        "parallel_config",
+        "parallel_hyper_index",
+        "parallel_seed_index",
+        "parallel_varied_keys",
+        "path",
+        "resume",
+    }
+    run_args = [_run_args_from_metadata(run_dir) for run_dir in sorted(run_dirs)]
+    common_params = set(run_args[0])
+    for args in run_args[1:]:
+        common_params &= set(args)
+
+    varying_params: list[str] = []
+    for param in sorted(common_params):
+        if param in ignored_params:
+            continue
+
+        seen_values = set()
+        for args in run_args:
+            seen_values.add(_value_key(args[param]))
+
+        if len(seen_values) > 1:
+            varying_params.append(param)
+
+    return varying_params
+
+
+def _parse_training_log(run_dir: str, data_file: str) -> pd.DataFrame:
     data_path = os.path.join(run_dir, data_file)
-
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"Training data not found: {data_path}")
 
-    with open(data_path, "rb") as file:
-        data = pickle.load(file)
+    rows: list[list[str]] = []
+    with open(data_path, "r") as file:
+        for line in file:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("run_dir="):
+                continue
+            if stripped.startswith("update") or stripped.startswith("-"):
+                continue
 
-    num_updates = len(data["episode_reward"])
-    updates = np.arange(1, num_updates + 1)
-    env_steps = updates * num_envs * rollout_length
-    if all(key in data for key in ("episode_count", "episode_reward_sum", "episode_length_sum")):
-        episode_count = np.asarray(data["episode_count"], dtype=np.float64)
-        episode_reward_sum = np.asarray(data["episode_reward_sum"], dtype=np.float64)
-        episode_length_sum = np.asarray(data["episode_length_sum"], dtype=np.float64)
-        episode_reward = np.divide(
-            episode_reward_sum,
-            episode_count,
-            out=np.full_like(episode_reward_sum, np.nan),
-            where=episode_count > 0,
-        )
-        episode_length = np.divide(
-            episode_length_sum,
-            episode_count,
-            out=np.full_like(episode_length_sum, np.nan),
-            where=episode_count > 0,
-        )
-    else:
-        episode_count = np.ones((num_updates,), dtype=np.float64)
-        episode_reward_sum = np.asarray(data["episode_reward"], dtype=np.float64)
-        episode_length_sum = np.asarray(data["episode_length"], dtype=np.float64)
-        episode_reward = episode_reward_sum
-        episode_length = episode_length_sum
+            parts = stripped.split()
+            if len(parts) < 4:
+                continue
+            rows.append(parts)
 
-    df = pd.DataFrame(
-        {
-            "update": updates,
-            "env_steps": env_steps,
-            "episode_reward": episode_reward,
-            "episode_length": episode_length,
-            "episode_count": episode_count,
-            "episode_reward_sum": episode_reward_sum,
-            "episode_length_sum": episode_length_sum,
-            "loss": np.asarray(data["loss"], dtype=np.float64),
-            "policy_loss": np.asarray(data["policy_loss"], dtype=np.float64),
-            "value_loss": np.asarray(data["value_loss"], dtype=np.float64),
-            "entropy_loss": np.asarray(data["entropy_loss"], dtype=np.float64),
-            "step_time_s": np.asarray(data["step_time_s"], dtype=np.float64),
-            "cumulative_time_s": np.asarray(data["cumulative_time_s"], dtype=np.float64),
-        }
-    )
+    if not rows:
+        raise ValueError(f"No training rows found in: {data_path}")
 
-    rolling_episode_count = df["episode_count"].rolling(ma_window, min_periods=1).sum()
-    df["episode_reward_ma"] = (
-        df["episode_reward_sum"].rolling(ma_window, min_periods=1).sum()
-        / rolling_episode_count
-    )
-    df["episode_length_ma"] = (
-        df["episode_length_sum"].rolling(ma_window, min_periods=1).sum()
-        / rolling_episode_count
-    )
-    df["loss_ma"] = df["loss"].rolling(ma_window, min_periods=1).mean()
+    df = pd.DataFrame(rows)
+    if df.shape[1] < 4:
+        raise ValueError(f"Expected at least 4 columns in: {data_path}")
 
-    summary = {
-        "run_dir": run_dir,
-        "num_updates": int(num_updates),
-        "num_env_steps": int(df["env_steps"].iloc[-1]) if num_updates > 0 else 0,
-        "final_episode_reward": round(float(df["episode_reward"].iloc[-1]), 6) if num_updates > 0 else np.nan,
-        "final_episode_reward_ma": round(float(df["episode_reward_ma"].iloc[-1]), 6) if num_updates > 0 else np.nan,
-        "final_episode_length": round(float(df["episode_length"].iloc[-1]), 6) if num_updates > 0 else np.nan,
-        "final_loss": round(float(df["loss"].iloc[-1]), 6) if num_updates > 0 else np.nan,
-        "mean_step_time_ms": round(float(df["step_time_s"].mean() * 1000.0), 6) if num_updates > 0 else np.nan,
-        "total_train_time_s": round(float(df["cumulative_time_s"].iloc[-1]), 6) if num_updates > 0 else np.nan,
-        "updates_per_s": round(float(num_updates / max(df["cumulative_time_s"].iloc[-1], 1e-9)), 6) if num_updates > 0 else np.nan,
+    df = df.iloc[:, :4].copy()
+    df.columns = ["update", "ep_num", "ep_rew", "ep_len"]
+    for column in ["update", "ep_num", "ep_rew", "ep_len"]:
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+
+    df = df.dropna(subset=["update", "ep_rew", "ep_len"]).sort_values("update")
+    if df.empty:
+        raise ValueError(f"No valid update/ep_rew/ep_len rows found in: {data_path}")
+
+    return df
+
+
+def _format_group_label(group_params: list[str], run_args: dict) -> str:
+    if not group_params:
+        return "default"
+    return ", ".join(f"{param}={run_args[param]}" for param in group_params)
+
+
+def _plot_target(
+    experiment: str,
+    run_dirs: list[str],
+    target_kind: str,
+    target_name: str,
+    results_root: str,
+    data_file: str,
+    output_prefix: str,
+) -> dict:
+    run_dirs = sorted(run_dirs)
+    varying_params = _varying_params_from_metadata(run_dirs) if len(run_dirs) > 1 else []
+    group_params = [param for param in varying_params if param != "seed"]
+
+    run_frames: list[tuple[str, pd.DataFrame, dict, str, str]] = []
+    for run_dir in run_dirs:
+        run_id = os.path.basename(run_dir)
+        df = _parse_training_log(run_dir=run_dir, data_file=data_file)
+        run_args = _run_args_from_metadata(run_dir)
+        group_label = _format_group_label(group_params=group_params, run_args=run_args)
+        run_frames.append((run_id, df, run_args, group_label, run_dir))
+
+    unique_groups = sorted({group_label for _, _, _, group_label, _ in run_frames})
+    cmap = plt.get_cmap("tab10")
+    color_by_group = {
+        group_label: cmap(index % cmap.N)
+        for index, group_label in enumerate(unique_groups)
     }
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharex=True)
+    legend_seen: set[str] = set()
+    multi_run = len(run_frames) > 1
+
+    for run_id, df, run_args, group_label, run_dir in run_frames:
+        color = color_by_group[group_label]
+        if multi_run:
+            if group_label not in legend_seen:
+                legend_label = group_label
+                legend_seen.add(group_label)
+            else:
+                legend_label = None
+        else:
+            legend_label = run_id
+
+        axes[0].plot(df["update"], df["ep_rew"], color=color, alpha=0.75, linewidth=1.5, label=legend_label)
+        axes[1].plot(df["update"], df["ep_len"], color=color, alpha=0.75, linewidth=1.5, label=legend_label)
+
+    axes[0].set_title("Episode Reward")
+    axes[0].set_xlabel("Update")
+    axes[0].set_ylabel("ep_rew")
+    axes[0].set_ylim(0, 1.3)
+    axes[0].grid(alpha=0.3)
+
+    axes[1].set_title("Episode Length")
+    axes[1].set_xlabel("Update")
+    axes[1].set_ylabel("ep_len")
+    axes[1].set_ylim(0, 25)
+    axes[1].grid(alpha=0.3)
+
+    if legend_seen or (not multi_run and run_frames):
+        axes[1].legend(fontsize=8)
+
+    fig.suptitle(target_name)
+
+    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    if len(run_dirs) == 1 and target_kind == "run":
+        run_id = os.path.basename(run_dirs[0])
+        output_dir = get_run_analysis_dir(results_root=results_root, experiment=experiment, run_id=run_id)
+    else:
+        output_dir = get_summary_analysis_dir(results_root=results_root, experiment=experiment)
 
     os.makedirs(output_dir, exist_ok=True)
-    output_paths = _output_paths(output_dir, output_prefix)
-    csv_path = output_paths["csv_path"]
-    summary_json_path = output_paths["summary_json_path"]
-    fig_path = output_paths["fig_path"]
+    fig_path = os.path.join(output_dir, f"{output_prefix}_curves.png")
+    csv_path = os.path.join(output_dir, f"{output_prefix}_curves.csv")
 
-    df.to_csv(csv_path, index=False)
-    with open(summary_json_path, "w") as file:
-        json.dump(summary, file, indent=2)
-        file.write("\n")
+    combined_rows = []
+    for run_id, df, _, group_label, _ in run_frames:
+        run_df = df[["update", "ep_rew", "ep_len"]].copy()
+        run_df.insert(0, "group", group_label)
+        run_df.insert(0, "run_id", run_id)
+        combined_rows.append(run_df)
 
-    plt.figure(figsize=(12, 9))
+    pd.concat(combined_rows, ignore_index=True).to_csv(csv_path, index=False)
+    fig.savefig(fig_path, dpi=220)
+    plt.close(fig)
 
-    ax = plt.subplot(2, 2, 1)
-    ax.plot(df["env_steps"], df["episode_reward"], alpha=0.35, linewidth=1, label="reward")
-    ax.plot(df["env_steps"], df["episode_reward_ma"], linewidth=2, label=f"reward ma({ma_window})")
-    ax.set_title("Episode Reward")
-    ax.set_xlabel("Environment Steps")
-    ax.set_ylabel("Reward")
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=8)
-
-    ax = plt.subplot(2, 2, 2)
-    ax.plot(df["env_steps"], df["episode_length"], alpha=0.35, linewidth=1, label="length")
-    ax.plot(df["env_steps"], df["episode_length_ma"], linewidth=2, label=f"length ma({ma_window})")
-    ax.set_title("Episode Length")
-    ax.set_xlabel("Environment Steps")
-    ax.set_ylabel("Steps")
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=8)
-
-    ax = plt.subplot(2, 2, 3)
-    ax.plot(df["env_steps"], df["loss"], alpha=0.35, linewidth=1, label="loss")
-    ax.plot(df["env_steps"], df["loss_ma"], linewidth=2, label=f"loss ma({ma_window})")
-    ax.set_title("Training Loss")
-    ax.set_xlabel("Environment Steps")
-    ax.set_ylabel("Loss")
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=8)
-
-    ax = plt.subplot(2, 2, 4)
-    ax.plot(df["env_steps"], df["step_time_s"] * 1000.0, linewidth=1.5, label="step ms")
-    ax.set_title("Per-Update Runtime")
-    ax.set_xlabel("Environment Steps")
-    ax.set_ylabel("Milliseconds")
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=8)
-
-    plt.tight_layout()
-    plt.savefig(fig_path, dpi=220)
-    plt.close()
-
-    result = {
-        "run_dir": run_dir,
-        "analysis_dir": output_dir,
+    return {
+        "experiment": experiment,
+        "target_kind": target_kind,
+        "run_count": len(run_dirs),
+        "varying_params": varying_params,
+        "group_params": group_params,
         "csv_path": csv_path,
-        "summary_json_path": summary_json_path,
         "fig_path": fig_path,
-        "summary_json": json.dumps(summary, indent=2),
     }
-    return result
 
 
 def main():
@@ -203,61 +215,39 @@ def main():
         help="One or more targets: <experiment>, <experiment>/<run_id>, <experiment>/*, or full path in runs/analysis.",
     )
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
-    parser.add_argument("--ma_window", type=int, default=100)
-    parser.add_argument("--data_file", type=str, default="data_training_jax.p")
-    parser.add_argument("--output_prefix", type=str, default="training_jax")
-    parser.add_argument("--resume", action="store_true", help="Skip runs that already have output files.")
+    parser.add_argument("--data_file", type=str, default="training.log")
+    parser.add_argument("--output_prefix", type=str, default="training")
     args = parser.parse_args()
 
-    runs_to_analyze: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
     had_error = False
     for target_arg in args.targets:
         try:
             target = resolve_analysis_target(target_arg, results_root=args.results_root)
-            run_dirs = target.run_dirs
-
-            print(f"target={target_arg} target_kind={target.kind} experiment={target.experiment} runs={len(run_dirs)}")
-            for run_dir in run_dirs:
-                run_key = (target.experiment, run_dir)
-                if run_key in seen:
-                    continue
-                seen.add(run_key)
-                runs_to_analyze.append(run_key)
-        except Exception:
-            had_error = True
-            print(f"Error resolving target: {target_arg}", file=sys.stderr)
-            traceback.print_exc()
-            continue
-
-    for experiment, run_dir in runs_to_analyze:
-        try:
-            run_id = os.path.basename(run_dir)
-            output_dir = get_run_analysis_dir(
-                results_root=args.results_root,
-                experiment=experiment,
-                run_id=run_id,
+            print(
+                f"target={target_arg} target_kind={target.kind} experiment={target.experiment} runs={len(target.run_dirs)}"
             )
-            if args.resume and _run_is_processed(output_dir=output_dir, output_prefix=args.output_prefix):
-                print(f"Skipping (already processed): {run_dir}")
-                continue
-            result = _analyze_run(
-                run_dir=run_dir,
-                output_dir=output_dir,
-                ma_window=args.ma_window,
+            result = _plot_target(
+                experiment=target.experiment,
+                run_dirs=target.run_dirs,
+                target_kind=target.kind,
+                target_name=(os.path.basename(target.run_dirs[0]) if target.kind == "run" else target.experiment),
+                results_root=args.results_root,
                 data_file=args.data_file,
                 output_prefix=args.output_prefix,
             )
-            print("Saved:")
+            print(f"Runs plotted: {result['run_count']}")
+            print(
+                "Varying parameters: "
+                + (", ".join(result["varying_params"]) if result["varying_params"] else "(none)")
+            )
+            print("Legend parameters: " + (", ".join(result["group_params"]) if result["group_params"] else "(none)"))
+            print("Wrote:")
             print(" ", result["csv_path"])
-            print(" ", result["summary_json_path"])
             print(" ", result["fig_path"])
-            print(result["summary_json"])
         except Exception:
             had_error = True
-            print(f"Error analyzing run: {run_dir}", file=sys.stderr)
+            print(f"Error plotting target: {target_arg}", file=sys.stderr)
             traceback.print_exc()
-            continue
 
     if had_error:
         raise SystemExit(1)
