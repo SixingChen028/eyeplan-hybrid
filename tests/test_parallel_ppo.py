@@ -104,3 +104,35 @@ def test_parallel_ppo_sweep_compiles_node_shared_network():
 
     assert result.metrics.loss.shape == (1, 1, 2)
     np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((1, 1), 4))
+
+
+def test_parallel_ppo_loss_handles_fully_masked_rows():
+    env = JaxDecisionTreeEnv(
+        num_nodes=3,
+        t_max=4,
+        shuffle_nodes=False,
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+    trainer = ParallelJaxBatchMaskPPO(
+        env=env,
+        feature_size=env.observation_shape[0],
+        action_size=env.action_size,
+        hidden_size=16,
+        batch_size=2,
+        num_updates=1,
+        ppo_epochs=1,
+    )
+    hyper = _build_single_hyper()
+    state = trainer.init_state(jnp.asarray(0, dtype=jnp.int32))
+    data = {
+        "obs": jnp.zeros((2, env.observation_shape[0]), dtype=jnp.float32),
+        "action_mask": jnp.zeros((2, env.action_size), dtype=jnp.bool_),
+        "actions": jnp.zeros((2,), dtype=jnp.int32),
+        "old_log_probs": jnp.zeros((2,), dtype=jnp.float32),
+        "masks": jnp.zeros((2,), dtype=jnp.float32),
+        "returns": jnp.zeros((2,), dtype=jnp.float32),
+        "advantages": jnp.zeros((2,), dtype=jnp.float32),
+    }
+    loss, aux = trainer._ppo_loss(state.params, data, jnp.asarray(0.01, dtype=jnp.float32), hyper)
+    assert np.all(np.isfinite(np.asarray(loss)))
+    assert all(np.all(np.isfinite(np.asarray(value))) for value in aux)

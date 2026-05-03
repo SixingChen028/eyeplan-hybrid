@@ -100,9 +100,10 @@ class ParallelJaxBatchMaskPPO:
             def done_branch(c):
                 env_state, obs, action_mask, done, reward_sum, length_sum, rng_key = c
                 rng_key, _ = jax.random.split(rng_key)
+                safe_action_mask = jnp.zeros((self.batch_size, self.action_size), dtype=jnp.bool_).at[:, 0].set(True)
                 output = PPORolloutBatch(
-                    obs=jnp.zeros((self.batch_size, self.feature_size), dtype=obs.dtype),
-                    action_mask=jnp.zeros((self.batch_size, self.action_size), dtype=jnp.bool_),
+                    obs=obs,
+                    action_mask=safe_action_mask,
                     actions=jnp.zeros((self.batch_size,), dtype=jnp.int32),
                     old_log_probs=zero_mask,
                     masks=zero_mask,
@@ -227,12 +228,17 @@ class ParallelJaxBatchMaskPPO:
         return params, AdamState(step=step, m=m, v=v)
 
     def _ppo_loss(self, params: Any, data: dict[str, jax.Array], beta_e: jax.Array, hyper: PPOHyperParams):
-        logits, values = actor_critic_forward(params, data["obs"], data["action_mask"])
-        masked_logits = apply_action_mask(logits, data["action_mask"])
+        has_valid_action = jnp.any(data["action_mask"], axis=-1, keepdims=True)
+        fallback_mask = jnp.zeros_like(data["action_mask"]).at[:, 0].set(True)
+        safe_action_mask = jnp.where(has_valid_action, data["action_mask"], fallback_mask)
+        safe_actions = jnp.where(data["masks"] > 0.0, data["actions"], 0)
+
+        logits, values = actor_critic_forward(params, data["obs"], safe_action_mask)
+        masked_logits = apply_action_mask(logits, safe_action_mask)
         log_probs_all = jax.nn.log_softmax(masked_logits, axis=-1)
         probs_all = jax.nn.softmax(masked_logits, axis=-1)
-        new_log_probs = log_probs_all[jnp.arange(log_probs_all.shape[0]), data["actions"]]
-        entropy = -jnp.sum(jnp.where(data["action_mask"], probs_all * log_probs_all, 0.0), axis=-1)
+        new_log_probs = log_probs_all[jnp.arange(log_probs_all.shape[0]), safe_actions]
+        entropy = -jnp.sum(jnp.where(safe_action_mask, probs_all * log_probs_all, 0.0), axis=-1)
         ratio = jnp.exp(new_log_probs - data["old_log_probs"])
         clipped_ratio = jnp.clip(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps)
         pg_loss_unclipped = ratio * data["advantages"]
