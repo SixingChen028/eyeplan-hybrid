@@ -38,6 +38,7 @@ jax.config.update('jax_compiler_enable_remat_pass', False)
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 TRAINING_DATA_NAME = "data_training_jax.p"
 SIMULATION_DATA_NAME = "data_simulation.json"
+MAX_COMPILED_UPDATES_PER_CHUNK = 10
 
 DEFAULT_META = {
     "result_path": "./results",
@@ -779,6 +780,13 @@ def _entropy_schedule(hypers: A2CHyperParams | PPOHyperParams, num_updates: int)
     ).astype(jnp.float32)
 
 
+def _concat_metric_chunks(chunks: list):
+    return jax.tree_util.tree_map(
+        lambda *values: jnp.concatenate(values, axis=2),
+        *chunks,
+    )
+
+
 def _init_per_run_training_logs(run_dirs: list[str], *, algo: str) -> None:
     col_sep = "   "
     if algo == "a2c":
@@ -895,7 +903,27 @@ def train_with_progress(
         num_hypers = int(getattr(hypers.lr, "shape", [1])[0])
     if print_frequency <= 0:
         start = time.time()
-        result = jax.block_until_ready(trainer.train_sweep(hypers, seeds))
+        schedule = _entropy_schedule(hypers, num_updates)
+        compiled_updates_per_chunk = min(num_updates, MAX_COMPILED_UPDATES_PER_CHUNK)
+        states = jax.block_until_ready(trainer.init_sweep_states(hypers, seeds))
+        trainer.compile_train_sweep_chunk(
+            states,
+            hypers,
+            schedule[:, :compiled_updates_per_chunk],
+        )
+        metrics_chunks = []
+        for update_start in range(0, num_updates, compiled_updates_per_chunk):
+            update_end = min(update_start + compiled_updates_per_chunk, num_updates)
+            result = jax.block_until_ready(
+                trainer.train_sweep_chunk(states, hypers, schedule[:, update_start:update_end])
+            )
+            states = result.states
+            metrics_chunks.append(result.metrics)
+        result = (
+            A2CSweepResult(states=states, metrics=_concat_metric_chunks(metrics_chunks))
+            if algo == "a2c"
+            else PPOSweepResult(states=states, metrics=_concat_metric_chunks(metrics_chunks))
+        )
         gpu_stats = _query_gpu_stats()
         samples = [gpu_stats] if gpu_stats is not None else []
         if include_gpu_summary:
@@ -903,13 +931,20 @@ def train_with_progress(
         return result, time.time() - start
 
     schedule = _entropy_schedule(hypers, num_updates)
+    compiled_updates_per_chunk = min(print_frequency, num_updates, MAX_COMPILED_UPDATES_PER_CHUNK)
+    _log("parallel_train_init starting=true", flush=True)
     states = jax.block_until_ready(trainer.init_sweep_states(hypers, seeds))
-    warmup_updates = min(print_frequency, num_updates)
+    _log(
+        "parallel_train_compile "
+        f"updates_per_chunk={compiled_updates_per_chunk}",
+        flush=True,
+    )
     trainer.compile_train_sweep_chunk(
         states,
         hypers,
-        schedule[:, :warmup_updates],
+        schedule[:, :compiled_updates_per_chunk],
     )
+    _log("parallel_train_compile done=true", flush=True)
     if has_run_dirs:
         _init_per_run_training_logs(run_dirs, algo=algo)
 
@@ -938,18 +973,24 @@ def train_with_progress(
     try:
         for update_start in range(0, num_updates, print_frequency):
             update_end = min(update_start + print_frequency, num_updates)
-            chunk = schedule[:, update_start:update_end]
             chunk_sample_start = gpu_sampler.count()
+            window_metric_chunks = []
 
-            result = jax.block_until_ready(trainer.train_sweep_chunk(states, hypers, chunk))
-            states = result.states
-            metrics_chunks.append(result.metrics)
-            chunk_episode_count_total = float(np.sum(np.asarray(jax.device_get(result.metrics.episode_count))))
+            for exec_start in range(update_start, update_end, compiled_updates_per_chunk):
+                exec_end = min(exec_start + compiled_updates_per_chunk, update_end)
+                chunk = schedule[:, exec_start:exec_end]
+                result = jax.block_until_ready(trainer.train_sweep_chunk(states, hypers, chunk))
+                states = result.states
+                metrics_chunks.append(result.metrics)
+                window_metric_chunks.append(result.metrics)
+
+            window_metrics = _concat_metric_chunks(window_metric_chunks)
+            chunk_episode_count_total = float(np.sum(np.asarray(jax.device_get(window_metrics.episode_count))))
             cumulative_episode_count_total += chunk_episode_count_total
             if has_run_dirs:
                 _append_per_run_progress_logs(
                     run_dirs,
-                    result.metrics,
+                    window_metrics,
                     num_hypers=num_hypers,
                     num_seeds=len(seeds),
                     update_end=update_end,
@@ -1003,10 +1044,7 @@ def train_with_progress(
     finally:
         gpu_sampler.stop()
 
-    metrics = jax.tree_util.tree_map(
-        lambda *chunks: jnp.concatenate(chunks, axis=2),
-        *metrics_chunks,
-    )
+    metrics = _concat_metric_chunks(metrics_chunks)
     output = (
         A2CSweepResult(states=states, metrics=metrics)
         if algo == "a2c"
