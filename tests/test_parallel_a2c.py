@@ -10,8 +10,8 @@ import numpy as np
 
 from modules.a2c import JaxBatchMaskA2C
 from modules.environment import JaxDecisionTreeEnv
-from modules.parallel_a2c import ParallelJaxBatchMaskA2C
 from train_parallel import (
+    VmappedA2CTrainer,
     build_hypers,
     expand_sweep,
     save_results,
@@ -97,12 +97,12 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
         shuffle_nodes=fixed["shuffle_nodes"],
         point_set=np.array([1.0], dtype=np.float32),
     )
-    trainer = ParallelJaxBatchMaskA2C(
+    trainer = VmappedA2CTrainer(
         env=env,
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        batch_size=fixed["batch_size"],
+        num_envs=fixed["batch_size"],
         num_updates=int(fixed["num_episodes"] / fixed["batch_size"]),
     )
 
@@ -124,12 +124,12 @@ def test_parallel_sweep_compiles_node_shared_network():
         shuffle_nodes=fixed["shuffle_nodes"],
         point_set=np.array([1.0], dtype=np.float32),
     )
-    trainer = ParallelJaxBatchMaskA2C(
+    trainer = VmappedA2CTrainer(
         env=env,
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        batch_size=fixed["batch_size"],
+        num_envs=fixed["batch_size"],
         num_updates=int(fixed["num_episodes"] / fixed["batch_size"]),
         network_type=fixed["network_type"],
     )
@@ -193,12 +193,12 @@ def test_train_with_progress_reports_numeric_rate(capsys):
         point_set=np.array([1.0], dtype=np.float32),
     )
     num_updates = int(fixed["num_episodes"] / fixed["batch_size"])
-    trainer = ParallelJaxBatchMaskA2C(
+    trainer = VmappedA2CTrainer(
         env=env,
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        batch_size=fixed["batch_size"],
+        num_envs=fixed["batch_size"],
         num_updates=num_updates,
     )
 
@@ -270,12 +270,12 @@ def test_parallel_single_combo_matches_existing_a2c():
         entropy_schedule,
     )
 
-    parallel_trainer = ParallelJaxBatchMaskA2C(
+    parallel_trainer = VmappedA2CTrainer(
         env=env,
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        batch_size=fixed["batch_size"],
+        num_envs=fixed["batch_size"],
         num_updates=num_updates,
     )
     result = parallel_trainer.train_sweep(build_hypers(combos), seeds)
@@ -354,12 +354,12 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
         shuffle_nodes=fixed["shuffle_nodes"],
         point_set=np.array([1.0], dtype=np.float32),
     )
-    trainer = ParallelJaxBatchMaskA2C(
+    trainer = VmappedA2CTrainer(
         env=env,
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        batch_size=fixed["batch_size"],
+        num_envs=fixed["batch_size"],
         num_updates=int(fixed["num_episodes"] / fixed["batch_size"]),
     )
     result = trainer.train_sweep(build_hypers(combos), seeds)
@@ -394,12 +394,12 @@ def test_simulate_results_writes_simulate_style_json(tmp_path):
         shuffle_nodes=fixed["shuffle_nodes"],
         point_set=np.array([1.0], dtype=np.float32),
     )
-    trainer = ParallelJaxBatchMaskA2C(
+    trainer = VmappedA2CTrainer(
         env=env,
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        batch_size=fixed["batch_size"],
+        num_envs=fixed["batch_size"],
         num_updates=int(fixed["num_episodes"] / fixed["batch_size"]),
     )
     result = trainer.train_sweep(build_hypers(combos), seeds)

@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .a2c import AdamState, JaxTrainState, RolloutState, _global_norm, _select_reset_on_done, _zeros_like_tree
-from .environment import JaxDecisionTreeEnv
+from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from .network import NETWORK_MLP, actor_critic_forward, apply_action_mask, init_actor_critic_params, sample_actions
 
 
@@ -18,6 +18,15 @@ class PPORolloutBatch(NamedTuple):
     not_done_masks: jax.Array
     rewards: jax.Array
     values: jax.Array
+
+
+class PPOTrainParams(NamedTuple):
+    env: JaxDecisionTreeParams
+    lr: jax.Array
+    gamma: jax.Array
+    lamda: jax.Array
+    beta_v: jax.Array
+    max_grad_norm: jax.Array
 
 
 class PPOStepMetrics(NamedTuple):
@@ -102,7 +111,20 @@ class JaxBatchMaskPPO:
         self._train_many_jit = jax.jit(self._train_many)
         self._train_many_mean_metrics_jit = jax.jit(self._train_many_mean_metrics)
 
+    def _default_train_params(self) -> PPOTrainParams:
+        return PPOTrainParams(
+            env=self.env.default_params(),
+            lr=jnp.asarray(self.lr, dtype=jnp.float32),
+            gamma=jnp.asarray(self.gamma, dtype=jnp.float32),
+            lamda=jnp.asarray(self.lamda, dtype=jnp.float32),
+            beta_v=jnp.asarray(self.beta_v, dtype=jnp.float32),
+            max_grad_norm=jnp.asarray(self.max_grad_norm, dtype=jnp.float32),
+        )
+
     def init_state(self, seed: int = 0) -> JaxTrainState:
+        return self.init_state_with_params(seed, self.env.default_params())
+
+    def init_state_with_params(self, seed: int, env_params: JaxDecisionTreeParams) -> JaxTrainState:
         key = jax.random.PRNGKey(seed)
         key, init_key, reset_key = jax.random.split(key, 3)
 
@@ -120,7 +142,7 @@ class JaxBatchMaskPPO:
             v=_zeros_like_tree(params),
         )
         reset_keys = jax.random.split(reset_key, self.num_envs)
-        env_state, obs, info = jax.vmap(self.env.reset)(reset_keys)
+        env_state, obs, info = jax.vmap(self.env.reset_with_params, in_axes=(0, None))(reset_keys, env_params)
         rollout_state = RolloutState(
             env_state=env_state,
             obs=obs,
@@ -131,7 +153,13 @@ class JaxBatchMaskPPO:
 
         return JaxTrainState(params=params, optimizer=optimizer, rollout_state=rollout_state, rng_key=key)
 
-    def _rollout(self, params: Any, rollout_state: RolloutState, rng_key: jax.Array):
+    def _rollout(
+        self,
+        params: Any,
+        rollout_state: RolloutState,
+        rng_key: jax.Array,
+        train_params: PPOTrainParams,
+    ):
         env_state = rollout_state.env_state
         obs = rollout_state.obs
         action_mask = rollout_state.action_mask
@@ -158,11 +186,17 @@ class JaxBatchMaskPPO:
             rng_key, action_key, reset_key = jax.random.split(rng_key, 3)
             actions, log_probs, _ = sample_actions(action_key, logits, action_mask)
 
-            next_env_state, next_obs, rewards, dones, _, info = jax.vmap(self.env.step)(env_state, actions)
+            next_env_state, next_obs, rewards, dones, _, info = jax.vmap(
+                self.env.step_with_params,
+                in_axes=(0, 0, None),
+            )(env_state, actions, train_params.env)
             next_action_mask = info["mask"]
 
             reset_keys = jax.random.split(reset_key, self.num_envs)
-            reset_env_state, reset_obs, reset_info = jax.vmap(self.env.reset)(reset_keys)
+            reset_env_state, reset_obs, reset_info = jax.vmap(
+                self.env.reset_with_params,
+                in_axes=(0, None),
+            )(reset_keys, train_params.env)
             reset_action_mask = reset_info["mask"]
 
             env_state = jax.tree_util.tree_map(
@@ -250,6 +284,7 @@ class JaxBatchMaskPPO:
         values: jax.Array,
         not_done_masks: jax.Array,
         bootstrap_values: jax.Array,
+        train_params: PPOTrainParams,
     ):
         next_values = jnp.concatenate([values[1:], bootstrap_values[None, :]], axis=0)
         rewards_rev = rewards[::-1]
@@ -261,9 +296,9 @@ class JaxBatchMaskPPO:
             R, advantage = carry
             reward, value, value_next, not_done_mask = xs
 
-            R = reward + self.gamma * R * not_done_mask
-            delta = reward + self.gamma * value_next * not_done_mask - value
-            advantage = delta + self.gamma * self.lamda * advantage * not_done_mask
+            R = reward + train_params.gamma * R * not_done_mask
+            delta = reward + train_params.gamma * value_next * not_done_mask - value
+            advantage = delta + train_params.gamma * train_params.lamda * advantage * not_done_mask
 
             return (R, advantage), (R, advantage)
 
@@ -289,9 +324,15 @@ class JaxBatchMaskPPO:
 
         return returns, advantages
 
-    def _optimizer_update(self, params: Any, grads: Any, optimizer: AdamState):
+    def _optimizer_update(
+        self,
+        params: Any,
+        grads: Any,
+        optimizer: AdamState,
+        train_params: PPOTrainParams,
+    ):
         grad_norm = _global_norm(grads)
-        clip_coef = jnp.minimum(1.0, self.max_grad_norm / (grad_norm + 1e-6))
+        clip_coef = jnp.minimum(1.0, train_params.max_grad_norm / (grad_norm + 1e-6))
         grads = jax.tree_util.tree_map(lambda g: g * clip_coef, grads)
 
         step = optimizer.step + 1
@@ -313,7 +354,7 @@ class JaxBatchMaskPPO:
 
         params = jax.tree_util.tree_map(
             lambda p, m_val, v_val: p
-            - self.lr
+            - train_params.lr
             * (m_val / bias_correction1)
             / (jnp.sqrt(v_val / bias_correction2) + self.adam_eps),
             params,
@@ -323,7 +364,13 @@ class JaxBatchMaskPPO:
 
         return params, AdamState(step=step, m=m, v=v)
 
-    def _ppo_loss(self, params: Any, data: dict[str, jax.Array], beta_e: jax.Array):
+    def _ppo_loss(
+        self,
+        params: Any,
+        data: dict[str, jax.Array],
+        beta_e: jax.Array,
+        train_params: PPOTrainParams,
+    ):
         obs = data["obs"]
         action_mask = data["action_mask"]
         actions = data["actions"]
@@ -349,21 +396,28 @@ class JaxBatchMaskPPO:
         value_loss = jnp.mean((values - returns) ** 2)
         entropy_loss = -jnp.mean(entropy)
 
-        loss = policy_loss + self.beta_v * value_loss + beta_e * entropy_loss
+        loss = policy_loss + train_params.beta_v * value_loss + beta_e * entropy_loss
 
         clip_fraction = jnp.mean((jnp.abs(ratio - 1.0) > self.clip_eps).astype(jnp.float32))
         approx_kl = jnp.mean(old_log_probs - new_log_probs)
 
         return loss, (policy_loss, value_loss, entropy_loss, clip_fraction, approx_kl)
 
-    def _ppo_epoch_update(self, state: JaxTrainState, data: dict[str, jax.Array], beta_e: jax.Array):
+    def _ppo_epoch_update(
+        self,
+        state: JaxTrainState,
+        data: dict[str, jax.Array],
+        beta_e: jax.Array,
+        train_params: PPOTrainParams,
+    ):
         (loss, aux), grads = jax.value_and_grad(self._ppo_loss, has_aux=True)(
             state.params,
             data,
             beta_e,
+            train_params,
         )
 
-        params, optimizer = self._optimizer_update(state.params, grads, state.optimizer)
+        params, optimizer = self._optimizer_update(state.params, grads, state.optimizer, train_params)
         next_state = JaxTrainState(
             params=params,
             optimizer=optimizer,
@@ -375,7 +429,7 @@ class JaxBatchMaskPPO:
 
         return next_state, jnp.array([loss, policy_loss, value_loss, entropy_loss, clip_fraction, approx_kl])
 
-    def _train_step(self, state: JaxTrainState, beta_e: jax.Array):
+    def _train_step(self, state: JaxTrainState, beta_e: jax.Array, train_params: PPOTrainParams):
         (
             rollout,
             bootstrap_values,
@@ -384,13 +438,14 @@ class JaxBatchMaskPPO:
             episode_count,
             next_rollout_state,
             new_key,
-        ) = self._rollout(state.params, state.rollout_state, state.rng_key)
+        ) = self._rollout(state.params, state.rollout_state, state.rng_key, train_params)
 
         returns, advantages = self._discounted_returns_and_advantages(
             rollout.rewards,
             rollout.values,
             rollout.not_done_masks,
             bootstrap_values,
+            train_params,
         )
 
         flat = {
@@ -410,7 +465,7 @@ class JaxBatchMaskPPO:
         )
 
         def epoch_body(carry, _):
-            next_state, metrics_vec = self._ppo_epoch_update(carry, flat, beta_e)
+            next_state, metrics_vec = self._ppo_epoch_update(carry, flat, beta_e, train_params)
             return next_state, metrics_vec
 
         work_state, metrics_by_epoch = jax.lax.scan(
@@ -444,19 +499,29 @@ class JaxBatchMaskPPO:
             beta_e = self.beta_e
         beta_e = jnp.asarray(beta_e, dtype=jnp.float32)
 
-        return self._train_step_jit(state, beta_e)
+        return self._train_step_jit(state, beta_e, self._default_train_params())
 
-    def _train_many(self, state: JaxTrainState, entropy_schedule: jax.Array):
+    def _train_many(
+        self,
+        state: JaxTrainState,
+        entropy_schedule: jax.Array,
+        train_params: PPOTrainParams,
+    ):
         def body_fn(carry, beta_e):
-            next_state, metrics = self._train_step(carry, beta_e)
+            next_state, metrics = self._train_step(carry, beta_e, train_params)
             return next_state, metrics
 
         return jax.lax.scan(body_fn, state, entropy_schedule)
 
-    def _train_many_mean_metrics(self, state: JaxTrainState, entropy_schedule: jax.Array):
+    def _train_many_mean_metrics(
+        self,
+        state: JaxTrainState,
+        entropy_schedule: jax.Array,
+        train_params: PPOTrainParams,
+    ):
         def body_fn(carry, beta_e):
             state, metric_sums = carry
-            state, metrics = self._train_step(state, beta_e)
+            state, metrics = self._train_step(state, beta_e, train_params)
             metric_sums = jax.tree_util.tree_map(jnp.add, metric_sums, metrics)
             return (state, metric_sums), None
 
@@ -476,11 +541,11 @@ class JaxBatchMaskPPO:
 
     def train_compiled(self, state: JaxTrainState, entropy_schedule):
         entropy_schedule = jnp.asarray(entropy_schedule, dtype=jnp.float32)
-        return self._train_many_jit(state, entropy_schedule)
+        return self._train_many_jit(state, entropy_schedule, self._default_train_params())
 
     def train_compiled_mean_metrics(self, state: JaxTrainState, entropy_schedule):
         entropy_schedule = jnp.asarray(entropy_schedule, dtype=jnp.float32)
-        return self._train_many_mean_metrics_jit(state, entropy_schedule)
+        return self._train_many_mean_metrics_jit(state, entropy_schedule, self._default_train_params())
 
     def train(self, state: JaxTrainState, num_updates: int, entropy_schedule=None):
         if entropy_schedule is None:
