@@ -38,7 +38,6 @@ jax.config.update('jax_compiler_enable_remat_pass', False)
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 TRAINING_DATA_NAME = "data_training_jax.p"
 SIMULATION_DATA_NAME = "data_simulation.json"
-MAX_COMPILED_UPDATES_PER_CHUNK = 10
 
 DEFAULT_META = {
     "result_path": "./results",
@@ -117,6 +116,7 @@ DEFAULT_PARAMS = {
     "print_frequency": 100,
     "checkpoint_frequency": -1,
     "log_full_metrics": True,
+    "max_compiled_updates_per_chunk": -1,
 }
 
 ENV_SWEEP_KEYS = {
@@ -156,6 +156,7 @@ SHAPE_KEYS = {
     "eval_episodes",
     "canonicalize",
     "network_type",
+    "max_compiled_updates_per_chunk",
 }
 
 
@@ -798,6 +799,20 @@ def _concat_metric_chunks(chunks: list):
     )
 
 
+def _resolve_compiled_updates_per_chunk(
+    requested_updates: int,
+    *,
+    max_compiled_updates_per_chunk: int,
+) -> int:
+    requested_updates = int(requested_updates)
+    if requested_updates <= 0:
+        raise ValueError("requested_updates must be positive")
+    max_compiled_updates_per_chunk = int(max_compiled_updates_per_chunk)
+    if max_compiled_updates_per_chunk <= 0:
+        return requested_updates
+    return min(requested_updates, max_compiled_updates_per_chunk)
+
+
 def _init_per_run_training_logs(run_dirs: list[str], *, algo: str) -> None:
     col_sep = "   "
     if algo == "a2c":
@@ -900,6 +915,7 @@ def train_with_progress(
     num_updates: int,
     env_steps_per_update: int = 1,
     print_frequency: int,
+    max_compiled_updates_per_chunk: int = -1,
     algo: str | None = None,
     include_gpu_summary: bool = False,
 ):
@@ -915,7 +931,10 @@ def train_with_progress(
     if print_frequency <= 0:
         start = time.time()
         schedule = _entropy_schedule(hypers, num_updates)
-        compiled_updates_per_chunk = min(num_updates, MAX_COMPILED_UPDATES_PER_CHUNK)
+        compiled_updates_per_chunk = _resolve_compiled_updates_per_chunk(
+            num_updates,
+            max_compiled_updates_per_chunk=max_compiled_updates_per_chunk,
+        )
         states = jax.block_until_ready(trainer.init_sweep_states(hypers, seeds))
         trainer.compile_train_sweep_chunk(
             states,
@@ -942,7 +961,10 @@ def train_with_progress(
         return result, time.time() - start
 
     schedule = _entropy_schedule(hypers, num_updates)
-    compiled_updates_per_chunk = min(print_frequency, num_updates, MAX_COMPILED_UPDATES_PER_CHUNK)
+    compiled_updates_per_chunk = _resolve_compiled_updates_per_chunk(
+        min(print_frequency, num_updates),
+        max_compiled_updates_per_chunk=max_compiled_updates_per_chunk,
+    )
     _log("parallel_train_init starting=true", flush=True)
     states = jax.block_until_ready(trainer.init_sweep_states(hypers, seeds))
     _log(
@@ -1600,6 +1622,7 @@ def main() -> None:
         num_updates=num_updates,
         env_steps_per_update=num_envs * rollout_length,
         print_frequency=int(fixed["print_frequency"]),
+        max_compiled_updates_per_chunk=int(fixed["max_compiled_updates_per_chunk"]),
         algo=algo,
         include_gpu_summary=True,
     )
