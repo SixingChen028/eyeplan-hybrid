@@ -160,7 +160,18 @@ SHAPE_KEYS = {
 
 
 def _log(*args, **kwargs) -> None:
+    kwargs.setdefault("flush", True)
     print(*args, **kwargs)
+
+
+def _log_stage(stage: str, start_time: float, **fields) -> None:
+    parts = [
+        "parallel_entrypoint_stage",
+        f"stage={stage}",
+        f"elapsed_seconds={time.time() - start_time:.3f}",
+    ]
+    parts.extend(f"{key}={value}" for key, value in fields.items())
+    _log(" ".join(parts))
 
 
 def _query_gpu_stats() -> dict[str, float] | None:
@@ -1454,6 +1465,8 @@ def prepare_run_dirs(
 
 
 def main() -> None:
+    entrypoint_start = time.time()
+    _log_stage("start", entrypoint_start)
     parser = argparse.ArgumentParser(description="Run a parallelized RL TOML sweep (A2C/PPO).")
     parser.add_argument("config", help="TOML config path or config stem under ./config.")
     parser.add_argument("--path", help="Override output path from [meta].result_path.")
@@ -1475,11 +1488,19 @@ def main() -> None:
         help="Skip post-training simulation.",
     )
     args, override_tokens = parser.parse_known_args()
+    _log_stage(
+        "args_parsed",
+        entrypoint_start,
+        config=args.config,
+        override_count=len(override_tokens),
+    )
 
     config_path, config = _load_config(args.config)
+    _log_stage("config_loaded", entrypoint_start, config_path=config_path)
     meta = dict(DEFAULT_META)
     meta.update(config.get("meta", {}))
     params = _apply_cli_param_overrides(config.get("params", {}), override_tokens)
+    _log_stage("params_resolved", entrypoint_start, param_count=len(params))
 
     fixed, combos, seeds, varied_keys = expand_sweep(params)
     algo = str(fixed.get("algo", "a2c")).lower()
@@ -1487,9 +1508,31 @@ def main() -> None:
         raise ValueError(f"Unsupported algo {algo!r}; expected 'a2c' or 'ppo'.")
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or str(meta.get("experiment", config_path.stem))
+    _log_stage(
+        "sweep_expanded",
+        entrypoint_start,
+        algo=algo,
+        hyper_combos=len(combos),
+        seeds=len(seeds),
+        varied_keys=",".join(varied_keys),
+    )
 
     num_updates, num_envs, rollout_length = _resolve_training_geometry(fixed)
+    _log_stage(
+        "geometry_resolved",
+        entrypoint_start,
+        num_updates=num_updates,
+        num_envs=num_envs,
+        rollout_length=rollout_length,
+        t_max=fixed["t_max"],
+    )
     env = _env_from_args(combos[0])
+    _log_stage(
+        "env_created",
+        entrypoint_start,
+        observation_size=env.observation_shape[0],
+        action_size=env.action_size,
+    )
     if algo == "a2c":
         trainer = VmappedA2CTrainer(
             env=env,
@@ -1515,8 +1558,11 @@ def main() -> None:
             normalize_advantages=bool(fixed["ppo_normalize_advantages"]),
             network_type=fixed["network_type"],
         )
+    _log_stage("trainer_created", entrypoint_start, algo=algo)
     hypers = build_hypers(combos)
+    _log_stage("hypers_built", entrypoint_start)
 
+    _log_stage("jax_devices_query_start", entrypoint_start)
     devices = ", ".join(
         f"{device.platform}:{device.device_kind}"
         for device in jax.local_devices()
@@ -1533,6 +1579,7 @@ def main() -> None:
         f"t_max={fixed['t_max']} "
         f"varied_keys={','.join(varied_keys)}"
     )
+    _log_stage("prepare_run_dirs_start", entrypoint_start, output_path=output_path, experiment=experiment)
     run_dirs = prepare_run_dirs(
         combos,
         seeds,
@@ -1542,6 +1589,7 @@ def main() -> None:
         varied_keys=varied_keys,
     )
     _log(f"prepared_runs={len(run_dirs)}")
+    _log_stage("train_start", entrypoint_start)
 
     result, elapsed_seconds, gpu_summary_line = train_with_progress(
         trainer,
@@ -1557,6 +1605,7 @@ def main() -> None:
     )
     _log(f"parallel_train_elapsed_seconds={elapsed_seconds:.3f}")
     _log(gpu_summary_line)
+    _log_stage("save_results_start", entrypoint_start)
 
     run_dirs = save_results(
         result,
@@ -1573,6 +1622,7 @@ def main() -> None:
     if args.skip_simulate:
         _log("parallel_simulate_skipped=true")
     else:
+        _log_stage("simulate_start", entrypoint_start, num_trials=int(args.simulate_num_trials))
         simulate_elapsed_seconds = simulate_results(
             result,
             combos,
@@ -1582,6 +1632,7 @@ def main() -> None:
             greedy=bool(args.simulate_greedy),
         )
         _log(f"parallel_simulate_elapsed_seconds={simulate_elapsed_seconds:.3f}")
+    _log_stage("done", entrypoint_start)
 
 
 if __name__ == "__main__":
