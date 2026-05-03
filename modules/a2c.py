@@ -39,7 +39,6 @@ class StepMetrics(NamedTuple):
 
 
 class RolloutBatch(NamedTuple):
-    masks: jax.Array
     not_done_masks: jax.Array
     rewards: jax.Array
     log_probs: jax.Array
@@ -109,11 +108,11 @@ def _global_norm(tree):
     return jnp.sqrt(sum(jnp.sum(x * x) for x in leaves))
 
 
-def _select_not_done(done: jax.Array, new: jax.Array, old: jax.Array):
+def _select_reset_on_done(done: jax.Array, stepped: jax.Array, reset: jax.Array):
     selector = done
-    while selector.ndim < new.ndim:
+    while selector.ndim < stepped.ndim:
         selector = selector[..., None]
-    return jnp.where(selector, old, new)
+    return jnp.where(selector, reset, stepped)
 
 
 class JaxBatchMaskA2C:
@@ -190,19 +189,6 @@ class JaxBatchMaskA2C:
 
         return JaxTrainState(params=params, optimizer=optimizer, rollout_state=rollout_state, rng_key=key)
 
-    def ensure_rollout_state(self, state: JaxTrainState) -> JaxTrainState:
-        rollout_state = state.rollout_state
-        if hasattr(rollout_state, "running_return") and hasattr(rollout_state, "running_length"):
-            return state
-        rollout_state = RolloutState(
-            env_state=rollout_state.env_state,
-            obs=rollout_state.obs,
-            action_mask=rollout_state.action_mask,
-            running_return=jnp.zeros((self.num_envs,), dtype=jnp.float32),
-            running_length=jnp.zeros((self.num_envs,), dtype=jnp.float32),
-        )
-        return state._replace(rollout_state=rollout_state)
-
     def _rollout(self, params: Any, rollout_state: RolloutState, rng_key: jax.Array):
         env_state = rollout_state.env_state
         obs = rollout_state.obs
@@ -238,12 +224,12 @@ class JaxBatchMaskA2C:
             reset_action_mask = reset_info["mask"]
 
             env_state = jax.tree_util.tree_map(
-                lambda stepped, reset: _select_not_done(dones, stepped, reset),
+                lambda stepped, reset: _select_reset_on_done(dones, stepped, reset),
                 next_env_state,
                 reset_env_state,
             )
-            obs = _select_not_done(dones, next_obs, reset_obs)
-            action_mask = _select_not_done(dones, next_action_mask, reset_action_mask)
+            obs = _select_reset_on_done(dones, next_obs, reset_obs)
+            action_mask = _select_reset_on_done(dones, next_action_mask, reset_action_mask)
             running_return = running_return + rewards.astype(jnp.float32)
             running_length = running_length + one_mask
 
@@ -252,11 +238,10 @@ class JaxBatchMaskA2C:
             episode_length_sum = episode_length_sum + jnp.sum(running_length * completed)
             episode_count = episode_count + jnp.sum(completed)
 
-            running_return = _select_not_done(dones, running_return, zeros)
-            running_length = _select_not_done(dones, running_length, zeros)
+            running_return = _select_reset_on_done(dones, running_return, zeros)
+            running_length = _select_reset_on_done(dones, running_length, zeros)
 
             output = RolloutBatch(
-                masks=one_mask,
                 not_done_masks=1.0 - dones.astype(jnp.float32),
                 rewards=rewards.astype(jnp.float32),
                 log_probs=log_probs,
@@ -382,13 +367,13 @@ class JaxBatchMaskA2C:
         detached_advantages = jax.lax.stop_gradient(advantages)
 
         policy_loss = -jnp.mean(
-            jnp.sum(rollout.log_probs * detached_advantages * rollout.masks, axis=0)
+            jnp.sum(rollout.log_probs * detached_advantages, axis=0)
         )
         value_loss = jnp.mean(
-            jnp.sum(((rollout.values - returns) ** 2) * rollout.masks, axis=0)
+            jnp.sum((rollout.values - returns) ** 2, axis=0)
         )
         entropy_loss = -jnp.mean(
-            jnp.sum(rollout.entropies * rollout.masks, axis=0)
+            jnp.sum(rollout.entropies, axis=0)
         )
 
         loss = policy_loss + self.beta_v * value_loss + beta_e * entropy_loss

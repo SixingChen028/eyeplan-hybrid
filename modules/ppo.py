@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .a2c import AdamState, JaxTrainState, RolloutState, _global_norm, _select_not_done, _zeros_like_tree
+from .a2c import AdamState, JaxTrainState, RolloutState, _global_norm, _select_reset_on_done, _zeros_like_tree
 from .environment import JaxDecisionTreeEnv
 from .network import NETWORK_MLP, actor_critic_forward, apply_action_mask, init_actor_critic_params, sample_actions
 
@@ -15,7 +15,6 @@ class PPORolloutBatch(NamedTuple):
     action_mask: jax.Array
     actions: jax.Array
     old_log_probs: jax.Array
-    masks: jax.Array
     not_done_masks: jax.Array
     rewards: jax.Array
     values: jax.Array
@@ -132,19 +131,6 @@ class JaxBatchMaskPPO:
 
         return JaxTrainState(params=params, optimizer=optimizer, rollout_state=rollout_state, rng_key=key)
 
-    def ensure_rollout_state(self, state: JaxTrainState) -> JaxTrainState:
-        rollout_state = state.rollout_state
-        if hasattr(rollout_state, "running_return") and hasattr(rollout_state, "running_length"):
-            return state
-        rollout_state = RolloutState(
-            env_state=rollout_state.env_state,
-            obs=rollout_state.obs,
-            action_mask=rollout_state.action_mask,
-            running_return=jnp.zeros((self.num_envs,), dtype=jnp.float32),
-            running_length=jnp.zeros((self.num_envs,), dtype=jnp.float32),
-        )
-        return state._replace(rollout_state=rollout_state)
-
     def _rollout(self, params: Any, rollout_state: RolloutState, rng_key: jax.Array):
         env_state = rollout_state.env_state
         obs = rollout_state.obs
@@ -180,27 +166,26 @@ class JaxBatchMaskPPO:
             reset_action_mask = reset_info["mask"]
 
             env_state = jax.tree_util.tree_map(
-                lambda stepped, reset: _select_not_done(dones, stepped, reset),
+                lambda stepped, reset: _select_reset_on_done(dones, stepped, reset),
                 next_env_state,
                 reset_env_state,
             )
-            next_obs = _select_not_done(dones, next_obs, reset_obs)
-            next_action_mask = _select_not_done(dones, next_action_mask, reset_action_mask)
+            next_obs = _select_reset_on_done(dones, next_obs, reset_obs)
+            next_action_mask = _select_reset_on_done(dones, next_action_mask, reset_action_mask)
             running_return = running_return + rewards.astype(jnp.float32)
             running_length = running_length + one_mask
             completed = dones.astype(jnp.float32)
             episode_reward_sum = episode_reward_sum + jnp.sum(running_return * completed)
             episode_length_sum = episode_length_sum + jnp.sum(running_length * completed)
             episode_count = episode_count + jnp.sum(completed)
-            running_return = _select_not_done(dones, running_return, zeros)
-            running_length = _select_not_done(dones, running_length, zeros)
+            running_return = _select_reset_on_done(dones, running_return, zeros)
+            running_length = _select_reset_on_done(dones, running_length, zeros)
 
             output = PPORolloutBatch(
                 obs=obs,
                 action_mask=action_mask,
                 actions=actions,
                 old_log_probs=log_probs,
-                masks=one_mask,
                 not_done_masks=1.0 - dones.astype(jnp.float32),
                 rewards=rewards.astype(jnp.float32),
                 values=values,
@@ -265,7 +250,6 @@ class JaxBatchMaskPPO:
         values: jax.Array,
         not_done_masks: jax.Array,
         bootstrap_values: jax.Array,
-        masks: jax.Array,
     ):
         next_values = jnp.concatenate([values[1:], bootstrap_values[None, :]], axis=0)
         rewards_rev = rewards[::-1]
@@ -299,10 +283,8 @@ class JaxBatchMaskPPO:
 
         if self.normalize_advantages:
             adv_flat = advantages.reshape(-1)
-            valid = masks.reshape(-1)
-            valid_count = jnp.maximum(jnp.sum(valid), 1.0)
-            mean = jnp.sum(adv_flat * valid) / valid_count
-            var = jnp.sum(((adv_flat - mean) ** 2) * valid) / valid_count
+            mean = jnp.mean(adv_flat)
+            var = jnp.mean((adv_flat - mean) ** 2)
             advantages = (advantages - mean) / jnp.sqrt(var + 1e-8)
 
         return returns, advantages
@@ -346,7 +328,6 @@ class JaxBatchMaskPPO:
         action_mask = data["action_mask"]
         actions = data["actions"]
         old_log_probs = data["old_log_probs"]
-        masks = data["masks"]
         returns = data["returns"]
         advantages = data["advantages"]
 
@@ -363,15 +344,15 @@ class JaxBatchMaskPPO:
 
         pg_loss_unclipped = ratio * advantages
         pg_loss_clipped = clipped_ratio * advantages
-        policy_loss = -jnp.sum(jnp.minimum(pg_loss_unclipped, pg_loss_clipped) * masks) / jnp.maximum(jnp.sum(masks), 1.0)
+        policy_loss = -jnp.mean(jnp.minimum(pg_loss_unclipped, pg_loss_clipped))
 
-        value_loss = jnp.sum(((values - returns) ** 2) * masks) / jnp.maximum(jnp.sum(masks), 1.0)
-        entropy_loss = -jnp.sum(entropy * masks) / jnp.maximum(jnp.sum(masks), 1.0)
+        value_loss = jnp.mean((values - returns) ** 2)
+        entropy_loss = -jnp.mean(entropy)
 
         loss = policy_loss + self.beta_v * value_loss + beta_e * entropy_loss
 
-        clip_fraction = jnp.sum((jnp.abs(ratio - 1.0) > self.clip_eps).astype(jnp.float32) * masks) / jnp.maximum(jnp.sum(masks), 1.0)
-        approx_kl = jnp.sum((old_log_probs - new_log_probs) * masks) / jnp.maximum(jnp.sum(masks), 1.0)
+        clip_fraction = jnp.mean((jnp.abs(ratio - 1.0) > self.clip_eps).astype(jnp.float32))
+        approx_kl = jnp.mean(old_log_probs - new_log_probs)
 
         return loss, (policy_loss, value_loss, entropy_loss, clip_fraction, approx_kl)
 
@@ -410,7 +391,6 @@ class JaxBatchMaskPPO:
             rollout.values,
             rollout.not_done_masks,
             bootstrap_values,
-            rollout.masks,
         )
 
         flat = {
@@ -418,7 +398,6 @@ class JaxBatchMaskPPO:
             "action_mask": rollout.action_mask.reshape((-1, self.action_size)),
             "actions": rollout.actions.reshape((-1,)),
             "old_log_probs": rollout.old_log_probs.reshape((-1,)),
-            "masks": rollout.masks.reshape((-1,)),
             "returns": returns.reshape((-1,)),
             "advantages": advantages.reshape((-1,)),
         }

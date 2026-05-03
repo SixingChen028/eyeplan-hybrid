@@ -289,8 +289,6 @@ if __name__ == '__main__':
 
     if state is None:
         state = trainer.init_state(seed=args.seed)
-    else:
-        state = trainer.ensure_rollout_state(state)
 
     entropy_schedule = np.linspace(
         args.beta_e_init,
