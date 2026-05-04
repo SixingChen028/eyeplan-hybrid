@@ -429,20 +429,20 @@ def test_q_flip_rate_swaps_inactive_q_with_sibling():
     q_flip_key = jax.random.fold_in(q_drop_key, 1)
     expected_activation = np.asarray(updated.activation)
 
-    parent_nodes = np.asarray(state.parent_nodes)
     child_nodes = np.asarray(state.child_nodes)
-    siblings = np.full((env.num_nodes,), -1, dtype=np.int32)
-    for node in range(env.num_nodes):
-        parent = parent_nodes[node]
-        if parent < 0:
-            continue
-        left, right = child_nodes[parent]
-        siblings[node] = right if left == node else left
     flip_draw = np.asarray(jax.random.uniform(q_flip_key, shape=(env.num_nodes,)))
-    parent_activation = np.where(parent_nodes >= 0, expected_activation[np.maximum(parent_nodes, 0)], 1.0)
-    flip_mask = (parent_activation == 0.0) & (siblings >= 0) & (flip_draw < 0.5)
     expected_q = np.array(q_values)
-    expected_q[flip_mask] = expected_q[siblings[flip_mask]]
+    original_q = expected_q.copy()
+    for parent in range(env.num_nodes):
+        left, right = child_nodes[parent]
+        if left < 0:
+            continue
+        if expected_activation[parent] != 0.0:
+            continue
+        if flip_draw[parent] >= 0.5:
+            continue
+        expected_q[left] = original_q[right]
+        expected_q[right] = original_q[left]
     np.testing.assert_allclose(np.asarray(updated.q_values), expected_q, atol=1e-6)
 
 

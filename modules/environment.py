@@ -436,30 +436,27 @@ class JaxDecisionTreeEnv:
         q_values = jnp.where(q_drop_mask, 0.0, state.q_values)
 
         def apply_q_flip(current_q_values):
-            parents = state.parent_nodes
-            parent_children = state.child_nodes.at[jnp.maximum(parents, 0)].get(
-                mode="fill",
-                fill_value=-1,
-                wrap_negative_indices=False,
-            )
-            left = parent_children[:, 0]
-            right = parent_children[:, 1]
-            siblings = jnp.where(left == jnp.arange(self.num_nodes), right, left)
-            has_sibling = (parents >= 0) & (siblings >= 0)
-            parent_activation = activation.at[jnp.maximum(parents, 0)].get(
-                mode="fill",
-                fill_value=1.0,
-                wrap_negative_indices=False,
-            )
-            q_flip_mask = (parent_activation == 0.0) & has_sibling & (
+            node_ids = jnp.arange(self.num_nodes, dtype=jnp.int32)
+            left_children = state.child_nodes[:, 0]
+            right_children = state.child_nodes[:, 1]
+            is_parent = left_children >= 0
+            parent_activation = activation
+            should_flip_parent = is_parent & (parent_activation == 0.0) & (
                 jax.random.uniform(q_flip_key, shape=(self.num_nodes,)) < q_flip_rate
             )
-            sibling_values = current_q_values.at[siblings].get(
-                mode="fill",
-                fill_value=0.0,
+            flip_left = should_flip_parent & (node_ids < left_children)
+            flip_right = should_flip_parent & (node_ids < right_children)
+            swapped = current_q_values.at[left_children].set(
+                jnp.where(flip_left, current_q_values[right_children], current_q_values[left_children]),
+                mode="drop",
                 wrap_negative_indices=False,
             )
-            return jnp.where(q_flip_mask, sibling_values, current_q_values)
+            swapped = swapped.at[right_children].set(
+                jnp.where(flip_right, current_q_values[left_children], current_q_values[right_children]),
+                mode="drop",
+                wrap_negative_indices=False,
+            )
+            return swapped
 
         if params is None:
             if q_flip_rate > 0.0:

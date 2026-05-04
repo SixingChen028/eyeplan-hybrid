@@ -238,23 +238,17 @@ class ReferenceDecisionTreeEnv:
         self.q_values[q_drop_mask] = 0.0
         if self.q_flip_rate > 0.0:
             flip_draw = self.rng.uniform(size=self.num_nodes)
-            flip_indices: list[int] = []
-            for node in range(self.num_nodes):
-                parent = self.parent_nodes[node]
-                if parent < 0:
+            original_q_values = self.q_values.copy()
+            for parent in range(self.num_nodes):
+                left, right = self.child_nodes[parent]
+                if left < 0:
                     continue
                 if self.activation[parent] != 0.0:
                     continue
-                if flip_draw[node] < self.q_flip_rate:
-                    flip_indices.append(node)
-            original_q_values = self.q_values.copy()
-            for node in flip_indices:
-                parent = self.parent_nodes[node]
-                left, right = self.child_nodes[parent]
-                sibling = right if left == node else left
-                if sibling < 0:
+                if flip_draw[parent] >= self.q_flip_rate:
                     continue
-                self.q_values[node] = original_q_values[sibling]
+                self.q_values[left] = original_q_values[right]
+                self.q_values[right] = original_q_values[left]
 
     def _move(self):
         node = self.root_node
