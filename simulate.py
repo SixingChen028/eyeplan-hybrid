@@ -282,6 +282,9 @@ def main() -> None:
         had_error = True
         runs_to_simulate = []
 
+    idx = 0
+    total = len(runs_to_simulate)
+
     for experiment, run_dir in runs_to_simulate:
         try:
             output_path = args.output
@@ -298,15 +301,17 @@ def main() -> None:
                 skip_timeout_trials=args.skip_timeout_trials,
                 detailed=args.detailed,
             )
-            print(
-                f"output_json={output_path} "
-                f"run_dir={run_dir} "
-                f"params_path={params_path} "
-                f"seed={seed} "
-                f"num_trials_raw={num_trials_raw} "
-                f"num_trials_exported={num_trials_exported} "
-                f"experiment={experiment}"
-            )
+            print(f"{idx+1:>2}/{total:<3} {output_path}")
+            idx += 1
+            # print(
+            #     f"output_json={output_path} "
+            #     f"run_dir={run_dir} "
+            #     f"params_path={params_path} "
+            #     f"seed={seed} "
+            #     f"num_trials_raw={num_trials_raw} "
+            #     f"num_trials_exported={num_trials_exported} "
+            #     f"experiment={experiment}"
+            # )
         except Exception:
             had_error = True
             print(f"Error simulating run: {run_dir}", file=sys.stderr)
