@@ -93,7 +93,7 @@ class ArgParser:
         self.parser.add_argument('--scale_factor', type = float, default = 1 / 8, help = 'reward scale factor')
         self.parser.add_argument('--shuffle_nodes', type = parse_bool, default = True, help = 'if shuffle nodes')
         self.parser.add_argument('--canonicalize', nargs = '?', const = True, type = parse_bool, default = False, help = 'if canonicalize node ids by discovery order')
-        self.parser.add_argument('--recency_decay', type = parse_recency_decay, default = 'off', help = "off, auto, or numeric decay in [0, 1)")
+        self.parser.add_argument('--recency_decay', type = parse_recency_decay, default = 'auto', help = "off, auto, or numeric decay in [0, 1)")
         self.parser.add_argument('--mask_fixation', type = parse_bool, default = True, help = 'if mask fixations')
 
         # training parameters
