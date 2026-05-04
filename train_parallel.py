@@ -861,6 +861,10 @@ def _append_per_run_progress_logs(
     def _fmt_num(value: float, width: int = 8, decimals: int = 3) -> str:
         return f"{value: {width}.{decimals}f}"
 
+    def _fmt_ep_num(value: int, width: int = 10) -> str:
+        ep_num_k = int(round(value / 1_000.0))
+        return f"{ep_num_k:>{width}d}K"
+
     for hyper_index in range(num_hypers):
         for seed_index in range(num_seeds):
             run_dir = str(run_dirs_by_index[hyper_index, seed_index])
@@ -880,7 +884,7 @@ def _append_per_run_progress_logs(
             line = col_sep.join(
                 [
                     f"{update_end:>8d}",
-                    f"{ep_num:>10d}",
+                    _fmt_ep_num(ep_num),
                     _fmt_num(float(np.mean(metrics.episode_reward[hyper_index, seed_index]))),
                     _fmt_num(float(np.mean(metrics.episode_length[hyper_index, seed_index]))),
                     _fmt_num(float(np.mean(metrics.loss[hyper_index, seed_index]))),
