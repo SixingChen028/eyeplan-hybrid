@@ -32,6 +32,7 @@ class JaxDecisionTreeParams(NamedTuple):
     backup_steps: jax.Array
     wm_decay: jax.Array
     q_drop_rate: jax.Array
+    q_flip_rate: jax.Array
     recency_decay: jax.Array
     cost: jax.Array
     scale_factor: jax.Array
@@ -70,6 +71,7 @@ class JaxDecisionTreeEnv:
         backup_steps: int = 100,
         wm_decay: float = 0.8,
         q_drop_rate: float = 0.0,
+        q_flip_rate: float = 0.0,
         t_max: int = 100,
         cost: float = 0.01,
         scale_factor: float = 1 / 8,
@@ -87,6 +89,9 @@ class JaxDecisionTreeEnv:
         self.backup_steps = int(backup_steps)
         self.wm_decay = float(wm_decay)
         self.q_drop_rate = float(q_drop_rate)
+        self.q_flip_rate = float(q_flip_rate)
+        if self.q_flip_rate > 0.5:
+            raise ValueError("q_flip_rate must be <= 0.5.")
         self.t_max = int(t_max)
         self.cost = float(cost)
         self.scale_factor = float(scale_factor)
@@ -125,6 +130,7 @@ class JaxDecisionTreeEnv:
             backup_steps=jnp.asarray(self.backup_steps, dtype=jnp.int32),
             wm_decay=jnp.asarray(self.wm_decay, dtype=jnp.float32),
             q_drop_rate=jnp.asarray(self.q_drop_rate, dtype=jnp.float32),
+            q_flip_rate=jnp.asarray(self.q_flip_rate, dtype=jnp.float32),
             recency_decay=jnp.asarray(self._recency_decay_value(), dtype=jnp.float32),
             cost=jnp.asarray(self.cost, dtype=jnp.float32),
             scale_factor=jnp.asarray(self.scale_factor, dtype=jnp.float32),
@@ -401,9 +407,11 @@ class JaxDecisionTreeEnv:
     ) -> JaxDecisionTreeState:
         key, drop_key = jax.random.split(state.rng_key)
         key, q_drop_key = jax.random.split(key)
+        q_flip_key = jax.random.fold_in(q_drop_key, 1)
 
         wm_decay = self.wm_decay if params is None else params.wm_decay
         q_drop_rate = self.q_drop_rate if params is None else params.q_drop_rate
+        q_flip_rate = self.q_flip_rate if params is None else params.q_flip_rate
         activation = state.activation * wm_decay
         activation = jnp.clip(activation, 0.0, 1.0)
         activation = activation.at[node].set(1.0)
@@ -430,6 +438,38 @@ class JaxDecisionTreeEnv:
             jax.random.uniform(q_drop_key, shape=(self.num_nodes,)) < q_drop_rate
         )
         q_values = jnp.where(q_drop_mask, 0.0, state.q_values)
+
+        def apply_q_flip(current_q_values):
+            parents = state.parent_nodes
+            parent_children = state.child_nodes.at[jnp.maximum(parents, 0)].get(
+                mode="fill",
+                fill_value=-1,
+                wrap_negative_indices=False,
+            )
+            left = parent_children[:, 0]
+            right = parent_children[:, 1]
+            siblings = jnp.where(left == jnp.arange(self.num_nodes), right, left)
+            has_sibling = (parents >= 0) & (siblings >= 0)
+            q_flip_mask = (activation == 0.0) & has_sibling & (
+                jax.random.uniform(q_flip_key, shape=(self.num_nodes,)) < q_flip_rate
+            )
+            sibling_values = current_q_values.at[siblings].get(
+                mode="fill",
+                fill_value=0.0,
+                wrap_negative_indices=False,
+            )
+            return jnp.where(q_flip_mask, sibling_values, current_q_values)
+
+        if params is None:
+            if q_flip_rate > 0.0:
+                q_values = apply_q_flip(q_values)
+        else:
+            q_values = jax.lax.cond(
+                q_flip_rate > 0.0,
+                lambda x: apply_q_flip(x),
+                lambda x: x,
+                q_values,
+            )
 
         return state._replace(
             rng_key=key,

@@ -411,6 +411,51 @@ def test_q_drop_rate_zero_preserves_inactive_q_values():
     np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], np.asarray(q_values)[inactive_mask], atol=1e-6)
 
 
+def test_q_flip_rate_swaps_inactive_q_with_sibling():
+    env = JaxDecisionTreeEnv(
+        num_nodes=7,
+        wm_decay=0.0,
+        q_drop_rate=0.0,
+        q_flip_rate=0.5,
+        shuffle_nodes=False,
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(14))
+    q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
+    activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
+    state = state._replace(q_values=q_values, activation=activation)
+
+    updated = env._update_activation(state, state.root_node, env.default_params())
+
+    key, _ = jax.random.split(state.rng_key)
+    key, q_drop_key = jax.random.split(key)
+    q_flip_key = jax.random.fold_in(q_drop_key, 1)
+    expected_activation = np.asarray(updated.activation)
+
+    parent_nodes = np.asarray(state.parent_nodes)
+    child_nodes = np.asarray(state.child_nodes)
+    siblings = np.full((env.num_nodes,), -1, dtype=np.int32)
+    for node in range(env.num_nodes):
+        parent = parent_nodes[node]
+        if parent < 0:
+            continue
+        left, right = child_nodes[parent]
+        siblings[node] = right if left == node else left
+    flip_draw = np.asarray(jax.random.uniform(q_flip_key, shape=(env.num_nodes,)))
+    flip_mask = (expected_activation == 0.0) & (siblings >= 0) & (flip_draw < 0.5)
+    expected_q = np.array(q_values)
+    expected_q[flip_mask] = expected_q[siblings[flip_mask]]
+    np.testing.assert_allclose(np.asarray(updated.q_values), expected_q, atol=1e-6)
+
+
+def test_q_flip_rate_above_half_raises():
+    try:
+        JaxDecisionTreeEnv(q_flip_rate=0.5001)
+    except ValueError as error:
+        assert "q_flip_rate" in str(error)
+        return
+    assert False, "q_flip_rate > 0.5 should raise an error"
+
+
 def test_move_step_matches_reference_environment():
     reference_env, jax_env, _, state, _, _ = _reset_synced_envs(seed=5)
 

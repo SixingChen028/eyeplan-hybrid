@@ -32,6 +32,7 @@ class ReferenceDecisionTreeEnv:
         backup_steps: int = 100,
         wm_decay: float = 0.8,
         q_drop_rate: float = 0.0,
+        q_flip_rate: float = 0.0,
         t_max: int = 100,
         cost: float = 0.01,
         scale_factor: float = 1 / 8,
@@ -50,6 +51,9 @@ class ReferenceDecisionTreeEnv:
         self.backup_steps = int(backup_steps)
         self.wm_decay = float(wm_decay)
         self.q_drop_rate = float(q_drop_rate)
+        self.q_flip_rate = float(q_flip_rate)
+        if self.q_flip_rate > 0.5:
+            raise ValueError("q_flip_rate must be <= 0.5.")
         self.t_max = int(t_max)
         self.cost = float(cost)
         self.scale_factor = float(scale_factor)
@@ -235,6 +239,19 @@ class ReferenceDecisionTreeEnv:
         self.activation[~keep] = 0.0
         q_drop_mask = (self.activation == 0.0) & (self.rng.uniform(size=self.num_nodes) < self.q_drop_rate)
         self.q_values[q_drop_mask] = 0.0
+        if self.q_flip_rate > 0.0:
+            q_flip_mask = (self.activation == 0.0) & (self.rng.uniform(size=self.num_nodes) < self.q_flip_rate)
+            flip_indices = np.where(q_flip_mask)[0]
+            original_q_values = self.q_values.copy()
+            for node in flip_indices:
+                parent = self.parent_nodes[node]
+                if parent < 0:
+                    continue
+                left, right = self.child_nodes[parent]
+                sibling = right if left == node else left
+                if sibling < 0:
+                    continue
+                self.q_values[node] = original_q_values[sibling]
 
     def _move(self):
         node = self.root_node

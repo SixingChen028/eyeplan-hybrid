@@ -91,6 +91,7 @@ DEFAULT_PARAMS = {
     "wm_decay": 1.0,
     "wm_backup": False,
     "q_drop_rate": 0.0,
+    "q_flip_rate": 0.0,
     "t_max": 100,
     "cost": 0.01,
     "scale_factor": 1 / 8,
@@ -128,6 +129,7 @@ ENV_SWEEP_KEYS = {
     "wm_decay",
     "wm_backup",
     "q_drop_rate",
+    "q_flip_rate",
     "recency_decay",
     "cost",
     "scale_factor",
@@ -311,10 +313,20 @@ def _validate_params(params: dict) -> None:
             )
         if key not in SWEEP_KEYS:
             raise ValueError(f"params.{key} is not a supported parallel sweep parameter.")
+        if key == "q_flip_rate":
+            for item in value:
+                numeric = float(item)
+                if not 0.0 <= numeric <= 0.5:
+                    raise ValueError("params.q_flip_rate must satisfy 0 <= q_flip_rate <= 0.5.")
 
     recency_decay = params.get("recency_decay", "off")
     if not _is_list(recency_decay):
         JaxDecisionTreeEnv._parse_recency_decay(recency_decay)
+    q_flip_rate = params.get("q_flip_rate", 0.0)
+    if not _is_list(q_flip_rate):
+        numeric = float(q_flip_rate)
+        if not 0.0 <= numeric <= 0.5:
+            raise ValueError("params.q_flip_rate must satisfy 0 <= q_flip_rate <= 0.5.")
 
 
 def expand_sweep(params: dict) -> tuple[dict, list[dict], list[int], list[str]]:
@@ -409,6 +421,7 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams | PPOHyperParams:
         wm_decay=array("wm_decay"),
         wm_backup=array("wm_backup", dtype=np.bool_),
         q_drop_rate=array("q_drop_rate"),
+        q_flip_rate=array("q_flip_rate"),
         recency_decay=jnp.asarray(
             [
                 _resolve_recency_decay(combo["recency_decay"], combo["wm_decay"])
@@ -677,6 +690,7 @@ def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
         wm_decay=args["wm_decay"],
         wm_backup=args["wm_backup"],
         q_drop_rate=args["q_drop_rate"],
+        q_flip_rate=args["q_flip_rate"],
         t_max=args["t_max"],
         cost=args["cost"],
         scale_factor=args["scale_factor"],
@@ -697,6 +711,7 @@ def _env_cache_key(args: dict) -> tuple:
         "wm_decay",
         "wm_backup",
         "q_drop_rate",
+        "q_flip_rate",
         "t_max",
         "cost",
         "scale_factor",
