@@ -46,12 +46,12 @@ def init_mlp_actor_critic_params(
 
 def _node_feature_size(feature_size: int, action_size: int) -> int:
     num_nodes = int(action_size) - 1
-    base_size = 7 * num_nodes + 2
+    base_size = 8 * num_nodes + 2
     recency_size = base_size + num_nodes
     if int(feature_size) == base_size:
-        return 8
-    if int(feature_size) == recency_size:
         return 9
+    if int(feature_size) == recency_size:
+        return 10
     raise ValueError(
         "node_shared network requires the existing decision-tree observation layout "
         f"with feature_size={base_size} or {recency_size}; got {feature_size}."
@@ -141,6 +141,8 @@ def _split_node_observation(obs: jax.Array, num_nodes: int):
     index += num_nodes
     n_visits = obs[..., index : index + num_nodes]
     index += num_nodes
+    is_terminal = obs[..., index : index + num_nodes]
+    index += num_nodes
 
     maybe_recency_size = obs.shape[-1] - index - 1
     if maybe_recency_size == num_nodes:
@@ -150,7 +152,19 @@ def _split_node_observation(obs: jax.Array, num_nodes: int):
         recency = None
 
     time_elapsed = obs[..., index : index + 1]
-    return fixation, fixation_point, parent, child, root, g_values, q_values, n_visits, recency, time_elapsed
+    return (
+        fixation,
+        fixation_point,
+        parent,
+        child,
+        root,
+        g_values,
+        q_values,
+        n_visits,
+        is_terminal,
+        recency,
+        time_elapsed,
+    )
 
 
 def _masked_mean(values: jax.Array, mask: jax.Array) -> jax.Array:
@@ -186,6 +200,7 @@ def _node_shared_forward(
         g_values,
         q_values,
         n_visits,
+        is_terminal,
         recency,
         time_elapsed,
     ) = _split_node_observation(obs, num_nodes)
@@ -201,6 +216,7 @@ def _node_shared_forward(
         g_values,
         q_values,
         n_visits,
+        is_terminal,
     ]
     if recency is not None:
         parts.append(recency)

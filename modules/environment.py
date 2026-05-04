@@ -107,6 +107,7 @@ class JaxDecisionTreeEnv:
             + self.num_nodes
             + self.num_nodes
             + self.num_nodes
+            + self.num_nodes
             + (self.num_nodes if self.use_recency_obs else 0)
             + 1
         )
@@ -441,6 +442,7 @@ class JaxDecisionTreeEnv:
         )
 
         if not self.canonicalize:
+            is_terminal_seen = ((state.child_nodes[:, 0] < 0) & (state.n_visits > 0)).astype(jnp.float32)
             fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
                 fixation_children[1]
             )
@@ -453,6 +455,7 @@ class JaxDecisionTreeEnv:
                 visible_g_values_raw,
                 state.q_values,
                 state.n_visits.astype(jnp.float32),
+                is_terminal_seen,
             ]
             if self.use_recency_obs:
                 parts.append(state.fixation_recency)
@@ -473,6 +476,10 @@ class JaxDecisionTreeEnv:
             self._canonical_values(state, visible_g_values_raw),
             self._canonical_values(state, state.q_values),
             self._canonical_values(state, state.n_visits).astype(jnp.float32),
+            self._canonical_values(
+                state,
+                ((state.child_nodes[:, 0] < 0) & (state.n_visits > 0)).astype(jnp.float32),
+            ),
         ]
         if self.use_recency_obs:
             parts.append(self._canonical_values(state, state.fixation_recency))

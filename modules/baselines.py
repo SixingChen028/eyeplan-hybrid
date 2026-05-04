@@ -59,6 +59,9 @@ class ObsLayout:
         self.visits = slice(index, index + num_nodes)
         index += num_nodes
 
+        self.is_terminal = slice(index, index + num_nodes)
+        index += num_nodes
+
         self.recency = slice(index, index + num_nodes)
         if self.use_recency_obs:
             index += num_nodes

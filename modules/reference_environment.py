@@ -257,6 +257,7 @@ class ReferenceDecisionTreeEnv:
         visible_g_values = np.where(self._known_mask(), self.g_values, 0.0)
 
         if not self.canonicalize:
+            is_terminal_seen = ((self.child_nodes[:, 0] < 0) & (self.n_visits > 0)).astype(float)
             fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
                 fixation_children[1]
             )
@@ -269,6 +270,7 @@ class ReferenceDecisionTreeEnv:
                 visible_g_values,
                 self.q_values,
                 self.n_visits.astype(float),
+                is_terminal_seen,
             ]
             if self.use_recency_obs:
                 parts.append(self.fixation_recency)
@@ -288,6 +290,7 @@ class ReferenceDecisionTreeEnv:
             self._canonical_values(visible_g_values),
             self._canonical_values(self.q_values),
             self._canonical_values(self.n_visits).astype(float),
+            self._canonical_values(((self.child_nodes[:, 0] < 0) & (self.n_visits > 0)).astype(float)),
         ]
         if self.use_recency_obs:
             parts.append(self._canonical_values(self.fixation_recency))
