@@ -1466,8 +1466,6 @@ def prepare_run_dirs(
             run_args = dict(combo)
             run_args["seed"] = int(seed)
             run_args["parallel_config"] = str(config_path)
-            run_args["parallel_hyper_index"] = int(hyper_index)
-            run_args["parallel_seed_index"] = int(seed_index)
             run_args["parallel_varied_keys"] = list(varied_keys)
 
             run_dir = create_timestamped_run_dir(
