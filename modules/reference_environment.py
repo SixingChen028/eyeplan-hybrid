@@ -158,6 +158,9 @@ class ReferenceDecisionTreeEnv:
                     stack.append(child)
         return g_values
 
+    def _compute_total_values(self):
+        return self.g_values + self.points
+
     def _known_mask(self):
         expanded = self.n_visits > 0
         expanded[self.root_node] = True
@@ -254,10 +257,16 @@ class ReferenceDecisionTreeEnv:
     def get_obs(self) -> np.ndarray:
         fixation_parent = self.parent_nodes[self.fixation_node]
         fixation_children = self.child_nodes[self.fixation_node]
-        visible_g_values = np.where(self._known_mask(), self.g_values, 0.0)
+        known_mask = self._known_mask()
+        visible_g_values = np.where(known_mask, self.g_values, 0.0)
+        unseen_mask = self.n_visits == 0
+        open_mask = known_mask & unseen_mask
+        is_terminal_seen_raw = (self.child_nodes[:, 0] < 0) & (self.n_visits > 0)
+        best_open_value = np.max(self.g_values[open_mask]) if np.any(open_mask) else -10.0
+        best_terminal_value = np.max(self.total_values[is_terminal_seen_raw]) if np.any(is_terminal_seen_raw) else -10.0
 
         if not self.canonicalize:
-            is_terminal_seen = ((self.child_nodes[:, 0] < 0) & (self.n_visits > 0)).astype(float)
+            is_terminal_seen = is_terminal_seen_raw.astype(float)
             fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
                 fixation_children[1]
             )
@@ -271,6 +280,8 @@ class ReferenceDecisionTreeEnv:
                 self.q_values,
                 self.n_visits.astype(float),
                 is_terminal_seen,
+                np.asarray([best_open_value], dtype=float),
+                np.asarray([best_terminal_value], dtype=float),
             ]
             if self.use_recency_obs:
                 parts.append(self.fixation_recency)
@@ -290,7 +301,9 @@ class ReferenceDecisionTreeEnv:
             self._canonical_values(visible_g_values),
             self._canonical_values(self.q_values),
             self._canonical_values(self.n_visits).astype(float),
-            self._canonical_values(((self.child_nodes[:, 0] < 0) & (self.n_visits > 0)).astype(float)),
+            self._canonical_values(is_terminal_seen_raw.astype(float)),
+            np.asarray([best_open_value], dtype=float),
+            np.asarray([best_terminal_value], dtype=float),
         ]
         if self.use_recency_obs:
             parts.append(self._canonical_values(self.fixation_recency))
@@ -329,6 +342,7 @@ class ReferenceDecisionTreeEnv:
 
         self.q_values = np.zeros(self.num_nodes)
         self.g_values = self._compute_path_values()
+        self.total_values = self._compute_total_values()
         self.n_visits = np.zeros(self.num_nodes, dtype=int)
         self.fixation_recency = np.zeros(self.num_nodes, dtype=float)
 

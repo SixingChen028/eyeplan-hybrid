@@ -46,7 +46,7 @@ def init_mlp_actor_critic_params(
 
 def _node_feature_size(feature_size: int, action_size: int) -> int:
     num_nodes = int(action_size) - 1
-    base_size = 8 * num_nodes + 2
+    base_size = 8 * num_nodes + 4
     recency_size = base_size + num_nodes
     if int(feature_size) == base_size:
         return 9
@@ -81,7 +81,7 @@ def init_node_shared_actor_critic_params(
             "b": jnp.zeros((1,), dtype=jnp.float32),
         },
         "global_fc": {
-            "w": _xavier_uniform(k4, hidden_size * 2 + 2, hidden_size),
+            "w": _xavier_uniform(k4, hidden_size * 2 + 4, hidden_size),
             "b": jnp.zeros((hidden_size,), dtype=jnp.float32),
         },
         "terminate": {
@@ -143,6 +143,10 @@ def _split_node_observation(obs: jax.Array, num_nodes: int):
     index += num_nodes
     is_terminal = obs[..., index : index + num_nodes]
     index += num_nodes
+    best_open_value = obs[..., index : index + 1]
+    index += 1
+    best_terminal_value = obs[..., index : index + 1]
+    index += 1
 
     maybe_recency_size = obs.shape[-1] - index - 1
     if maybe_recency_size == num_nodes:
@@ -162,6 +166,8 @@ def _split_node_observation(obs: jax.Array, num_nodes: int):
         q_values,
         n_visits,
         is_terminal,
+        best_open_value,
+        best_terminal_value,
         recency,
         time_elapsed,
     )
@@ -201,6 +207,8 @@ def _node_shared_forward(
         q_values,
         n_visits,
         is_terminal,
+        best_open_value,
+        best_terminal_value,
         recency,
         time_elapsed,
     ) = _split_node_observation(obs, num_nodes)
@@ -231,7 +239,7 @@ def _node_shared_forward(
     legal_max = _masked_max(node_embeddings, legal_nodes)
 
     global_features = jnp.concatenate(
-        [legal_mean, legal_max, fixation_point, time_elapsed],
+        [legal_mean, legal_max, fixation_point, time_elapsed, best_open_value, best_terminal_value],
         axis=-1,
     )
     global_hidden = jax.nn.relu(_linear(global_features, params["global_fc"]))

@@ -13,6 +13,7 @@ class JaxDecisionTreeState(NamedTuple):
     parent_nodes: jax.Array
     q_values: jax.Array
     g_values: jax.Array
+    total_values: jax.Array
     n_visits: jax.Array
     fixation_recency: jax.Array
     activation: jax.Array
@@ -108,6 +109,7 @@ class JaxDecisionTreeEnv:
             + self.num_nodes
             + self.num_nodes
             + self.num_nodes
+            + 2
             + (self.num_nodes if self.use_recency_obs else 0)
             + 1
         )
@@ -270,6 +272,9 @@ class JaxDecisionTreeEnv:
             return jnp.where(parent_nodes >= 0, parent_values, 0.0)
 
         return jax.lax.fori_loop(0, self.num_nodes, body_fn, g_values)
+
+    def _compute_total_values(self, g_values, points):
+        return g_values + points
 
     def _known_mask(self, parent_nodes, root_node, n_visits):
         expanded = n_visits > 0
@@ -435,14 +440,24 @@ class JaxDecisionTreeEnv:
     def get_obs(self, state: JaxDecisionTreeState) -> jax.Array:
         fixation_parent = state.parent_nodes[state.fixation_node]
         fixation_children = state.child_nodes[state.fixation_node]
-        visible_g_values_raw = jnp.where(
-            self._known_mask(state.parent_nodes, state.root_node, state.n_visits),
-            state.g_values,
-            0.0,
+        known_mask = self._known_mask(state.parent_nodes, state.root_node, state.n_visits)
+        visible_g_values_raw = jnp.where(known_mask, state.g_values, 0.0)
+        unseen_mask = state.n_visits == 0
+        open_mask = known_mask & unseen_mask
+        is_terminal_seen_raw = (state.child_nodes[:, 0] < 0) & (state.n_visits > 0)
+        best_open_value = jnp.where(
+            jnp.any(open_mask),
+            jnp.max(jnp.where(open_mask, state.g_values, -jnp.inf)),
+            -10.0,
+        )
+        best_terminal_value = jnp.where(
+            jnp.any(is_terminal_seen_raw),
+            jnp.max(jnp.where(is_terminal_seen_raw, state.total_values, -jnp.inf)),
+            -10.0,
         )
 
         if not self.canonicalize:
-            is_terminal_seen = ((state.child_nodes[:, 0] < 0) & (state.n_visits > 0)).astype(jnp.float32)
+            is_terminal_seen = is_terminal_seen_raw.astype(jnp.float32)
             fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
                 fixation_children[1]
             )
@@ -456,6 +471,8 @@ class JaxDecisionTreeEnv:
                 state.q_values,
                 state.n_visits.astype(jnp.float32),
                 is_terminal_seen,
+                jnp.array([best_open_value], dtype=jnp.float32),
+                jnp.array([best_terminal_value], dtype=jnp.float32),
             ]
             if self.use_recency_obs:
                 parts.append(state.fixation_recency)
@@ -478,8 +495,10 @@ class JaxDecisionTreeEnv:
             self._canonical_values(state, state.n_visits).astype(jnp.float32),
             self._canonical_values(
                 state,
-                ((state.child_nodes[:, 0] < 0) & (state.n_visits > 0)).astype(jnp.float32),
+                is_terminal_seen_raw.astype(jnp.float32),
             ),
+            jnp.array([best_open_value], dtype=jnp.float32),
+            jnp.array([best_terminal_value], dtype=jnp.float32),
         ]
         if self.use_recency_obs:
             parts.append(self._canonical_values(state, state.fixation_recency))
@@ -553,6 +572,8 @@ class JaxDecisionTreeEnv:
         )
         points = self.point_set[point_idx]
         points = points.at[root].set(0.0)
+        g_values = self._compute_path_values(parent_nodes, points)
+        total_values = self._compute_total_values(g_values, points)
 
         recency_initial_value = jnp.where(self._recency_decay_value(params) > 0.0, 1.0, 0.0)
         state = JaxDecisionTreeState(
@@ -564,7 +585,8 @@ class JaxDecisionTreeEnv:
             child_nodes=child_nodes,
             parent_nodes=parent_nodes,
             q_values=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(0.0),
-            g_values=self._compute_path_values(parent_nodes, points),
+            g_values=g_values,
+            total_values=total_values,
             n_visits=jnp.zeros((self.num_nodes,), dtype=jnp.int32),
             fixation_recency=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(recency_initial_value),
             activation=jnp.zeros((self.num_nodes,), dtype=jnp.float32),

@@ -62,6 +62,12 @@ class ObsLayout:
         self.is_terminal = slice(index, index + num_nodes)
         index += num_nodes
 
+        self.best_open_value = slice(index, index + 1)
+        index += 1
+
+        self.best_terminal_value = slice(index, index + 1)
+        index += 1
+
         self.recency = slice(index, index + num_nodes)
         if self.use_recency_obs:
             index += num_nodes

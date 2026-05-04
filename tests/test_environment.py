@@ -61,6 +61,7 @@ def _sync_reference_from_state(env: ReferenceDecisionTreeEnv, state) -> None:
 
     env.q_values = np.asarray(state.q_values).copy()
     env.g_values = np.asarray(state.g_values).copy()
+    env.total_values = np.asarray(state.total_values).copy()
     env.n_visits = np.asarray(state.n_visits).copy()
     env.fixation_recency = np.asarray(state.fixation_recency).copy()
 
@@ -115,6 +116,7 @@ def _assert_state_matches_reference(env: ReferenceDecisionTreeEnv, state) -> Non
 
     np.testing.assert_allclose(np.asarray(state.q_values), env.q_values, atol=1e-6)
     np.testing.assert_allclose(np.asarray(state.g_values), env.g_values, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(state.total_values), env.total_values, atol=1e-6)
     np.testing.assert_array_equal(np.asarray(state.n_visits), env.n_visits)
     np.testing.assert_allclose(np.asarray(state.fixation_recency), env.fixation_recency, atol=1e-6)
 

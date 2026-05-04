@@ -25,6 +25,8 @@ def _permute_node_observation(obs, permutation, has_recency=False):
         num_nodes,
         num_nodes,
         num_nodes,
+        1,
+        1,
     ]:
         part = obs[index : index + width]
         if width == num_nodes:
