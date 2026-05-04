@@ -450,7 +450,12 @@ class JaxDecisionTreeEnv:
             right = parent_children[:, 1]
             siblings = jnp.where(left == jnp.arange(self.num_nodes), right, left)
             has_sibling = (parents >= 0) & (siblings >= 0)
-            q_flip_mask = (activation == 0.0) & has_sibling & (
+            parent_activation = activation.at[jnp.maximum(parents, 0)].get(
+                mode="fill",
+                fill_value=1.0,
+                wrap_negative_indices=False,
+            )
+            q_flip_mask = (parent_activation == 0.0) & has_sibling & (
                 jax.random.uniform(q_flip_key, shape=(self.num_nodes,)) < q_flip_rate
             )
             sibling_values = current_q_values.at[siblings].get(
