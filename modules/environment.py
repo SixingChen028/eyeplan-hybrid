@@ -13,7 +13,6 @@ class JaxDecisionTreeState(NamedTuple):
     parent_nodes: jax.Array
     q_values: jax.Array
     g_values: jax.Array
-    total_values: jax.Array
     n_visits: jax.Array
     fixation_recency: jax.Array
     activation: jax.Array
@@ -279,9 +278,6 @@ class JaxDecisionTreeEnv:
 
         return jax.lax.fori_loop(0, self.num_nodes, body_fn, g_values)
 
-    def _compute_total_values(self, g_values, points):
-        return g_values + points
-
     def _known_mask(self, parent_nodes, root_node, n_visits):
         expanded = n_visits > 0
         expanded = expanded.at[root_node].set(True)
@@ -495,9 +491,10 @@ class JaxDecisionTreeEnv:
             jnp.max(jnp.where(open_mask, state.g_values, -jnp.inf)),
             -10.0,
         )
+        total_values = state.g_values + state.points
         best_terminal_value = jnp.where(
             jnp.any(is_terminal_seen_raw),
-            jnp.max(jnp.where(is_terminal_seen_raw, state.total_values, -jnp.inf)),
+            jnp.max(jnp.where(is_terminal_seen_raw, total_values, -jnp.inf)),
             -10.0,
         )
 
@@ -618,7 +615,6 @@ class JaxDecisionTreeEnv:
         points = self.point_set[point_idx]
         points = points.at[root].set(0.0)
         g_values = self._compute_path_values(parent_nodes, points)
-        total_values = self._compute_total_values(g_values, points)
 
         recency_initial_value = jnp.where(self._recency_decay_value(params) > 0.0, 1.0, 0.0)
         state = JaxDecisionTreeState(
@@ -631,7 +627,6 @@ class JaxDecisionTreeEnv:
             parent_nodes=parent_nodes,
             q_values=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(0.0),
             g_values=g_values,
-            total_values=total_values,
             n_visits=jnp.zeros((self.num_nodes,), dtype=jnp.int32),
             fixation_recency=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(recency_initial_value),
             activation=jnp.zeros((self.num_nodes,), dtype=jnp.float32),

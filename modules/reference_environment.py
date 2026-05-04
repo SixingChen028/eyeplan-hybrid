@@ -162,9 +162,6 @@ class ReferenceDecisionTreeEnv:
                     stack.append(child)
         return g_values
 
-    def _compute_total_values(self):
-        return self.g_values + self.points
-
     def _known_mask(self):
         expanded = self.n_visits > 0
         expanded[self.root_node] = True
@@ -286,7 +283,8 @@ class ReferenceDecisionTreeEnv:
         open_mask = known_mask & unseen_mask
         is_terminal_seen_raw = (self.child_nodes[:, 0] < 0) & (self.n_visits > 0)
         best_open_value = np.max(self.g_values[open_mask]) if np.any(open_mask) else -10.0
-        best_terminal_value = np.max(self.total_values[is_terminal_seen_raw]) if np.any(is_terminal_seen_raw) else -10.0
+        total_values = self.g_values + self.points
+        best_terminal_value = np.max(total_values[is_terminal_seen_raw]) if np.any(is_terminal_seen_raw) else -10.0
 
         if not self.canonicalize:
             is_terminal_seen = is_terminal_seen_raw.astype(float)
@@ -365,7 +363,6 @@ class ReferenceDecisionTreeEnv:
 
         self.q_values = np.zeros(self.num_nodes)
         self.g_values = self._compute_path_values()
-        self.total_values = self._compute_total_values()
         self.n_visits = np.zeros(self.num_nodes, dtype=int)
         self.fixation_recency = np.zeros(self.num_nodes, dtype=float)
 
