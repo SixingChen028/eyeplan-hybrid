@@ -1,0 +1,32 @@
+[meta]
+parallel = true
+array_vars = ["seed"]
+
+[sbatch]
+time = "2:00:00"
+mem_per_cpu = "3000M"
+gpu = true
+
+[params]
+# environment
+num_nodes = 15
+t_max = 50
+beta_move = [1, 2, 4]
+cost = 0.005
+learning_rate = [0.3, 0.7, 1.0]
+lamda_backup = 1
+wm_decay = 0.6
+wm_backup = true
+q_drop_rate = 0.0
+q_drift = [0.0, 0.05, 0.1, 0.2]
+q_decay = [0.0, "auto"]
+# network
+hidden_size = 256
+# training
+seed = [1, 2]
+num_updates = 50_000
+num_envs = 256
+rollout_length = 50
+# loss
+beta_e_final = 0.01
+max_grad_norm = 2.0
