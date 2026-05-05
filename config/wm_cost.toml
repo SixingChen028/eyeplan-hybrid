@@ -1,6 +1,11 @@
+[meta]
+parallel = true
+array_vars = ["seed"]
+
 [sbatch]
 time = "8:00:00"
 mem_per_cpu = "1000M"
+gpu = true
 
 [params]
 # environment
@@ -17,5 +22,5 @@ num_updates = 50_000
 num_envs = 256
 rollout_length = 50
 # loss
-beta_e_final = 0.0001
+beta_e_final = 0.01
 max_grad_norm = 2.0
