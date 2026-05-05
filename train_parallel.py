@@ -377,14 +377,29 @@ def _parse_cli_value(raw: str, template_value):
 def _apply_cli_param_overrides(params: dict, override_tokens: list[str]) -> dict:
     if not override_tokens:
         return dict(params)
-    if len(override_tokens) % 2 != 0:
-        raise ValueError("Parameter overrides must be provided as '--key value' pairs.")
 
     merged = dict(DEFAULT_PARAMS)
     merged.update(params)
     updated = dict(params)
-    it = iter(override_tokens)
-    for key_token, value_token in zip(it, it):
+    pairs: list[tuple[str, str]] = []
+    idx = 0
+    while idx < len(override_tokens):
+        token = override_tokens[idx]
+        if not token.startswith("--"):
+            raise ValueError(f"Invalid override key {token!r}; expected '--<name>'.")
+        if "=" in token:
+            key_token, value_token = token.split("=", 1)
+            if value_token == "":
+                raise ValueError(f"Missing value for override {key_token!r}.")
+            pairs.append((key_token, value_token))
+            idx += 1
+            continue
+        if idx + 1 >= len(override_tokens):
+            raise ValueError("Parameter overrides must be provided as '--key value' or '--key=value'.")
+        pairs.append((token, override_tokens[idx + 1]))
+        idx += 2
+
+    for key_token, value_token in pairs:
         if not key_token.startswith("--"):
             raise ValueError(f"Invalid override key {key_token!r}; expected '--<name>'.")
         key = key_token[2:]
