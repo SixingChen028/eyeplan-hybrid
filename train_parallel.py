@@ -761,8 +761,15 @@ def _state_slice(states, hyper_index: int, seed_index: int):
     )
 
 
-def _run_jobid(base_jobid: str, hyper_index: int, seed: int) -> str:
-    suffix = f"h{hyper_index}_s{seed}"
+def _slug_value(value) -> str:
+    text = str(value).strip()
+    return "".join(char if char.isalnum() or char in {".", "-"} else "-" for char in text)
+
+
+def _run_jobid(base_jobid: str, combo: dict, varied_keys: list[str], seed: int) -> str:
+    param_parts = [f"{key}{_slug_value(combo[key])}" for key in varied_keys]
+    param_parts.append(f"seed{int(seed)}")
+    suffix = "_".join(param_parts)
     if str(base_jobid).strip():
         return f"{base_jobid}_{suffix}"
     return suffix
@@ -1071,7 +1078,7 @@ def train_with_progress(
                 col_sep.join(
                     [
                         f"{updates_done:>8d}",
-                        f"{int(round(cumulative_episode_count_total)):>10d}",
+                        f"{int(round(cumulative_episode_count_total / 1_000.0)):>9d}K",
                         f"{_format_duration(elapsed_seconds):>8}",
                         f"{_format_duration(eta_seconds):>8}",
                         f"{updates_per_second:>8.3f}",
@@ -1475,7 +1482,7 @@ def prepare_run_dirs(
 ) -> list[str]:
     run_dirs: list[str] = []
     for hyper_index, combo in enumerate(combos):
-        for seed_index, seed in enumerate(seeds):
+        for seed in seeds:
             run_args = dict(combo)
             run_args["seed"] = int(seed)
             run_args["parallel_config"] = str(config_path)
@@ -1484,7 +1491,7 @@ def prepare_run_dirs(
             run_dir = create_timestamped_run_dir(
                 path=path,
                 experiment=experiment,
-                jobid=_run_jobid(str(combo.get("jobid", "")), hyper_index, seed),
+                jobid=_run_jobid(str(combo.get("jobid", "")), combo, varied_keys, seed),
             )
             write_run_metadata(run_dir=run_dir, args=Namespace(**run_args), cwd=os.getcwd())
             run_dirs.append(run_dir)
@@ -1525,6 +1532,7 @@ def main() -> None:
         raise ValueError(f"Unsupported algo {algo!r}; expected 'a2c' or 'ppo'.")
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or str(meta.get("experiment", config_path.stem))
+    _log(f"results_destination={output_path}")
 
     num_updates, num_envs, rollout_length = _resolve_training_geometry(fixed)
     env = _env_from_args(combos[0])
