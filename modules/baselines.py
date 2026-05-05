@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .environment import JaxDecisionTreeEnv
+from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from .network import actor_critic_forward, apply_action_mask
 
 
@@ -153,9 +153,13 @@ def _expected_move_reward_raw(state: Any, beta_move: float, eps_move: float) -> 
     return float(expected[int(state.root_node)])
 
 
-def _episode_no_cost_rewards(state: Any, env: JaxDecisionTreeEnv) -> Tuple[float, float]:
-    raw_reward = _expected_move_reward_raw(state, env.beta_move, env.eps_move)
-    scaled_reward = raw_reward * float(env.scale_factor)
+def _episode_no_cost_rewards(
+    state: Any,
+    env_params: JaxDecisionTreeParams,
+    scale_factor: float,
+) -> Tuple[float, float]:
+    raw_reward = _expected_move_reward_raw(state, float(env_params.beta_move), float(env_params.eps_move))
+    scaled_reward = raw_reward * scale_factor
 
     return scaled_reward, raw_reward
 
@@ -394,9 +398,10 @@ def evaluate_baseline_policies(
     policy_names: List[str],
     reset_keys: jax.Array,
 ) -> Tuple[List[PolicyStats], float, float]:
+    env_params = env.params()
     layout = ObsLayout(env.num_nodes, use_recency_obs=getattr(env, "use_recency_obs", False))
-    reset_fn = jax.jit(env.reset)
-    step_fn = jax.jit(env.step)
+    reset_fn = jax.jit(lambda key: env.reset_with_params(key, env_params))
+    step_fn = jax.jit(lambda state, action: env.step_with_params(state, action, env_params))
 
     policy_returns = {name: [] for name in policy_names}
     policy_no_cost_scaled = {name: [] for name in policy_names}
@@ -444,7 +449,11 @@ def evaluate_baseline_policies(
                 moved = int(action) == env.num_nodes
                 steps += 1
 
-            scaled_no_cost, raw_no_cost = _episode_no_cost_rewards(state, env) if moved else (0.0, 0.0)
+            scaled_no_cost, raw_no_cost = (
+                _episode_no_cost_rewards(state, env_params, env.scale_factor)
+                if moved
+                else (0.0, 0.0)
+            )
 
             policy_returns[policy_name].append(episode_reward)
             policy_no_cost_scaled[policy_name].append(scaled_no_cost)
@@ -464,7 +473,7 @@ def evaluate_baseline_policies(
         )
 
     optimal_mean_raw = float(np.mean(optimal_raw_rewards))
-    optimal_mean_scaled = optimal_mean_raw * float(env.scale_factor)
+    optimal_mean_scaled = optimal_mean_raw * env.scale_factor
 
     return stats, optimal_mean_scaled, optimal_mean_raw
 
@@ -474,8 +483,9 @@ def evaluate_network_greedy(
     params: Any,
     reset_keys: jax.Array,
 ) -> PolicyStats:
-    reset_fn = jax.jit(env.reset)
-    step_fn = jax.jit(env.step)
+    env_params = env.params()
+    reset_fn = jax.jit(lambda key: env.reset_with_params(key, env_params))
+    step_fn = jax.jit(lambda state, action: env.step_with_params(state, action, env_params))
     forward_fn = jax.jit(actor_critic_forward)
 
     rewards = []
@@ -501,7 +511,11 @@ def evaluate_network_greedy(
             moved = action == env.num_nodes
             steps += 1
 
-        scaled_no_cost, raw_no_cost = _episode_no_cost_rewards(state, env) if moved else (0.0, 0.0)
+        scaled_no_cost, raw_no_cost = (
+            _episode_no_cost_rewards(state, env_params, env.scale_factor)
+            if moved
+            else (0.0, 0.0)
+        )
 
         rewards.append(episode_reward)
         no_cost_scaled.append(scaled_no_cost)

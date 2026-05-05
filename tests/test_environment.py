@@ -295,7 +295,7 @@ def test_q_drop_rate_resets_inactive_q_values():
     activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
     state = state._replace(q_values=q_values, activation=activation)
 
-    state = env._update_activation(state, state.root_node, env.default_params())
+    state = env._update_activation(state, state.root_node, env.params())
 
     inactive_mask = np.asarray(state.activation) == 0.0
     np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], 0.0, atol=1e-6)
@@ -313,7 +313,7 @@ def test_q_drop_rate_zero_preserves_inactive_q_values():
     activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
     state = state._replace(q_values=q_values, activation=activation)
 
-    state = env._update_activation(state, state.root_node, env.default_params())
+    state = env._update_activation(state, state.root_node, env.params())
 
     inactive_mask = np.asarray(state.activation) == 0.0
     np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], np.asarray(q_values)[inactive_mask], atol=1e-6)
@@ -331,7 +331,7 @@ def test_q_decay_shrinks_inactive_q_values():
     activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
     state = state._replace(q_values=q_values, activation=activation)
 
-    state = env._update_activation(state, state.root_node, env.default_params())
+    state = env._update_activation(state, state.root_node, env.params())
 
     inactive_mask = np.asarray(state.activation) == 0.0
     np.testing.assert_allclose(
@@ -354,7 +354,7 @@ def test_q_drift_adds_noise_to_inactive_q_values_only():
         activation=jnp.zeros((env.num_nodes,), dtype=jnp.float32),
     )
 
-    state = env._update_activation(state, state.root_node, env.default_params())
+    state = env._update_activation(state, state.root_node, env.params())
 
     active_mask = np.asarray(state.activation) > 0.0
     inactive_mask = ~active_mask
@@ -371,7 +371,7 @@ def test_q_decay_auto_uses_reward_scale_prior_variance():
     )
 
     expected = 0.5**2 / (0.5**2 + np.var(np.array([-2.0, 2.0], dtype=np.float32) * 0.25))
-    np.testing.assert_allclose(np.asarray(env.default_params().q_decay), expected, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(env.params().q_decay), expected, atol=1e-6)
 
 
 def test_move_step_matches_reference_environment():
@@ -607,8 +607,9 @@ def test_visit_all_once_then_terminate_is_optimal_jax():
         cost=0.0,
         shuffle_nodes=True,
     )
+    params = env.params()
 
-    state, _, info = env.reset(jax.random.PRNGKey(19))
+    state, _, info = env.reset_with_params(jax.random.PRNGKey(19), params)
     child_nodes = np.asarray(state.child_nodes)
     points = np.asarray(state.points)
     root = int(state.root_node)
@@ -620,11 +621,11 @@ def test_visit_all_once_then_terminate_is_optimal_jax():
     for raw_action in visit_order:
         action = raw_action
         assert bool(np.asarray(info["mask"])[action])
-        state, _, _, done, truncated, info = env.step(state, _jax_action(action))
+        state, _, _, done, truncated, info = env.step_with_params(state, _jax_action(action), params)
         assert not bool(done)
         assert not bool(truncated)
 
-    state, _, reward, done, truncated, _ = env.step(state, _jax_action(env.num_nodes))
+    state, _, reward, done, truncated, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
     assert bool(done)
     assert not bool(truncated)
 

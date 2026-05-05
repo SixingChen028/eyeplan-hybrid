@@ -18,8 +18,6 @@ def _build_hypers():
         q_decay=jnp.asarray([0.0, 0.0], dtype=jnp.float32),
         recency_decay=jnp.asarray([0.0, 0.0], dtype=jnp.float32),
         cost=jnp.asarray([0.01, 0.01], dtype=jnp.float32),
-        scale_factor=jnp.asarray([1.0, 1.0], dtype=jnp.float32),
-        shuffle_nodes=jnp.asarray([False, False], dtype=np.bool_),
         wm_backup=jnp.asarray([False, False], dtype=np.bool_),
     )
     return PPOHyperParams(
@@ -47,8 +45,6 @@ def _build_single_hyper():
         q_decay=jnp.asarray([0.0], dtype=jnp.float32),
         recency_decay=jnp.asarray([0.0], dtype=jnp.float32),
         cost=jnp.asarray([0.01], dtype=jnp.float32),
-        scale_factor=jnp.asarray([1.0], dtype=jnp.float32),
-        shuffle_nodes=jnp.asarray([False], dtype=np.bool_),
         wm_backup=jnp.asarray([False], dtype=np.bool_),
     )
     return PPOHyperParams(

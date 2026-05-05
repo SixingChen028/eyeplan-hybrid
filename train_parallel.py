@@ -129,8 +129,6 @@ ENV_SWEEP_KEYS = {
     "q_decay",
     "recency_decay",
     "cost",
-    "scale_factor",
-    "shuffle_nodes",
 }
 TRAIN_SWEEP_KEYS = {
     "lr",
@@ -155,6 +153,8 @@ SHAPE_KEYS = {
     "eval_episodes",
     "network_type",
     "max_compiled_updates_per_chunk",
+    "scale_factor",
+    "shuffle_nodes",
 }
 
 
@@ -453,8 +453,6 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams | PPOHyperParams:
             dtype=jnp.float32,
         ),
         cost=array("cost"),
-        scale_factor=array("scale_factor"),
-        shuffle_nodes=array("shuffle_nodes", dtype=np.bool_),
     )
     algo = str(combos[0].get("algo", "a2c"))
     if algo == "ppo":

@@ -262,7 +262,7 @@ class JaxSimulator:
 
         no_cost_reward = jax.lax.cond(
             moved,
-            lambda _: self.env._expected_move_reward(state, env_params) * env_params.scale_factor,
+            lambda _: self.env._expected_move_reward(state, env_params) * self.env.scale_factor,
             lambda _: jnp.array(0.0, dtype=jnp.float32),
             operand=None,
         )
