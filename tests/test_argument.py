@@ -1,6 +1,6 @@
 import argparse
 
-from modules.argument import ArgParser, parse_bool, parse_recency_decay
+from modules.argument import ArgParser, parse_bool, parse_q_decay, parse_recency_decay
 
 
 def test_parse_bool_accepts_true_false_variants():
@@ -38,6 +38,23 @@ def test_parse_recency_decay_rejects_invalid_values():
         assert False, f"parse_recency_decay should reject {value!r}"
 
 
+def test_parse_q_decay_accepts_auto_and_valid_numbers():
+    assert parse_q_decay("auto") == "auto"
+    assert parse_q_decay("0") == 0.0
+    assert parse_q_decay("0.5") == 0.5
+    assert parse_q_decay("1") == 1.0
+
+
+def test_parse_q_decay_rejects_invalid_values():
+    for value in ["-0.1", "1.1", "bad"]:
+        try:
+            parse_q_decay(value)
+        except argparse.ArgumentTypeError:
+            continue
+
+        assert False, f"parse_q_decay should reject {value!r}"
+
+
 def test_arg_parser_parses_seed_and_bool_flags(monkeypatch):
     monkeypatch.setattr(
         "sys.argv",
@@ -60,6 +77,10 @@ def test_arg_parser_parses_seed_and_bool_flags(monkeypatch):
             "auto",
             "--q_drop_rate",
             "0.25",
+            "--q_drift",
+            "0.125",
+            "--q_decay",
+            "auto",
             "--wm_backup",
             "true",
         ],
@@ -75,4 +96,6 @@ def test_arg_parser_parses_seed_and_bool_flags(monkeypatch):
     assert args.backup_steps == 12
     assert args.recency_decay == "auto"
     assert args.q_drop_rate == 0.25
+    assert args.q_drift == 0.125
+    assert args.q_decay == "auto"
     assert args.wm_backup is True

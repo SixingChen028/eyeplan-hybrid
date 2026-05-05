@@ -29,6 +29,8 @@ class JaxDecisionTreeParams(NamedTuple):
     backup_steps: jax.Array
     wm_decay: jax.Array
     q_drop_rate: jax.Array
+    q_drift: jax.Array
+    q_decay: jax.Array
     recency_decay: jax.Array
     cost: jax.Array
     scale_factor: jax.Array
@@ -57,6 +59,22 @@ class JaxDecisionTreeEnv:
             raise ValueError("recency_decay numeric values must satisfy 0 <= recency_decay < 1.")
         return True, False, value
 
+    @staticmethod
+    def _parse_q_decay(q_decay) -> tuple[bool, float]:
+        if isinstance(q_decay, str):
+            value = q_decay.strip().lower()
+            if value == "auto":
+                return True, 0.0
+            try:
+                q_decay = float(value)
+            except ValueError as error:
+                raise ValueError("q_decay must be 'auto' or a number in [0, 1].") from error
+
+        value = float(q_decay)
+        if not 0.0 <= value <= 1.0:
+            raise ValueError("q_decay numeric values must satisfy 0 <= q_decay <= 1.")
+        return False, value
+
     def __init__(
         self,
         num_nodes: int = 15,
@@ -67,6 +85,8 @@ class JaxDecisionTreeEnv:
         backup_steps: int = 100,
         wm_decay: float = 0.8,
         q_drop_rate: float = 0.0,
+        q_drift: float = 0.0,
+        q_decay=0.0,
         t_max: int = 100,
         cost: float = 0.01,
         scale_factor: float = 1 / 8,
@@ -84,6 +104,10 @@ class JaxDecisionTreeEnv:
         self.backup_steps = int(backup_steps)
         self.wm_decay = float(wm_decay)
         self.q_drop_rate = float(q_drop_rate)
+        self.q_drift = float(q_drift)
+        if self.q_drift < 0.0:
+            raise ValueError("q_drift must be non-negative.")
+        self.q_decay_auto, self.q_decay = self._parse_q_decay(q_decay)
         self.t_max = int(t_max)
         self.cost = float(cost)
         self.scale_factor = float(scale_factor)
@@ -122,12 +146,28 @@ class JaxDecisionTreeEnv:
             backup_steps=jnp.asarray(self.backup_steps, dtype=jnp.int32),
             wm_decay=jnp.asarray(self.wm_decay, dtype=jnp.float32),
             q_drop_rate=jnp.asarray(self.q_drop_rate, dtype=jnp.float32),
+            q_drift=jnp.asarray(self.q_drift, dtype=jnp.float32),
+            q_decay=jnp.asarray(self._q_decay_value(), dtype=jnp.float32),
             recency_decay=jnp.asarray(self._recency_decay_value(), dtype=jnp.float32),
             cost=jnp.asarray(self.cost, dtype=jnp.float32),
             scale_factor=jnp.asarray(self.scale_factor, dtype=jnp.float32),
             shuffle_nodes=jnp.asarray(self.shuffle_nodes, dtype=jnp.bool_),
             wm_backup=jnp.asarray(self.wm_backup, dtype=jnp.bool_),
         )
+
+    def _q_prior_var(self, scale_factor=None) -> jax.Array:
+        scale = self.scale_factor if scale_factor is None else scale_factor
+        values = self.point_set * scale
+        return jnp.var(values)
+
+    def _q_decay_value(self, q_drift=None, scale_factor=None) -> jax.Array:
+        if not self.q_decay_auto:
+            return jnp.asarray(self.q_decay, dtype=jnp.float32)
+
+        drift = self.q_drift if q_drift is None else q_drift
+        drift_var = jnp.square(jnp.asarray(drift, dtype=jnp.float32))
+        prior_var = jnp.maximum(self._q_prior_var(scale_factor), jnp.asarray(1e-8, dtype=jnp.float32))
+        return drift_var / (drift_var + prior_var)
 
     def _one_hot(self, label: jax.Array) -> jax.Array:
         label = jnp.asarray(label, dtype=jnp.int32)
@@ -398,6 +438,8 @@ class JaxDecisionTreeEnv:
 
         wm_decay = self.wm_decay if params is None else params.wm_decay
         q_drop_rate = self.q_drop_rate if params is None else params.q_drop_rate
+        q_drift = self.q_drift if params is None else params.q_drift
+        q_decay = self._q_decay_value(q_drift) if params is None else params.q_decay
         activation = state.activation * wm_decay
         activation = jnp.clip(activation, 0.0, 1.0)
         activation = activation.at[node].set(1.0)
@@ -423,7 +465,12 @@ class JaxDecisionTreeEnv:
         q_drop_mask = (activation == 0.0) & (
             jax.random.uniform(q_drop_key, shape=(self.num_nodes,)) < q_drop_rate
         )
-        q_values = jnp.where(q_drop_mask, 0.0, state.q_values)
+        inactive = activation == 0.0
+        q_drift_key = jax.random.fold_in(q_drop_key, 1)
+        q_values = jnp.where(inactive, state.q_values * (1.0 - q_decay), state.q_values)
+        q_noise = jax.random.normal(q_drift_key, shape=(self.num_nodes,)) * q_drift
+        q_values = jnp.where(inactive, q_values + q_noise, q_values)
+        q_values = jnp.where(q_drop_mask, 0.0, q_values)
 
         return state._replace(
             rng_key=key,

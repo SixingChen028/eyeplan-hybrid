@@ -22,6 +22,22 @@ class ReferenceDecisionTreeEnv:
             raise ValueError("recency_decay numeric values must satisfy 0 <= recency_decay < 1.")
         return True, False, value
 
+    @staticmethod
+    def _parse_q_decay(q_decay) -> tuple[bool, float]:
+        if isinstance(q_decay, str):
+            value = q_decay.strip().lower()
+            if value == "auto":
+                return True, 0.0
+            try:
+                q_decay = float(value)
+            except ValueError as error:
+                raise ValueError("q_decay must be 'auto' or a number in [0, 1].") from error
+
+        value = float(q_decay)
+        if not 0.0 <= value <= 1.0:
+            raise ValueError("q_decay numeric values must satisfy 0 <= q_decay <= 1.")
+        return False, value
+
     def __init__(
         self,
         num_nodes: int = 15,
@@ -32,6 +48,8 @@ class ReferenceDecisionTreeEnv:
         backup_steps: int = 100,
         wm_decay: float = 0.8,
         q_drop_rate: float = 0.0,
+        q_drift: float = 0.0,
+        q_decay=0.0,
         t_max: int = 100,
         cost: float = 0.01,
         scale_factor: float = 1 / 8,
@@ -50,6 +68,10 @@ class ReferenceDecisionTreeEnv:
         self.backup_steps = int(backup_steps)
         self.wm_decay = float(wm_decay)
         self.q_drop_rate = float(q_drop_rate)
+        self.q_drift = float(q_drift)
+        if self.q_drift < 0.0:
+            raise ValueError("q_drift must be non-negative.")
+        self.q_decay_auto, self.q_decay = self._parse_q_decay(q_decay)
         self.t_max = int(t_max)
         self.cost = float(cost)
         self.scale_factor = float(scale_factor)
@@ -66,6 +88,16 @@ class ReferenceDecisionTreeEnv:
         self.reset(seed)  # build the tree for get_obs()
         self.observation_shape = self.get_obs().shape
 
+    def _q_prior_var(self) -> float:
+        return float(np.var(self.point_set * self.scale_factor))
+
+    def _q_decay_value(self) -> float:
+        if not self.q_decay_auto:
+            return float(self.q_decay)
+
+        drift_var = self.q_drift**2
+        prior_var = max(self._q_prior_var(), 1e-8)
+        return drift_var / (drift_var + prior_var)
 
     def seed(self, seed: int | None):
         self.rng = np.random.RandomState(seed)
@@ -230,6 +262,10 @@ class ReferenceDecisionTreeEnv:
 
         keep = self.rng.uniform(size=self.num_nodes) < self.activation
         self.activation[~keep] = 0.0
+        inactive = self.activation == 0.0
+        self.q_values[inactive] *= 1.0 - self._q_decay_value()
+        if self.q_drift > 0.0:
+            self.q_values[inactive] += self.rng.normal(size=np.sum(inactive)) * self.q_drift
         q_drop_mask = (self.activation == 0.0) & (self.rng.uniform(size=self.num_nodes) < self.q_drop_rate)
         self.q_values[q_drop_mask] = 0.0
 

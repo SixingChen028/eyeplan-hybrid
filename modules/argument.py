@@ -43,6 +43,27 @@ def parse_recency_decay(value):
     return parsed
 
 
+def parse_q_decay(value):
+    if isinstance(value, str):
+        stripped = value.strip().lower()
+        if stripped == "auto":
+            return stripped
+        value = stripped
+
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as error:
+        raise argparse.ArgumentTypeError(
+            "q_decay must be 'auto' or a number in [0, 1]."
+        ) from error
+
+    if not 0.0 <= parsed <= 1.0:
+        raise argparse.ArgumentTypeError(
+            "q_decay numeric values must satisfy 0 <= q_decay <= 1."
+        )
+    return parsed
+
+
 class ArgParser:
     """
     An ArgumentParser.
@@ -88,6 +109,8 @@ class ArgParser:
         self.parser.add_argument('--wm_decay', type = float, default = 1.0, help = 'working memory decay')
         self.parser.add_argument('--wm_backup', type = parse_bool, default = True, help = 'if backup in update_q should only use active child nodes')
         self.parser.add_argument('--q_drop_rate', type = float, default = 0.0, help = 'probability of resetting q to 0 when node is inactive')
+        self.parser.add_argument('--q_drift', type = float, default = 0.0, help = 'inactive q gaussian noise standard deviation per time step')
+        self.parser.add_argument('--q_decay', type = parse_q_decay, default = 0.0, help = "inactive q multiplicative decay toward 0, or 'auto'")
         self.parser.add_argument('--t_max', type = int, default = 50, help = 'max time steps per episode')
         self.parser.add_argument('--cost', type = float, default = 0.01, help = 'cost per action')
         self.parser.add_argument('--scale_factor', type = float, default = 1 / 8, help = 'reward scale factor')

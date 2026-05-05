@@ -91,6 +91,8 @@ DEFAULT_PARAMS = {
     "wm_decay": 1.0,
     "wm_backup": False,
     "q_drop_rate": 0.0,
+    "q_drift": 0.0,
+    "q_decay": 0.0,
     "t_max": 100,
     "cost": 0.01,
     "scale_factor": 1 / 8,
@@ -128,6 +130,8 @@ ENV_SWEEP_KEYS = {
     "wm_decay",
     "wm_backup",
     "q_drop_rate",
+    "q_drift",
+    "q_decay",
     "recency_decay",
     "cost",
     "scale_factor",
@@ -291,6 +295,17 @@ def _resolve_recency_decay(value, wm_decay) -> float:
     return float(decay)
 
 
+def _resolve_q_decay(value, q_drift, scale_factor) -> float:
+    auto, decay = JaxDecisionTreeEnv._parse_q_decay(value)
+    if not auto:
+        return float(decay)
+
+    drift_var = float(q_drift) ** 2
+    point_set = np.asarray([-8, -4, -2, -1, 1, 2, 4, 8], dtype=np.float32)
+    prior_var = max(float(np.var(point_set * float(scale_factor))), 1e-8)
+    return drift_var / (drift_var + prior_var)
+
+
 def _validate_params(params: dict) -> None:
     for key, value in params.items():
         if not _is_list(value):
@@ -315,6 +330,12 @@ def _validate_params(params: dict) -> None:
     recency_decay = params.get("recency_decay", "off")
     if not _is_list(recency_decay):
         JaxDecisionTreeEnv._parse_recency_decay(recency_decay)
+    q_decay = params.get("q_decay", 0.0)
+    if _is_list(q_decay):
+        for item in q_decay:
+            JaxDecisionTreeEnv._parse_q_decay(item)
+    else:
+        JaxDecisionTreeEnv._parse_q_decay(q_decay)
 
 
 def expand_sweep(params: dict) -> tuple[dict, list[dict], list[int], list[str]]:
@@ -422,6 +443,14 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams | PPOHyperParams:
         wm_decay=array("wm_decay"),
         wm_backup=array("wm_backup", dtype=np.bool_),
         q_drop_rate=array("q_drop_rate"),
+        q_drift=array("q_drift"),
+        q_decay=jnp.asarray(
+            [
+                _resolve_q_decay(combo["q_decay"], combo["q_drift"], combo["scale_factor"])
+                for combo in combos
+            ],
+            dtype=jnp.float32,
+        ),
         recency_decay=jnp.asarray(
             [
                 _resolve_recency_decay(combo["recency_decay"], combo["wm_decay"])
@@ -690,6 +719,8 @@ def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
         wm_decay=args["wm_decay"],
         wm_backup=args["wm_backup"],
         q_drop_rate=args["q_drop_rate"],
+        q_drift=args["q_drift"],
+        q_decay=args["q_decay"],
         t_max=args["t_max"],
         cost=args["cost"],
         scale_factor=args["scale_factor"],
@@ -710,6 +741,8 @@ def _env_cache_key(args: dict) -> tuple:
         "wm_decay",
         "wm_backup",
         "q_drop_rate",
+        "q_drift",
+        "q_decay",
         "t_max",
         "cost",
         "scale_factor",

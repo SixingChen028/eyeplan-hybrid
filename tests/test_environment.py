@@ -407,6 +407,61 @@ def test_q_drop_rate_zero_preserves_inactive_q_values():
     np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], np.asarray(q_values)[inactive_mask], atol=1e-6)
 
 
+def test_q_decay_shrinks_inactive_q_values():
+    env = JaxDecisionTreeEnv(
+        num_nodes=7,
+        wm_decay=0.0,
+        q_decay=0.25,
+        shuffle_nodes=False,
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(14))
+    q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
+    activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
+    state = state._replace(q_values=q_values, activation=activation)
+
+    state = env._update_activation(state, state.root_node, env.default_params())
+
+    inactive_mask = np.asarray(state.activation) == 0.0
+    np.testing.assert_allclose(
+        np.asarray(state.q_values)[inactive_mask],
+        np.asarray(q_values * 0.75)[inactive_mask],
+        atol=1e-6,
+    )
+
+
+def test_q_drift_adds_noise_to_inactive_q_values_only():
+    env = JaxDecisionTreeEnv(
+        num_nodes=7,
+        wm_decay=0.0,
+        q_drift=0.5,
+        shuffle_nodes=False,
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(15))
+    state = state._replace(
+        q_values=jnp.zeros((env.num_nodes,), dtype=jnp.float32),
+        activation=jnp.zeros((env.num_nodes,), dtype=jnp.float32),
+    )
+
+    state = env._update_activation(state, state.root_node, env.default_params())
+
+    active_mask = np.asarray(state.activation) > 0.0
+    inactive_mask = ~active_mask
+    np.testing.assert_allclose(np.asarray(state.q_values)[active_mask], 0.0, atol=1e-6)
+    assert np.any(np.abs(np.asarray(state.q_values)[inactive_mask]) > 1e-6)
+
+
+def test_q_decay_auto_uses_reward_scale_prior_variance():
+    env = JaxDecisionTreeEnv(
+        q_drift=0.5,
+        q_decay="auto",
+        scale_factor=0.25,
+        point_set=jnp.array([-2.0, 2.0], dtype=jnp.float32),
+    )
+
+    expected = 0.5**2 / (0.5**2 + np.var(np.array([-2.0, 2.0], dtype=np.float32) * 0.25))
+    np.testing.assert_allclose(np.asarray(env.default_params().q_decay), expected, atol=1e-6)
+
+
 def test_move_step_matches_reference_environment():
     reference_env, jax_env, _, state, _, _ = _reset_synced_envs(seed=5)
 

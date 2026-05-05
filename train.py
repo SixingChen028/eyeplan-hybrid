@@ -246,6 +246,8 @@ if __name__ == '__main__':
         wm_decay=args.wm_decay,
         wm_backup=args.wm_backup,
         q_drop_rate=args.q_drop_rate,
+        q_drift=args.q_drift,
+        q_decay=args.q_decay,
         t_max=args.t_max,
         cost=args.cost,
         scale_factor=args.scale_factor,
