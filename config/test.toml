@@ -1,24 +1,29 @@
+[meta]
+parallel = true
+array_vars = ["cost"]
+
 [sbatch]
-time = "8:00:00"
-mem_per_cpu = "1000M"
+time = "00:05:00"
+mem_per_cpu = "1G"
 
 [params]
 # environment
-num_nodes = 15
-t_max = 50
-cost = 0.01
+num_nodes = 7
+t_max = 8
+cost = [0.01, 0.02]
 beta_move = 100.0
 eps_move = 0.0
 learning_rate = 1.0
-wm_decay = [0.5, 1.0]
-backup_steps = [1, 8]
+wm_decay = [0.0, 0.5]
+backup_steps = 1
 # network
-hidden_size = 256
+hidden_size = 16
 # training
-seed = [1, 2, 3]
-num_updates = 10_000
-num_envs = 128
-rollout_length = 50
+seed = [1, 2]
+num_updates = 2
+num_envs = 4
+rollout_length = 4
+eval_episodes = 16
 # GAE
 gamma = 1.0
 lr = 0.001

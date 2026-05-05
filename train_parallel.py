@@ -405,8 +405,6 @@ def _apply_cli_param_overrides(params: dict, override_tokens: list[str]) -> dict
         key = key_token[2:]
         if key not in merged:
             raise ValueError(f"Unknown parameter override: {key}")
-        if _is_list(params.get(key)) and key != "seed":
-            raise ValueError(f"Cannot override params.{key} because it is varied in the config.")
         updated[key] = _parse_cli_value(value_token, merged[key])
     return updated
 
