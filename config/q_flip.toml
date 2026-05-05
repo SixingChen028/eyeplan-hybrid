@@ -1,0 +1,33 @@
+[sbatch]
+time = "8:00:00"
+mem_per_cpu = "1000M"
+
+[params]
+# environment
+num_nodes = 15
+t_max = 50
+cost = 0.01
+beta_move = 100.0
+eps_move = 0.0
+learning_rate = 1.0
+wm_decay = [0.4, 0.6, 0.7]
+q_flip_rate = [0.0, 0.25, 0.5]
+recency_decay = 0.7
+# network
+network_type = 'node_shared'
+hidden_size = 64
+# training
+algo = 'a2c'
+seed = [1, 2]
+num_updates = 30_000
+num_envs = 256
+rollout_length = 50
+# GAE
+gamma = 1.0
+lr = 0.001
+lamda = 0.8
+# loss
+beta_e_init = 0.02
+beta_e_final = 0.005
+beta_v = 0.05
+max_grad_norm = 2.0
