@@ -15,6 +15,10 @@ DEFAULT_META = {
     "jobid_from_task_id": True,
     "eval_episodes": 102_400,
     "print_frequency": 100,
+    "parallel": False,
+    "array_vars": [],
+    "parallel_config_arg": "path",
+    "post_simulate": None,
 }
 
 DEFAULT_SBATCH = {
@@ -134,6 +138,7 @@ def _render_script(config: dict, config_path: Path) -> str:
     meta = _as_dict(config.get("meta"), "meta", default=DEFAULT_META)
     sbatch = _as_dict(config.get("sbatch"), "sbatch", default=DEFAULT_SBATCH)
     runtime = _as_dict(config.get("runtime"), "runtime", default=DEFAULT_RUNTIME)
+    runtime_config = config.get("runtime")
     params = _as_dict(config.get("params"), "params")
 
     experiment = str(meta.get("experiment", config_path.stem))
@@ -142,9 +147,42 @@ def _render_script(config: dict, config_path: Path) -> str:
     log_path = str(sbatch.get("log", sbatch.get("output", sbatch.get("error", "./log/%A_%a.log"))))
 
     fixed, vary = _split_params(params)
-    n_terms = [_to_bash_name(key, "N") for key, _ in vary]
+    vary_by_key = {key: values for key, values in vary}
+    parallel_mode = bool(meta.get("parallel", False))
+    array_vars_raw = meta.get("array_vars", [])
+    if array_vars_raw is None:
+        array_vars_raw = []
+    if not isinstance(array_vars_raw, list):
+        raise ValueError("meta.array_vars must be an array of parameter names.")
+    array_vars = [str(item) for item in array_vars_raw]
+    invalid_array_vars = [key for key in array_vars if key not in vary_by_key]
+    if invalid_array_vars:
+        invalid_keys = ", ".join(invalid_array_vars)
+        raise ValueError(f"meta.array_vars contains keys that are not sweep params: {invalid_keys}")
+    if parallel_mode and not array_vars:
+        raise ValueError("meta.parallel=true requires meta.array_vars to be non-empty.")
+
+    if parallel_mode:
+        selected_vary = [(key, vary_by_key[key]) for key in array_vars]
+        remaining_vary = [(key, values) for key, values in vary if key not in set(array_vars)]
+    else:
+        selected_vary = list(vary)
+        remaining_vary = []
+
+    gpu_enabled = bool(sbatch.get("gpu", False))
+    if gpu_enabled and (not isinstance(runtime_config, dict) or "force_jax_cpu" not in runtime_config):
+        runtime["force_jax_cpu"] = False
+
+    entrypoint = str(meta["entrypoint"])
+    if parallel_mode and entrypoint == DEFAULT_META["entrypoint"]:
+        entrypoint = "train_parallel.py"
+    if meta.get("post_simulate") is None:
+        post_simulate = not parallel_mode
+    else:
+        post_simulate = bool(meta["post_simulate"])
+    n_terms = [_to_bash_name(key, "N") for key, _ in selected_vary]
     array_size = 1
-    for _, values in vary:
+    for _, values in selected_vary:
         array_size *= len(values)
 
     lines: list[str] = []
@@ -155,6 +193,8 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append(f"#SBATCH --mem-per-cpu={sbatch['mem_per_cpu']}")
     lines.append(f"#SBATCH -e {log_path}")
     lines.append(f"#SBATCH -o {log_path}")
+    if gpu_enabled:
+        lines.append("#SBATCH --gres=gpu:1")
     for directive in sbatch.get("extra_directives", []):
         lines.append(f"#SBATCH {directive}")
     lines.append(f"#SBATCH --array=0-{array_size - 1}")
@@ -191,15 +231,15 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append('mkdir -p "${RESULT_PATH}"')
     lines.append("")
 
-    if vary:
+    if selected_vary:
         lines.append("# Grid values from config.")
-        for key, values in vary:
+        for key, values in selected_vary:
             array_name = _to_bash_name(key, "VALUES")
             shell_values = " ".join(shlex.quote(_to_shell_scalar(v)) for v in values)
             lines.append(f"{array_name}=({shell_values})")
         lines.append("")
 
-        for key, _ in vary:
+        for key, _ in selected_vary:
             n_name = _to_bash_name(key, "N")
             array_name = _to_bash_name(key, "VALUES")
             lines.append(f"{n_name}=${{#{array_name}[@]}}")
@@ -214,13 +254,13 @@ def _render_script(config: dict, config_path: Path) -> str:
         lines.append("")
 
         lines.append("idx=${TASK_ID}")
-        for key, _ in reversed(vary):
+        for key, _ in reversed(selected_vary):
             idx_name = _to_bash_name(key, "IDX").lower()
             n_name = _to_bash_name(key, "N")
             lines.append(f"{idx_name}=$((idx % {n_name})); idx=$((idx / {n_name}))")
         lines.append("")
 
-        for key, _ in vary:
+        for key, _ in selected_vary:
             value_name = _to_bash_name(key, "VALUE")
             array_name = _to_bash_name(key, "VALUES")
             idx_name = _to_bash_name(key, "IDX").lower()
@@ -228,7 +268,7 @@ def _render_script(config: dict, config_path: Path) -> str:
         lines.append("")
 
         log_parts = ['echo "grid_task task_id=${TASK_ID}']
-        for key, _ in vary:
+        for key, _ in selected_vary:
             log_parts.append(f" {key}=${{{_to_bash_name(key, 'VALUE')}}}")
         log_parts.append('"')
         lines.append("".join(log_parts))
@@ -238,28 +278,45 @@ def _render_script(config: dict, config_path: Path) -> str:
 
     python_cmd_parts = ['"${PYTHON_BIN}"']
     python_cmd_parts.extend(shlex.quote(arg) for arg in python_extra_args)
-    python_cmd_parts.append(shlex.quote(str(meta["entrypoint"])))
+    python_cmd_parts.append(shlex.quote(entrypoint))
     lines.append(" ".join(python_cmd_parts) + " \\")
-    if bool(meta["jobid_from_task_id"]):
-        lines.append('    --jobid="${TASK_ID}" \\')
-    lines.append('    --path="${RESULT_PATH}" \\')
-    lines.append('    --experiment="${EXPERIMENT}" \\')
-    lines.append(f"    --resume={_to_shell_scalar(bool(meta['resume']))} \\")
-    lines.append(f"    --eval_episodes={_to_arg_literal(meta['eval_episodes'])} \\")
-    lines.append(f"    --print_frequency={_to_arg_literal(meta['print_frequency'])} \\")
+    if parallel_mode:
+        config_arg_mode = str(meta.get("parallel_config_arg", "path")).lower()
+        if config_arg_mode == "stem":
+            parallel_config_arg = config_path.stem
+        elif config_arg_mode == "path":
+            parallel_config_arg = str(config_path)
+        else:
+            raise ValueError("meta.parallel_config_arg must be 'path' or 'stem'.")
+        lines.append(f"    {shlex.quote(parallel_config_arg)} \\")
+        lines.append('    --path="${RESULT_PATH}" \\')
+        lines.append('    --experiment="${EXPERIMENT}" \\')
+        for key, _ in selected_vary:
+            lines.append(f'    --{key}="${{{_to_bash_name(key, "VALUE")}}}" \\')
+    else:
+        if bool(meta["jobid_from_task_id"]):
+            lines.append('    --jobid="${TASK_ID}" \\')
+        lines.append('    --path="${RESULT_PATH}" \\')
+        lines.append('    --experiment="${EXPERIMENT}" \\')
+        lines.append(f"    --resume={_to_shell_scalar(bool(meta['resume']))} \\")
+        lines.append(f"    --eval_episodes={_to_arg_literal(meta['eval_episodes'])} \\")
+        lines.append(f"    --print_frequency={_to_arg_literal(meta['print_frequency'])} \\")
 
-    for key, value in fixed:
-        lines.append(f"    --{key}={_to_arg_literal(value)} \\")
-    for key, _ in vary:
-        lines.append(f'    --{key}="${{{_to_bash_name(key, "VALUE")}}}" \\')
+        for key, value in fixed:
+            lines.append(f"    --{key}={_to_arg_literal(value)} \\")
+        for key, _ in selected_vary:
+            lines.append(f'    --{key}="${{{_to_bash_name(key, "VALUE")}}}" \\')
+        for key, _ in remaining_vary:
+            lines.append(f"    --{key}={_to_arg_literal(vary_by_key[key])} \\")
 
     if lines[-1].endswith(" \\"):
         lines[-1] = lines[-1][:-2]
     lines.append("")
-    lines.append('RUN=$(ls -td "${RESULT_PATH}/runs/${EXPERIMENT}/${TASK_ID}"_* | head -n 1)')
-    lines.append('"${PYTHON_BIN}" simulate.py "${RUN}"')
-    lines.append('"${PYTHON_BIN}" simulate.py "${RUN}" --detailed')
-    lines.append("")
+    if post_simulate:
+        lines.append('RUN=$(ls -td "${RESULT_PATH}/runs/${EXPERIMENT}/${TASK_ID}"_* | head -n 1)')
+        lines.append('"${PYTHON_BIN}" simulate.py "${RUN}"')
+        lines.append('"${PYTHON_BIN}" simulate.py "${RUN}" --detailed')
+        lines.append("")
     return "\n".join(lines)
 
 
