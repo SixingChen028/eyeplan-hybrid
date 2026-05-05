@@ -228,8 +228,10 @@ def main() -> None:
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--skip_timeout_trials", action="store_true")
     parser.add_argument("--detailed", action="store_true")
-    parser.add_argument("--seed-filter", type=int, default=1)
+    parser.add_argument("--seed-filter", type=int, default=None)
     args = parser.parse_args()
+    if args.seed_filter is None and args.detailed:
+        args.seed_filter = 1
     num_trials = args.num_trials
     if num_trials is None:
         num_trials = 100 if args.detailed else 10_240
