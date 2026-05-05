@@ -25,12 +25,8 @@ from modules.run_dirs import create_timestamped_run_dir, write_run_metadata
 from modules.network import actor_critic_forward, apply_action_mask, sample_actions
 from modules.simulation import (
     JaxSimulator,
-    _child_array_to_dict,
-    _compute_cum_points,
-    _compute_depths,
-    _leaf_nodes_from_children,
-    _parent_array_to_dict,
-    to_transformed_simulation_format,
+    append_simulation_trial,
+    empty_simulation_data,
 )
 
 jax.config.update('jax_compiler_enable_remat_pass', False)
@@ -1276,17 +1272,7 @@ def _split_simulation_rng_keys(rng_keys: jax.Array, batch_size: int) -> tuple[ja
 
 
 def _empty_simulation_data() -> dict[str, list]:
-    return {
-        "child_dicts": [],
-        "parent_dicts": [],
-        "root_nodes": [],
-        "leaf_nodes": [],
-        "depths": [],
-        "points": [],
-        "cum_points": [],
-        "action_seqs": [],
-        "choice_seqs": [],
-    }
+    return empty_simulation_data(detailed=False)
 
 
 def _append_simulation_batch(
@@ -1306,7 +1292,6 @@ def _append_simulation_batch(
     choice_path_lens = np.asarray(choice_path_lens)
 
     child_nodes_batch = np.asarray(states.child_nodes)
-    parent_nodes_batch = np.asarray(states.parent_nodes)
     points_batch = np.asarray(states.points)
     root_nodes_batch = np.asarray(states.root_node)
 
@@ -1317,7 +1302,6 @@ def _append_simulation_batch(
             data = data_by_run[hyper_index][seed_index]
             for trial_idx in range(trials_in_batch):
                 child_nodes = child_nodes_batch[hyper_index, seed_index, trial_idx]
-                parent_nodes = parent_nodes_batch[hyper_index, seed_index, trial_idx]
                 points = points_batch[hyper_index, seed_index, trial_idx]
                 root_node = int(root_nodes_batch[hyper_index, seed_index, trial_idx])
 
@@ -1333,15 +1317,17 @@ def _append_simulation_batch(
                     dtype=np.int32,
                 ).tolist()
 
-                data["child_dicts"].append(_child_array_to_dict(child_nodes))
-                data["parent_dicts"].append(_parent_array_to_dict(parent_nodes))
-                data["root_nodes"].append(root_node)
-                data["leaf_nodes"].append(_leaf_nodes_from_children(child_nodes).tolist())
-                data["depths"].append(_compute_depths(child_nodes, root_node).tolist())
-                data["points"].append(points.tolist())
-                data["cum_points"].append(_compute_cum_points(child_nodes, root_node, points).tolist())
-                data["action_seqs"].append(action_seq)
-                data["choice_seqs"].append(choice_seq)
+                append_simulation_trial(
+                    data,
+                    child_nodes=child_nodes,
+                    root_node=root_node,
+                    points=points,
+                    action_seq=action_seq,
+                    choice_seq=choice_seq,
+                    num_nodes=child_nodes.shape[0],
+                    t_max=action_seqs.shape[-1],
+                    skip_timeout_trials=False,
+                )
 
 
 def simulate_results(
@@ -1402,20 +1388,12 @@ def simulate_results(
         )
 
     run_dirs_by_index = np.asarray(run_dirs, dtype=object).reshape((len(combos), len(seeds)))
-    for hyper_index, combo in enumerate(combos):
-        env_for_output = _env_from_args(combo)
+    for hyper_index, _ in enumerate(combos):
         for seed_index, _ in enumerate(seeds):
             run_dir = str(run_dirs_by_index[hyper_index, seed_index])
-            transformed = to_transformed_simulation_format(
-                data_by_run[hyper_index][seed_index],
-                num_nodes=env_for_output.num_nodes,
-                t_max=env_for_output.t_max,
-                skip_timeout_trials=False,
-                detailed=False,
-            )
             output_path = os.path.join(run_dir, SIMULATION_DATA_NAME)
             with open(output_path, "w") as file:
-                json.dump(_round_floats(transformed), file)
+                json.dump(_round_floats(data_by_run[hyper_index][seed_index]), file)
                 file.write("\n")
             _log(f"simulation_json={output_path}")
 

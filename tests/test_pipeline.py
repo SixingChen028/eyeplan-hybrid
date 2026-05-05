@@ -2,7 +2,7 @@ import numpy as np
 
 from modules.a2c import JaxBatchMaskA2C
 from modules.environment import JaxDecisionTreeEnv
-from modules.simulation import JaxSimulator, to_transformed_simulation_format
+from modules.simulation import JaxSimulator, append_simulation_trial, empty_simulation_data
 
 
 def test_jax_train_step_compiles_and_runs():
@@ -113,11 +113,12 @@ def test_jax_simulator_runs_trials():
         seed=1,
         num_trials=5,
         greedy=False,
+        skip_timeout_trials=False,
     )
 
-    assert len(data["action_seqs"]) == 5
-    assert len(data["choice_seqs"]) == 5
-    assert all(len(seq) <= env.t_max for seq in data["action_seqs"])
+    assert set(data) == {"adj_lists", "starts", "rewards", "actions", "chosen_paths"}
+    assert len(data["actions"]) <= 5
+    assert all(len(seq) <= env.t_max + 1 for seq in data["actions"])
 
 
 def test_jax_simulator_runs_node_shared_trials():
@@ -156,10 +157,11 @@ def test_jax_simulator_runs_node_shared_trials():
         seed=1,
         num_trials=5,
         greedy=False,
+        skip_timeout_trials=False,
     )
 
-    assert len(data["action_seqs"]) == 5
-    assert len(data["choice_seqs"]) == 5
+    assert set(data) == {"adj_lists", "starts", "rewards", "actions", "chosen_paths"}
+    assert len(data["actions"]) <= 5
 
 
 def test_jax_simulator_runs_detailed_trials():
@@ -198,16 +200,17 @@ def test_jax_simulator_runs_detailed_trials():
         num_trials=5,
         greedy=False,
         detailed=True,
+        skip_timeout_trials=False,
     )
 
     for key in ["activations", "counts", "gs", "qs", "logits"]:
         assert len(data[key]) == 5
-        assert len(data[key][0]) == len(data["action_seqs"][0])
+        assert len(data[key][0]) == len(data["actions"][0]) - 1
     assert len(data["activations"][0][0]) == env.num_nodes
     assert len(data["counts"][0][0]) == env.num_nodes
     assert len(data["gs"][0][0]) == env.num_nodes
     assert len(data["qs"][0][0]) == env.num_nodes
-    assert len(data["logits"][0]) == len(data["action_seqs"][0])
+    assert len(data["logits"][0]) == len(data["actions"][0]) - 1
     assert len(data["logits"][0][0]) == env.action_size
 
 
@@ -246,9 +249,10 @@ def test_jax_simulator_records_forced_terminal_action():
         seed=3,
         num_trials=4,
         greedy=False,
+        skip_timeout_trials=False,
     )
 
-    assert data["action_seqs"] == [[env.num_nodes], [env.num_nodes], [env.num_nodes], [env.num_nodes]]
+    assert data["actions"] == [[0, env.num_nodes], [0, env.num_nodes], [0, env.num_nodes], [0, env.num_nodes]]
 
 
 def test_jax_simulator_evaluate_policy_returns_summary_stats():
@@ -299,64 +303,51 @@ def test_jax_simulator_evaluate_policy_returns_summary_stats():
     assert np.isfinite(summary["n_steps_sd"])
 
 
-def test_transformed_simulation_format_encodes_actions():
-    data = {
-        "child_dicts": [
-            {0: [1, 2]},
-            {0: [1, 2]},
-        ],
-        "root_nodes": [0, 1],
-        "points": [
-            [0.0, 1.0, -1.0],
-            [0.0, 2.0, 3.0],
-        ],
-        "action_seqs": [
-            [1, 2, 3],
-            [1, 1, 3],
-        ],
-        "choice_seqs": [
-            [2, 1],
-            [2],
-        ],
-    }
-
-    transformed = to_transformed_simulation_format(
+def test_append_simulation_trial_encodes_export_shape():
+    data = empty_simulation_data(detailed=False)
+    appended = append_simulation_trial(
         data,
+        child_nodes=np.array([[1, 2], [-1, -1], [-1, -1]], dtype=np.int32),
+        root_node=0,
+        points=np.array([0.0, 1.0, -1.0], dtype=np.float32),
+        action_seq=[1, 2, 3],
+        choice_seq=[2, 1],
         num_nodes=3,
         t_max=5,
         skip_timeout_trials=True,
     )
 
-    assert list(transformed.keys()) == ["adj_lists", "starts", "rewards", "actions", "chosen_paths"]
-    assert transformed["starts"] == [0, 1]
-    assert transformed["adj_lists"][0] == [[1, 2], [], []]
-    assert transformed["actions"][0] == [0, 1, 2, 3]
-    assert transformed["chosen_paths"][0] == [2, 1]
+    assert appended is True
+    assert list(data.keys()) == ["adj_lists", "starts", "rewards", "actions", "chosen_paths"]
+    assert data["starts"] == [0]
+    assert data["adj_lists"] == [[[1, 2], [], []]]
+    assert data["actions"] == [[0, 1, 2, 3]]
+    assert data["chosen_paths"] == [[2, 1]]
 
 
-def test_transformed_simulation_format_includes_details():
-    data = {
-        "child_dicts": [{0: [1, 2]}],
-        "root_nodes": [0],
-        "points": [[0.0, 1.0, -1.0]],
-        "action_seqs": [[1, 2, 3]],
-        "choice_seqs": [[2, 1]],
-        "activations": [[[1.0, 0.5, 0.25], [1.0, 0.0, 0.25], [1.0, 0.0, 1.0]]],
-        "counts": [[[1, 0, 0], [1, 1, 0], [1, 1, 1]]],
-        "gs": [[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 2.0]]],
-        "qs": [[[0.0, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.5, 1.0]]],
-        "logits": [[[0.0, 0.1, 0.2, 0.3], [0.0, 0.2, 0.1, 0.3], [0.0, 0.3, 0.2, 0.1]]],
+def test_append_simulation_trial_includes_details():
+    data = empty_simulation_data(detailed=True)
+    details = {
+        "activations": [[1.0, 0.5, 0.25], [1.0, 0.0, 0.25], [1.0, 0.0, 1.0]],
+        "counts": [[1, 0, 0], [1, 1, 0], [1, 1, 1]],
+        "gs": [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 2.0]],
+        "qs": [[0.0, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.5, 1.0]],
+        "logits": [[0.0, 0.1, 0.2, 0.3], [0.0, 0.2, 0.1, 0.3], [0.0, 0.3, 0.2, 0.1]],
     }
-
-    transformed = to_transformed_simulation_format(
+    append_simulation_trial(
         data,
+        child_nodes=np.array([[1, 2], [-1, -1], [-1, -1]], dtype=np.int32),
+        root_node=0,
+        points=np.array([0.0, 1.0, -1.0], dtype=np.float32),
+        action_seq=[1, 2, 3],
+        choice_seq=[2, 1],
         num_nodes=3,
         t_max=5,
         skip_timeout_trials=True,
-        detailed=True,
+        details=details,
     )
 
-    assert list(transformed.keys()) == [
+    assert list(data.keys()) == [
         "adj_lists",
         "starts",
         "rewards",
@@ -368,48 +359,43 @@ def test_transformed_simulation_format_includes_details():
         "qs",
         "logits",
     ]
-    assert transformed["activations"] == data["activations"]
-    assert transformed["counts"] == data["counts"]
-    assert transformed["gs"] == data["gs"]
-    assert transformed["qs"] == data["qs"]
-    assert transformed["logits"] == data["logits"]
-    assert transformed["actions"] == [[0, 1, 2, 3]]
-    assert transformed["chosen_paths"] == data["choice_seqs"]
+    assert data["activations"] == [details["activations"]]
+    assert data["counts"] == [details["counts"]]
+    assert data["gs"] == [details["gs"]]
+    assert data["qs"] == [details["qs"]]
+    assert data["logits"] == [details["logits"]]
+    assert data["actions"] == [[0, 1, 2, 3]]
+    assert data["chosen_paths"] == [[2, 1]]
 
 
-def test_transformed_simulation_format_skips_timeouts_when_requested():
-    data = {
-        "child_dicts": [
-            {0: [1, 2]},
-            {0: [1, 2]},
-        ],
-        "root_nodes": [0, 0],
-        "points": [
-            [0.0, 1.0, -1.0],
-            [0.0, 1.0, -1.0],
-        ],
-        "action_seqs": [
-            [1, 1, 1, 3],
-            [1, 2, 3],
-        ],
-        "choice_seqs": [
-            [2],
-            [1],
-        ],
-    }
+def test_append_simulation_trial_skips_timeouts_when_requested():
+    child_nodes = np.array([[1, 2], [-1, -1], [-1, -1]], dtype=np.int32)
+    points = np.array([0.0, 1.0, -1.0], dtype=np.float32)
+    data = empty_simulation_data()
 
-    transformed_skip = to_transformed_simulation_format(
+    appended_timeout = append_simulation_trial(
         data,
+        child_nodes=child_nodes,
+        root_node=0,
+        points=points,
+        action_seq=[1, 1, 1, 3],
+        choice_seq=[2],
         num_nodes=3,
         t_max=4,
         skip_timeout_trials=True,
     )
-    transformed_keep = to_transformed_simulation_format(
+    appended_complete = append_simulation_trial(
         data,
+        child_nodes=child_nodes,
+        root_node=0,
+        points=points,
+        action_seq=[1, 2, 3],
+        choice_seq=[1],
         num_nodes=3,
         t_max=4,
-        skip_timeout_trials=False,
+        skip_timeout_trials=True,
     )
 
-    assert len(transformed_skip["actions"]) == 1
-    assert len(transformed_keep["actions"]) == 2
+    assert appended_timeout is False
+    assert appended_complete is True
+    assert len(data["actions"]) == 1

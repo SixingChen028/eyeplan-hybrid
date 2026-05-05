@@ -8,55 +8,59 @@ from .environment import JaxDecisionTreeEnv
 from .network import actor_critic_forward, apply_action_mask, sample_actions
 
 
-def _child_array_to_dict(child_nodes: np.ndarray) -> Dict[int, List[int]]:
-    child_dict = {}
-    for parent in range(child_nodes.shape[0]):
-        children = child_nodes[parent]
+DETAIL_KEYS = ["activations", "counts", "gs", "qs", "logits"]
+
+
+def empty_simulation_data(*, detailed: bool = False) -> Dict[str, List[Any]]:
+    data = {
+        "adj_lists": [],
+        "starts": [],
+        "rewards": [],
+        "actions": [],
+        "chosen_paths": [],
+    }
+    if detailed:
+        for key in DETAIL_KEYS:
+            data[key] = []
+    return data
+
+
+def _adj_list_from_child_nodes(child_nodes: np.ndarray, num_nodes: int) -> List[List[int]]:
+    adj_list = [[] for _ in range(num_nodes)]
+    for parent, children in enumerate(child_nodes):
         if children[0] >= 0:
-            child_dict[parent] = [int(children[0]), int(children[1])]
-    return child_dict
+            adj_list[parent] = [int(children[0]), int(children[1])]
+    return adj_list
 
 
-def _parent_array_to_dict(parent_nodes: np.ndarray) -> Dict[int, int]:
-    parent_dict = {}
-    for child in range(parent_nodes.shape[0]):
-        parent = int(parent_nodes[child])
-        if parent >= 0:
-            parent_dict[child] = parent
-    return parent_dict
+def append_simulation_trial(
+    data: Dict[str, List[Any]],
+    *,
+    child_nodes: np.ndarray,
+    root_node: int,
+    points: np.ndarray,
+    action_seq: List[int],
+    choice_seq: List[int],
+    num_nodes: int,
+    t_max: int,
+    skip_timeout_trials: bool,
+    details: Dict[str, Any] | None = None,
+) -> bool:
+    if skip_timeout_trials and len(action_seq) >= t_max:
+        return False
+    if len(action_seq) == 0 or action_seq[-1] != num_nodes:
+        return False
 
+    data["adj_lists"].append(_adj_list_from_child_nodes(child_nodes, num_nodes))
+    data["starts"].append(int(root_node))
+    data["rewards"].append([float(value) for value in points])
+    data["actions"].append([int(root_node)] + [int(action) for action in action_seq])
+    data["chosen_paths"].append([int(choice) for choice in choice_seq])
 
-def _leaf_nodes_from_children(child_nodes: np.ndarray) -> np.ndarray:
-    return np.where(child_nodes[:, 0] < 0)[0]
-
-
-def _compute_cum_points(child_nodes: np.ndarray, root_node: int, points: np.ndarray) -> np.ndarray:
-    cum_points = np.zeros((points.shape[0],), dtype=np.float32)
-
-    def dfs(node: int, cum: float):
-        new_cum = cum + float(points[node])
-        cum_points[node] = new_cum
-        children = child_nodes[node]
-        if children[0] >= 0:
-            dfs(int(children[0]), new_cum)
-            dfs(int(children[1]), new_cum)
-
-    dfs(root_node, 0.0)
-    return cum_points
-
-
-def _compute_depths(child_nodes: np.ndarray, root_node: int) -> np.ndarray:
-    depths = np.zeros((child_nodes.shape[0],), dtype=np.int32)
-
-    def dfs(node: int, depth: int):
-        depths[node] = depth
-        children = child_nodes[node]
-        if children[0] >= 0:
-            dfs(int(children[0]), depth + 1)
-            dfs(int(children[1]), depth + 1)
-
-    dfs(root_node, 0)
-    return depths
+    if details is not None:
+        for key in DETAIL_KEYS:
+            data[key].append(details[key])
+    return True
 
 
 class JaxSimulator:
@@ -306,6 +310,7 @@ class JaxSimulator:
         greedy: bool = False,
         batch_size: int = 512,
         detailed: bool = False,
+        skip_timeout_trials: bool = True,
     ):
         if num_trials <= 0:
             raise ValueError("num_trials must be positive")
@@ -315,27 +320,7 @@ class JaxSimulator:
         rng_key = jax.random.PRNGKey(seed)
         num_batches = int(np.ceil(num_trials / batch_size))
 
-        data = {
-            "child_dicts": [],
-            "parent_dicts": [],
-            "root_nodes": [],
-            "leaf_nodes": [],
-            "depths": [],
-            "points": [],
-            "cum_points": [],
-            "action_seqs": [],
-            "choice_seqs": [],
-        }
-        if detailed:
-            data.update(
-                {
-                    "activations": [],
-                    "counts": [],
-                    "gs": [],
-                    "qs": [],
-                    "logits": [],
-                }
-            )
+        data = empty_simulation_data(detailed=detailed)
 
         for batch_idx in range(num_batches):
             rng_key, batch_key = jax.random.split(rng_key)
@@ -366,7 +351,6 @@ class JaxSimulator:
                 logits_seqs = np.asarray(logits_seqs)
 
             child_nodes_batch = np.asarray(states.child_nodes)
-            parent_nodes_batch = np.asarray(states.parent_nodes)
             points_batch = np.asarray(states.points)
             root_nodes_batch = np.asarray(states.root_node)
 
@@ -375,7 +359,6 @@ class JaxSimulator:
 
             for trial_idx in range(trials_in_batch):
                 child_nodes = child_nodes_batch[trial_idx]
-                parent_nodes = parent_nodes_batch[trial_idx]
                 points = points_batch[trial_idx]
                 root_node = int(root_nodes_batch[trial_idx])
 
@@ -385,22 +368,29 @@ class JaxSimulator:
                 choice_len = int(choice_path_lens[trial_idx])
                 choice_seq = np.asarray(choice_paths[trial_idx, :choice_len], dtype=np.int32).tolist()
 
-                data["child_dicts"].append(_child_array_to_dict(child_nodes))
-                data["parent_dicts"].append(_parent_array_to_dict(parent_nodes))
-                data["root_nodes"].append(root_node)
-                data["leaf_nodes"].append(_leaf_nodes_from_children(child_nodes).tolist())
-                data["depths"].append(_compute_depths(child_nodes, root_node).tolist())
-                data["points"].append(points.tolist())
-                data["cum_points"].append(_compute_cum_points(child_nodes, root_node, points).tolist())
-                data["action_seqs"].append(action_seq)
-                data["choice_seqs"].append(choice_seq)
+                details = None
                 if detailed:
-                    data["activations"].append(activation_seqs[trial_idx, :action_len].tolist())
-                    data["counts"].append(count_seqs[trial_idx, :action_len].tolist())
-                    data["gs"].append(g_seqs[trial_idx, :action_len].tolist())
-                    data["qs"].append(q_seqs[trial_idx, :action_len].tolist())
+                    details = {
+                        "activations": activation_seqs[trial_idx, :action_len].tolist(),
+                        "counts": count_seqs[trial_idx, :action_len].tolist(),
+                        "gs": g_seqs[trial_idx, :action_len].tolist(),
+                        "qs": q_seqs[trial_idx, :action_len].tolist(),
+                    }
                     logits_seq = np.asarray(logits_seqs[trial_idx, :action_len], dtype=np.float32).tolist()
-                    data["logits"].append(logits_seq)
+                    details["logits"] = logits_seq
+
+                append_simulation_trial(
+                    data,
+                    child_nodes=child_nodes,
+                    root_node=root_node,
+                    points=points,
+                    action_seq=action_seq,
+                    choice_seq=choice_seq,
+                    num_nodes=self.env.num_nodes,
+                    t_max=self.env.t_max,
+                    skip_timeout_trials=skip_timeout_trials,
+                    details=details,
+                )
 
         return data
 
@@ -450,83 +440,3 @@ class JaxSimulator:
             "n_steps_mean": float(np.mean(steps)),
             "n_steps_sd": float(np.std(steps)),
         }
-
-
-def to_transformed_simulation_format(
-    data: Dict[str, List[Any]],
-    *,
-    num_nodes: int,
-    t_max: int,
-    skip_timeout_trials: bool = True,
-    detailed: bool = False,
-) -> Dict[str, List[Any]]:
-    """
-    Convert simulator output to the JSON schema:
-      {
-        "adj_lists": [...],
-        "starts": [...],
-        "rewards": [...],
-        "actions": [...],
-      }
-    """
-
-    transformed = {
-        "adj_lists": [],
-        "starts": [],
-        "rewards": [],
-        "actions": [],
-        "chosen_paths": [],
-    }
-    detail_keys = ["activations", "counts", "gs", "qs", "logits"]
-    if detailed:
-        for key in detail_keys:
-            if key not in data:
-                raise ValueError(f"Detailed simulation data missing key: {key}")
-            transformed[key] = []
-
-    child_dicts = data.get("child_dicts", [])
-    root_nodes = data.get("root_nodes", [])
-    points_list = data.get("points", [])
-    action_seqs = data.get("action_seqs", [])
-    choice_seqs = data.get("choice_seqs", [])
-
-    for trial_idx, (child_dict, root_node, points, action_seq, choice_seq) in enumerate(
-        zip(
-            child_dicts,
-            root_nodes,
-            points_list,
-            action_seqs,
-            choice_seqs,
-        )
-    ):
-        action_seq = [int(a) for a in action_seq]
-        choice_seq = [int(a) for a in choice_seq]
-        root_node = int(root_node)
-        points = [float(v) for v in points]
-
-        if skip_timeout_trials and len(action_seq) >= t_max:
-            continue
-
-        adj_list = [[] for _ in range(num_nodes)]
-        for parent, children in child_dict.items():
-            parent = int(parent)
-            adj_list[parent] = [int(children[0]), int(children[1])]
-
-        if len(action_seq) == 0:
-            continue
-
-        if action_seq[-1] != num_nodes:
-            continue
-
-        actions = [root_node] + action_seq
-
-        transformed["adj_lists"].append(adj_list)
-        transformed["starts"].append(root_node)
-        transformed["rewards"].append(points)
-        transformed["actions"].append(actions)
-        transformed["chosen_paths"].append(choice_seq)
-        if detailed:
-            for key in detail_keys:
-                transformed[key].append(data[key][trial_idx])
-
-    return transformed

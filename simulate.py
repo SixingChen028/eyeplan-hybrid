@@ -8,7 +8,7 @@ import traceback
 from modules.a2c import load_jax_params
 from modules.analysis_targets import resolve_analysis_target
 from modules.environment import JaxDecisionTreeEnv
-from modules.simulation import JaxSimulator, to_transformed_simulation_format
+from modules.simulation import JaxSimulator
 
 
 def _read_metadata(run_dir: str) -> dict:
@@ -204,21 +204,14 @@ def _simulate_run(
         num_trials=num_trials,
         greedy=greedy,
         detailed=detailed,
-    )
-
-    transformed = to_transformed_simulation_format(
-        data,
-        num_nodes=env.num_nodes,
-        t_max=env.t_max,
         skip_timeout_trials=skip_timeout_trials,
-        detailed=detailed,
     )
 
     with open(output_path, "w") as file:
-        json.dump(_round_floats(transformed), file)
+        json.dump(_round_floats(data), file)
         file.write("\n")
 
-    return params_path, seed, len(data["action_seqs"]), len(transformed["actions"])
+    return params_path, seed, num_trials, len(data["actions"])
 
 
 def main() -> None:
