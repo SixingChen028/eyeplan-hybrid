@@ -1532,7 +1532,10 @@ def main() -> None:
         raise ValueError(f"Unsupported algo {algo!r}; expected 'a2c' or 'ppo'.")
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or str(meta.get("experiment", config_path.stem))
-    _log(f"results_destination={output_path}")
+    results_dir_display = os.path.join(output_path, "runs", experiment, "")
+    if results_dir_display.startswith("./"):
+        results_dir_display = results_dir_display[2:]
+    _log(f"writing results to {results_dir_display}")
 
     num_updates, num_envs, rollout_length = _resolve_training_geometry(fixed)
     env = _env_from_args(combos[0])
