@@ -71,7 +71,8 @@ class JaxSimulator:
         self._eval_batch_jit = jax.jit(self._run_eval_batch, static_argnames=("greedy",))
 
     def _run_trial(self, params: Any, rng_key: jax.Array, greedy: bool = False):
-        state, obs, info = self.env.reset(rng_key)
+        env_params = self.env.params()
+        state, obs, info = self.env.reset_with_params(rng_key, env_params)
         action_mask = info["mask"]
 
         action_seq = -jnp.ones((self.env.t_max,), dtype=jnp.int32)
@@ -138,7 +139,7 @@ class JaxSimulator:
             else:
                 action, rng_key = sampled_action(rng_key)
             raw_action = action
-            state, obs, _, done, _, info = self.env.step(state, action)
+            state, obs, _, done, _, info = self.env.step_with_params(state, action, env_params)
             action_mask = info["mask"]
             action_seq = action_seq.at[step_count].set(raw_action)
             step_count = step_count + 1
@@ -179,7 +180,7 @@ class JaxSimulator:
         def sample_choice_path(payload):
             state, rng_key = payload
             sample_state = state._replace(rng_key=rng_key)
-            _, path, path_len, rng_key = self.env._sample_move_path(sample_state)
+            _, path, path_len, rng_key = self.env._sample_move_path(sample_state, env_params)
             return path, path_len, rng_key
 
         def empty_choice_path(payload):
@@ -208,7 +209,8 @@ class JaxSimulator:
         )
 
     def _run_trial_metrics(self, params: Any, rng_key: jax.Array, greedy: bool = False):
-        state, obs, info = self.env.reset(rng_key)
+        env_params = self.env.params()
+        state, obs, info = self.env.reset_with_params(rng_key, env_params)
         action_mask = info["mask"]
 
         carry = (
@@ -248,7 +250,7 @@ class JaxSimulator:
                 rng_key,
             )
 
-            state, obs, reward, done, _, info = self.env.step(state, action)
+            state, obs, reward, done, _, info = self.env.step_with_params(state, action, env_params)
             action_mask = info["mask"]
             step_count = step_count + 1
             episode_reward = episode_reward + reward
@@ -260,7 +262,7 @@ class JaxSimulator:
 
         no_cost_reward = jax.lax.cond(
             moved,
-            lambda _: self.env._expected_move_reward(state) * self.env.scale_factor,
+            lambda _: self.env._expected_move_reward(state, env_params) * env_params.scale_factor,
             lambda _: jnp.array(0.0, dtype=jnp.float32),
             operand=None,
         )

@@ -113,7 +113,7 @@ class JaxBatchMaskPPO:
 
     def _default_train_params(self) -> PPOTrainParams:
         return PPOTrainParams(
-            env=self.env.default_params(),
+            env=self.env.params(),
             lr=jnp.asarray(self.lr, dtype=jnp.float32),
             gamma=jnp.asarray(self.gamma, dtype=jnp.float32),
             lamda=jnp.asarray(self.lamda, dtype=jnp.float32),
@@ -122,7 +122,7 @@ class JaxBatchMaskPPO:
         )
 
     def init_state(self, seed: int = 0) -> JaxTrainState:
-        return self.init_state_with_params(seed, self.env.default_params())
+        return self.init_state_with_params(seed, self.env.params())
 
     def init_state_with_params(self, seed: int, env_params: JaxDecisionTreeParams) -> JaxTrainState:
         key = jax.random.PRNGKey(seed)

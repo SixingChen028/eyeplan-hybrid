@@ -132,7 +132,8 @@ class JaxDecisionTreeEnv:
         self.observation_shape = (observation_size,)
         self.action_size = self.num_nodes + 1
 
-    def default_params(self) -> JaxDecisionTreeParams:
+    def params(self) -> JaxDecisionTreeParams:
+        q_decay = self._q_decay_value(self.q_drift, self.scale_factor) if self.q_decay_auto else self.q_decay
         return JaxDecisionTreeParams(
             beta_move=jnp.asarray(self.beta_move, dtype=jnp.float32),
             eps_move=jnp.asarray(self.eps_move, dtype=jnp.float32),
@@ -142,7 +143,7 @@ class JaxDecisionTreeEnv:
             wm_decay=jnp.asarray(self.wm_decay, dtype=jnp.float32),
             q_drop_rate=jnp.asarray(self.q_drop_rate, dtype=jnp.float32),
             q_drift=jnp.asarray(self.q_drift, dtype=jnp.float32),
-            q_decay=jnp.asarray(self._q_decay_value(), dtype=jnp.float32),
+            q_decay=jnp.asarray(q_decay, dtype=jnp.float32),
             recency_decay=jnp.asarray(self._recency_decay_value(), dtype=jnp.float32),
             cost=jnp.asarray(self.cost, dtype=jnp.float32),
             scale_factor=jnp.asarray(self.scale_factor, dtype=jnp.float32),
@@ -150,17 +151,16 @@ class JaxDecisionTreeEnv:
             wm_backup=jnp.asarray(self.wm_backup, dtype=jnp.bool_),
         )
 
-    def _q_prior_var(self, scale_factor=None) -> jax.Array:
-        scale = self.scale_factor if scale_factor is None else scale_factor
+    def default_params(self) -> JaxDecisionTreeParams:
+        return self.params()
+
+    def _q_prior_var(self, scale_factor: jax.Array) -> jax.Array:
+        scale = jnp.asarray(scale_factor, dtype=jnp.float32)
         values = self.point_set * scale
         return jnp.var(values)
 
-    def _q_decay_value(self, q_drift=None, scale_factor=None) -> jax.Array:
-        if not self.q_decay_auto:
-            return jnp.asarray(self.q_decay, dtype=jnp.float32)
-
-        drift = self.q_drift if q_drift is None else q_drift
-        drift_var = jnp.square(jnp.asarray(drift, dtype=jnp.float32))
+    def _q_decay_value(self, q_drift: jax.Array, scale_factor: jax.Array) -> jax.Array:
+        drift_var = jnp.square(jnp.asarray(q_drift, dtype=jnp.float32))
         prior_var = jnp.maximum(self._q_prior_var(scale_factor), jnp.asarray(1e-8, dtype=jnp.float32))
         return drift_var / (drift_var + prior_var)
 
@@ -170,34 +170,28 @@ class JaxDecisionTreeEnv:
         mask = label >= 0
         return jax.nn.one_hot(idx, self.num_nodes, dtype=jnp.float32) * mask.astype(jnp.float32)
 
-    def _softmax(self, x: jax.Array, params: JaxDecisionTreeParams | None = None) -> jax.Array:
-        beta_move = self.beta_move if params is None else params.beta_move
-        eps_move = self.eps_move if params is None else params.eps_move
-
-        z = beta_move * (x - jnp.max(x, axis=-1, keepdims=True))
+    def _softmax(self, x: jax.Array, params: JaxDecisionTreeParams) -> jax.Array:
+        z = params.beta_move * (x - jnp.max(x, axis=-1, keepdims=True))
         p = jnp.exp(z)
         p = p / jnp.sum(p, axis=-1, keepdims=True)
 
-        p = (1.0 - eps_move) * p + eps_move * (1.0 / x.shape[-1])
+        p = (1.0 - params.eps_move) * p + params.eps_move * (1.0 / x.shape[-1])
 
         return p
 
-    def _build_tree(self, key: jax.Array, params: JaxDecisionTreeParams | None = None):
+    def _build_tree(self, key: jax.Array, params: JaxDecisionTreeParams):
         nodes = jnp.arange(self.num_nodes, dtype=jnp.int32)
-        if params is None and self.shuffle_nodes:
-            key, perm_key = jax.random.split(key)
-            nodes = jax.random.permutation(perm_key, nodes)
-        elif params is not None:
-            def shuffled_fn(k):
-                k, perm_key = jax.random.split(k)
-                return k, jax.random.permutation(perm_key, nodes)
 
-            key, nodes = jax.lax.cond(
-                params.shuffle_nodes,
-                shuffled_fn,
-                lambda k: (k, nodes),
-                key,
-            )
+        def shuffled_fn(k):
+            k, perm_key = jax.random.split(k)
+            return k, jax.random.permutation(perm_key, nodes)
+
+        key, nodes = jax.lax.cond(
+            params.shuffle_nodes,
+            shuffled_fn,
+            lambda k: (k, nodes),
+            key,
+        )
 
         root = nodes[0]
         child_nodes = -jnp.ones((self.num_nodes, 2), dtype=jnp.int32)
@@ -282,44 +276,39 @@ class JaxDecisionTreeEnv:
         points,
         node,
         activation,
-        params: JaxDecisionTreeParams | None = None,
+        params: JaxDecisionTreeParams,
     ):
-        learning_rate = self.learning_rate if params is None else params.learning_rate
-        lamda_backup = self.lamda_backup if params is None else params.lamda_backup
-        backup_steps = self.backup_steps if params is None else params.backup_steps
-        wm_backup = self.wm_backup if params is None else params.wm_backup
-
         target = self._bellman_target(q_values, child_nodes, points, node)
-        node_step = learning_rate * (target - q_values[node])
+        node_step = params.learning_rate * (target - q_values[node])
         q_values = q_values.at[node].add(node_step)
 
         def cond_fn(carry):
             current, weight, steps, _ = carry
             parent = parent_nodes[current]
             has_parent = parent >= 0
-            has_budget = steps < backup_steps
+            has_budget = steps < params.backup_steps
             return (weight > 1e-6) & (current != root_node) & has_parent & has_budget
 
         def body_fn(carry):
             current, weight, steps, q_values = carry
             ancestor = parent_nodes[current]
             target = jax.lax.cond(
-                wm_backup,
+                params.wm_backup,
                 lambda _: self._bellman_target(q_values, child_nodes, points, ancestor, activation),
                 lambda _: self._bellman_target(q_values, child_nodes, points, ancestor),
                 operand=None,
             )
-            step_size = learning_rate * weight
+            step_size = params.learning_rate * weight
             new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
             q_values = q_values.at[ancestor].set(new_value)
-            return ancestor, weight * lamda_backup, steps + 1, q_values
+            return ancestor, weight * params.lamda_backup, steps + 1, q_values
 
         _, _, _, q_values = jax.lax.while_loop(
             cond_fn,
             body_fn,
             (
                 node,
-                jnp.asarray(lamda_backup, dtype=q_values.dtype),
+                jnp.asarray(params.lamda_backup, dtype=q_values.dtype),
                 jnp.asarray(0, dtype=jnp.int32),
                 q_values,
             ),
@@ -329,14 +318,11 @@ class JaxDecisionTreeEnv:
     def _decay_fixation_recency(
         self,
         state: JaxDecisionTreeState,
-        params: JaxDecisionTreeParams | None = None,
+        params: JaxDecisionTreeParams,
     ) -> JaxDecisionTreeState:
-        recency_decay = self._recency_decay_value(params)
-        return state._replace(fixation_recency=state.fixation_recency * recency_decay)
+        return state._replace(fixation_recency=state.fixation_recency * params.recency_decay)
 
-    def _recency_decay_value(self, params: JaxDecisionTreeParams | None = None):
-        if params is not None:
-            return params.recency_decay
+    def _recency_decay_value(self):
         if self.recency_decay_auto:
             return jnp.where(self.wm_decay == 1.0, 0.5, self.wm_decay)
         return jnp.asarray(self.recency_decay, dtype=jnp.float32)
@@ -345,7 +331,7 @@ class JaxDecisionTreeEnv:
         self,
         state: JaxDecisionTreeState,
         node: jax.Array,
-        params: JaxDecisionTreeParams | None = None,
+        params: JaxDecisionTreeParams,
     ) -> JaxDecisionTreeState:
         n_visits = state.n_visits.at[node].add(1)
         q_values = self._update_q(
@@ -363,7 +349,7 @@ class JaxDecisionTreeEnv:
             q_values=q_values,
             n_visits=n_visits,
             fixation_recency=state.fixation_recency.at[node].set(
-                jnp.where(self._recency_decay_value(params) > 0.0, 1.0, 0.0),
+                jnp.where(params.recency_decay > 0.0, 1.0, 0.0),
             ),
         )
 
@@ -371,16 +357,12 @@ class JaxDecisionTreeEnv:
         self,
         state: JaxDecisionTreeState,
         node: jax.Array,
-        params: JaxDecisionTreeParams | None = None,
+        params: JaxDecisionTreeParams,
     ) -> JaxDecisionTreeState:
         key, drop_key = jax.random.split(state.rng_key)
         key, q_drop_key = jax.random.split(key)
 
-        wm_decay = self.wm_decay if params is None else params.wm_decay
-        q_drop_rate = self.q_drop_rate if params is None else params.q_drop_rate
-        q_drift = self.q_drift if params is None else params.q_drift
-        q_decay = self._q_decay_value(q_drift) if params is None else params.q_decay
-        activation = state.activation * wm_decay
+        activation = state.activation * params.wm_decay
         activation = jnp.clip(activation, 0.0, 1.0)
         activation = activation.at[node].set(1.0)
 
@@ -403,12 +385,12 @@ class JaxDecisionTreeEnv:
         keep = jax.random.uniform(drop_key, shape=(self.num_nodes,)) < activation
         activation = jnp.where(keep, activation, 0.0)
         q_drop_mask = (activation == 0.0) & (
-            jax.random.uniform(q_drop_key, shape=(self.num_nodes,)) < q_drop_rate
+            jax.random.uniform(q_drop_key, shape=(self.num_nodes,)) < params.q_drop_rate
         )
         inactive = activation == 0.0
         q_drift_key = jax.random.fold_in(q_drop_key, 1)
-        q_values = jnp.where(inactive, state.q_values * (1.0 - q_decay), state.q_values)
-        q_noise = jax.random.normal(q_drift_key, shape=(self.num_nodes,)) * q_drift
+        q_values = jnp.where(inactive, state.q_values * (1.0 - params.q_decay), state.q_values)
+        q_noise = jax.random.normal(q_drift_key, shape=(self.num_nodes,)) * params.q_drift
         q_values = jnp.where(inactive, q_values + q_noise, q_values)
         q_values = jnp.where(q_drop_mask, 0.0, q_values)
 
@@ -473,7 +455,7 @@ class JaxDecisionTreeEnv:
     def _expected_move_reward(
         self,
         state: JaxDecisionTreeState,
-        params: JaxDecisionTreeParams | None = None,
+        params: JaxDecisionTreeParams,
     ):
         expected = jnp.zeros((self.num_nodes,), dtype=jnp.float32)
 
@@ -490,7 +472,7 @@ class JaxDecisionTreeEnv:
         expected = jax.lax.fori_loop(0, self.num_nodes, body_fn, expected)
         return expected[state.root_node]
 
-    def _sample_move_path(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams | None = None):
+    def _sample_move_path(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
         path = self.empty_path
 
         init = (
@@ -539,7 +521,7 @@ class JaxDecisionTreeEnv:
         points = points.at[root].set(0.0)
         g_values = self._compute_path_values(parent_nodes, points)
 
-        recency_initial_value = jnp.where(self._recency_decay_value(params) > 0.0, 1.0, 0.0)
+        recency_initial_value = jnp.where(params.recency_decay > 0.0, 1.0, 0.0)
         state = JaxDecisionTreeState(
             rng_key=key,
             time_elapsed=jnp.int32(0),
@@ -562,7 +544,7 @@ class JaxDecisionTreeEnv:
         return state, obs, info
 
     def reset(self, key: jax.Array):
-        return self.reset_with_params(key, self.default_params())
+        return self.reset_with_params(key, self.params())
 
     def step_with_params(
         self,
@@ -603,4 +585,4 @@ class JaxDecisionTreeEnv:
         return state, obs, reward, done, jnp.array(False), info
 
     def step(self, state: JaxDecisionTreeState, action: jax.Array):
-        return self.step_with_params(state, action, self.default_params())
+        return self.step_with_params(state, action, self.params())

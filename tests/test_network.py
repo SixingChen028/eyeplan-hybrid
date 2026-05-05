@@ -44,7 +44,7 @@ def _permute_node_observation(obs, permutation, has_recency=False):
 
 def test_mlp_forward_shape_is_unchanged():
     env = JaxDecisionTreeEnv(num_nodes=5, shuffle_nodes=False)
-    _, obs, info = env.reset(jax.random.PRNGKey(0))
+    _, obs, info = env.reset_with_params(jax.random.PRNGKey(0), env.params())
     params = init_mlp_actor_critic_params(
         jax.random.PRNGKey(1),
         feature_size=env.observation_shape[0],
@@ -61,7 +61,7 @@ def test_mlp_forward_shape_is_unchanged():
 def test_node_shared_forward_shape_with_and_without_recency():
     for recency_decay in ["off", 0.5]:
         env = JaxDecisionTreeEnv(num_nodes=5, shuffle_nodes=False, recency_decay=recency_decay)
-        _, obs, info = env.reset(jax.random.PRNGKey(0))
+        _, obs, info = env.reset_with_params(jax.random.PRNGKey(0), env.params())
         params = init_actor_critic_params(
             jax.random.PRNGKey(1),
             feature_size=env.observation_shape[0],
@@ -80,7 +80,7 @@ def test_node_shared_forward_shape_with_and_without_recency():
 
 def test_node_shared_forward_is_permutation_equivariant_for_node_logits():
     env = JaxDecisionTreeEnv(num_nodes=5, shuffle_nodes=False, recency_decay=0.5)
-    _, obs, info = env.reset(jax.random.PRNGKey(0))
+    _, obs, info = env.reset_with_params(jax.random.PRNGKey(0), env.params())
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),
         feature_size=env.observation_shape[0],

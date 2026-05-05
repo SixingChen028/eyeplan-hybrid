@@ -64,6 +64,7 @@ def _sample_policy_action(params, obs, mask, key):
 def test_live_environment_matches_frozen_reference_for_random_policy_rollouts():
     for config_index, config in enumerate(ENV_CONFIGS):
         live_env = JaxDecisionTreeEnv(**config)
+        live_params = live_env.params()
         reference_env = ReferenceJaxDecisionTreeEnv(**config)
 
         for policy_index in range(10):
@@ -75,7 +76,7 @@ def test_live_environment_matches_frozen_reference_for_random_policy_rollouts():
                 action_size=live_env.action_size,
             )
 
-            live_state, live_obs, live_info = live_env.reset(reset_key)
+            live_state, live_obs, live_info = live_env.reset_with_params(reset_key, live_params)
             reference_state, reference_obs, reference_info = reference_env.reset(reset_key)
 
             np.testing.assert_allclose(np.asarray(live_obs), np.asarray(reference_obs), atol=1e-6)
@@ -95,9 +96,10 @@ def test_live_environment_matches_frozen_reference_for_random_policy_rollouts():
                 )
                 np.testing.assert_array_equal(np.asarray(live_action), np.asarray(reference_action))
 
-                live_state, live_obs, live_reward, live_done, live_truncated, live_info = live_env.step(
+                live_state, live_obs, live_reward, live_done, live_truncated, live_info = live_env.step_with_params(
                     live_state,
                     live_action,
+                    live_params,
                 )
                 (
                     reference_state,

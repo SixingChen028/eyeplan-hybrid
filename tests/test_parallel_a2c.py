@@ -64,16 +64,17 @@ def test_dynamic_env_params_match_default_env_for_same_values():
         point_set=np.array([1.0], dtype=np.float32),
     )
     key = jax.random.PRNGKey(2)
+    params = env.params()
 
-    state_default, obs_default, info_default = env.reset(key)
-    state_dynamic, obs_dynamic, info_dynamic = env.reset_with_params(key, env.default_params())
+    state_default, obs_default, info_default = env.reset_with_params(key, params)
+    state_dynamic, obs_dynamic, info_dynamic = env.reset_with_params(key, params)
 
     np.testing.assert_allclose(np.asarray(obs_dynamic), np.asarray(obs_default), atol=1e-6)
     np.testing.assert_array_equal(np.asarray(info_dynamic["mask"]), np.asarray(info_default["mask"]))
 
     action = jnp.asarray(1, dtype=jnp.int32)
-    default_step = env.step(state_default, action)
-    dynamic_step = env.step_with_params(state_dynamic, action, env.default_params())
+    default_step = env.step_with_params(state_default, action, params)
+    dynamic_step = env.step_with_params(state_dynamic, action, params)
 
     for dynamic_leaf, default_leaf in zip(
         jax.tree_util.tree_leaves(dynamic_step[0]),
