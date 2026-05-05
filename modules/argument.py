@@ -43,16 +43,6 @@ def parse_recency_decay(value):
     return parsed
 
 
-def parse_q_flip_rate(value):
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError) as error:
-        raise argparse.ArgumentTypeError("q_flip_rate must be a number in [0, 0.5].") from error
-    if not 0.0 <= parsed <= 0.5:
-        raise argparse.ArgumentTypeError("q_flip_rate must satisfy 0 <= q_flip_rate <= 0.5.")
-    return parsed
-
-
 class ArgParser:
     """
     An ArgumentParser.
@@ -98,7 +88,6 @@ class ArgParser:
         self.parser.add_argument('--wm_decay', type = float, default = 1.0, help = 'working memory decay')
         self.parser.add_argument('--wm_backup', type = parse_bool, default = True, help = 'if backup in update_q should only use active child nodes')
         self.parser.add_argument('--q_drop_rate', type = float, default = 0.0, help = 'probability of resetting q to 0 when node is inactive')
-        self.parser.add_argument('--q_flip_rate', type = parse_q_flip_rate, default = 0.0, help = 'probability of swapping inactive q with sibling q (must be <= 0.5)')
         self.parser.add_argument('--t_max', type = int, default = 50, help = 'max time steps per episode')
         self.parser.add_argument('--cost', type = float, default = 0.01, help = 'cost per action')
         self.parser.add_argument('--scale_factor', type = float, default = 1 / 8, help = 'reward scale factor')
