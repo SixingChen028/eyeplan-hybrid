@@ -234,7 +234,7 @@ def main() -> None:
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--skip_timeout_trials", action="store_true")
     parser.add_argument("--detailed", action="store_true")
-    parser.add_argument("--seed-filter", type=int, default=None)
+    parser.add_argument("--seed-filter", type=int, default=1)
     args = parser.parse_args()
     num_trials = args.num_trials
     if num_trials is None:
