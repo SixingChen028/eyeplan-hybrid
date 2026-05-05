@@ -66,8 +66,6 @@ def _sync_reference_from_state(env: ReferenceDecisionTreeEnv, state) -> None:
 
     env.activation = np.asarray(state.activation).copy()
 
-    chosen_path_len = int(state.chosen_path_len)
-    env.chosen_path = [int(node) for node in np.asarray(state.chosen_path)[:chosen_path_len]]
     env.raw_to_canon = np.asarray(state.raw_to_canon).copy()
     env.canon_to_raw = np.asarray(state.canon_to_raw).copy()
     env.next_canon_id = int(state.next_canon_id)
@@ -427,8 +425,30 @@ def test_move_step_matches_reference_environment():
     np.testing.assert_equal(bool(truncated_jax), truncated_reference)
     np.testing.assert_array_equal(np.asarray(info_jax["mask"]), info_reference["mask"])
 
-    chosen_path_jax = np.asarray(state.chosen_path)[: int(state.chosen_path_len)]
-    np.testing.assert_array_equal(chosen_path_jax, np.asarray(reference_env.chosen_path, dtype=np.int32))
+
+def test_move_reward_marginalizes_over_possible_paths():
+    env = JaxDecisionTreeEnv(
+        num_nodes=3,
+        beta_move=0.0,
+        eps_move=0.0,
+        t_max=3,
+        cost=0.0,
+        scale_factor=1.0,
+        shuffle_nodes=False,
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(101))
+    state = state._replace(
+        points=jnp.array([0.0, 2.0, 6.0], dtype=jnp.float32),
+        q_values=jnp.zeros((3,), dtype=jnp.float32),
+    )
+
+    state, _, reward, done, truncated, _ = env.step(state, _jax_action(env.num_nodes))
+
+    assert bool(done)
+    assert not bool(truncated)
+    np.testing.assert_allclose(float(reward), 4.0, atol=1e-6)
+    assert not hasattr(state, "chosen_path")
+    assert not hasattr(state, "chosen_path_len")
 
 
 def test_compiled_rollout_matches_reference_environment():
@@ -506,7 +526,7 @@ def test_compiled_rollout_matches_reference_environment():
     np.testing.assert_array_equal(np.asarray(masks_jax), np.asarray(reference_step_masks))
 
 
-def test_chosen_path_does_not_leak_across_trials():
+def test_move_path_is_not_stored_in_environment_state():
     reference_env, jax_env, key, state, _, _ = _reset_synced_envs(seed=7, t_max=3)
 
     raw_action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
@@ -517,8 +537,8 @@ def test_chosen_path_does_not_leak_across_trials():
     reference_env.step(move_action)
     state, _, _, _, _, _ = jax_env.step(state, _jax_action(move_action))
 
-    assert len(reference_env.chosen_path) > 0
-    assert int(state.chosen_path_len) > 0
+    assert not hasattr(state, "chosen_path")
+    assert not hasattr(state, "chosen_path_len")
 
     reference_env.reset()
     state, _, _ = jax_env.reset(key)
@@ -534,8 +554,8 @@ def test_chosen_path_does_not_leak_across_trials():
 
     assert not done_reference
     assert not bool(done_jax)
-    np.testing.assert_array_equal(np.asarray(state.chosen_path[: int(state.chosen_path_len)]), np.asarray([], dtype=np.int32))
-    assert reference_env.chosen_path == []
+    assert not hasattr(state, "chosen_path")
+    assert not hasattr(state, "chosen_path_len")
 
 
 def test_timeout_masks_to_move_action():
@@ -566,8 +586,8 @@ def test_timeout_masks_to_move_action():
     assert bool(done_jax)
     assert reference_reward > 0.0
     assert float(reward_jax) > 0.0
-    assert len(reference_env.chosen_path) > 0
-    assert int(state.chosen_path_len) > 0
+    assert not hasattr(state, "chosen_path")
+    assert not hasattr(state, "chosen_path_len")
 
 
 def test_visit_all_once_then_terminate_is_optimal_reference():
@@ -607,10 +627,6 @@ def test_visit_all_once_then_terminate_is_optimal_reference():
     optimal_scaled = _optimal_path_reward_raw(child_nodes, points, root) * env.scale_factor
     np.testing.assert_allclose(reward, optimal_scaled, atol=1e-6)
 
-    chosen_path = np.asarray(env.chosen_path, dtype=np.int32)
-    chosen_scaled = float(points[chosen_path].sum()) * env.scale_factor
-    np.testing.assert_allclose(chosen_scaled, optimal_scaled, atol=1e-6)
-
 
 def test_visit_all_once_then_terminate_is_optimal_jax():
     env = JaxDecisionTreeEnv(
@@ -647,10 +663,6 @@ def test_visit_all_once_then_terminate_is_optimal_jax():
 
     optimal_scaled = _optimal_path_reward_raw(child_nodes, points, root) * env.scale_factor
     np.testing.assert_allclose(float(reward), optimal_scaled, atol=1e-6)
-
-    chosen_path = np.asarray(state.chosen_path)[: int(state.chosen_path_len)]
-    chosen_scaled = float(points[chosen_path].sum()) * env.scale_factor
-    np.testing.assert_allclose(chosen_scaled, optimal_scaled, atol=1e-6)
 
 
 def test_backup_steps_zero_disables_ancestor_backup():

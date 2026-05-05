@@ -1172,7 +1172,27 @@ class ParallelJaxSimulator:
             body_fn,
             carry,
         )
-        return state, action_seq, action_len, rng_key
+        final_action_index = jnp.maximum(action_len - 1, 0)
+        final_action = action_seq[final_action_index]
+
+        def sample_choice_path(payload):
+            state, rng_key = payload
+            sample_state = state._replace(rng_key=rng_key)
+            _, path, path_len, rng_key = self.env._sample_move_path(sample_state, env_params)
+            return path, path_len, rng_key
+
+        def empty_choice_path(payload):
+            _, rng_key = payload
+            return self.env.empty_path, jnp.int32(0), rng_key
+
+        choice_path, choice_path_len, rng_key = jax.lax.cond(
+            final_action == self.env.num_nodes,
+            sample_choice_path,
+            empty_choice_path,
+            (state, rng_key),
+        )
+
+        return state, action_seq, choice_path, action_len, choice_path_len, rng_key
 
     def _run_trial_batch(
         self,
@@ -1181,10 +1201,10 @@ class ParallelJaxSimulator:
         trial_keys: jax.Array,
         greedy: bool = False,
     ):
-        states, action_seqs, action_lens, _ = jax.vmap(
+        states, action_seqs, choice_paths, action_lens, choice_path_lens, _ = jax.vmap(
             lambda key: self._run_trial(params, env_params, key, greedy=greedy)
         )(trial_keys)
-        return states, action_seqs, action_lens
+        return states, action_seqs, choice_paths, action_lens, choice_path_lens
 
     def _simulate_sweep_batch(
         self,
@@ -1244,20 +1264,22 @@ def _append_simulation_batch(
     data_by_run: list[list[dict[str, list]]],
     states,
     action_seqs,
+    choice_paths,
     action_lens,
+    choice_path_lens,
     *,
     trials_in_batch: int,
 ) -> None:
     states = jax.device_get(states)
     action_seqs = np.asarray(action_seqs)
+    choice_paths = np.asarray(choice_paths)
     action_lens = np.asarray(action_lens)
+    choice_path_lens = np.asarray(choice_path_lens)
 
     child_nodes_batch = np.asarray(states.child_nodes)
     parent_nodes_batch = np.asarray(states.parent_nodes)
     points_batch = np.asarray(states.points)
     root_nodes_batch = np.asarray(states.root_node)
-    chosen_paths_batch = np.asarray(states.chosen_path)
-    chosen_path_lens_batch = np.asarray(states.chosen_path_len)
 
     num_hypers = len(data_by_run)
     num_seeds = len(data_by_run[0]) if num_hypers else 0
@@ -1276,9 +1298,9 @@ def _append_simulation_batch(
                     dtype=np.int32,
                 ).tolist()
 
-                choice_len = int(chosen_path_lens_batch[hyper_index, seed_index, trial_idx])
+                choice_len = int(choice_path_lens[hyper_index, seed_index, trial_idx])
                 choice_seq = np.asarray(
-                    chosen_paths_batch[hyper_index, seed_index, trial_idx, :choice_len],
+                    choice_paths[hyper_index, seed_index, trial_idx, :choice_len],
                     dtype=np.int32,
                 ).tolist()
 
@@ -1320,7 +1342,7 @@ def simulate_results(
 
     for batch_idx in range(num_batches):
         rng_keys, trial_keys = _split_simulation_rng_keys(rng_keys, batch_size)
-        states, action_seqs, action_lens = simulator.simulate_batch(
+        states, action_seqs, choice_paths, action_lens, choice_path_lens = simulator.simulate_batch(
             result.states.params,
             hypers.env,
             trial_keys,
@@ -1332,7 +1354,9 @@ def simulate_results(
             data_by_run,
             states,
             action_seqs,
+            choice_paths,
             action_lens,
+            choice_path_lens,
             trials_in_batch=trials_in_batch,
         )
 

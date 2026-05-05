@@ -174,7 +174,39 @@ class JaxSimulator:
             rng_key,
         ) = jax.lax.while_loop(cond_fn, body_fn, carry)
 
-        return state, action_seq, activation_seq, count_seq, g_seq, q_seq, logits_seq, action_len, rng_key
+        final_action_index = jnp.maximum(action_len - 1, 0)
+        final_action = action_seq[final_action_index]
+
+        def sample_choice_path(payload):
+            state, rng_key = payload
+            sample_state = state._replace(rng_key=rng_key)
+            _, path, path_len, rng_key = self.env._sample_move_path(sample_state)
+            return path, path_len, rng_key
+
+        def empty_choice_path(payload):
+            _, rng_key = payload
+            return self.env.empty_path, jnp.int32(0), rng_key
+
+        choice_path, choice_path_len, rng_key = jax.lax.cond(
+            final_action == self.env.num_nodes,
+            sample_choice_path,
+            empty_choice_path,
+            (state, rng_key),
+        )
+
+        return (
+            state,
+            action_seq,
+            choice_path,
+            activation_seq,
+            count_seq,
+            g_seq,
+            q_seq,
+            logits_seq,
+            action_len,
+            choice_path_len,
+            rng_key,
+        )
 
     def _run_trial_metrics(self, params: Any, rng_key: jax.Array, greedy: bool = False):
         state, obs, info = self.env.reset(rng_key)
@@ -187,15 +219,16 @@ class JaxSimulator:
             jnp.array(0, dtype=jnp.int32),
             jnp.array(0.0, dtype=jnp.float32),
             jnp.array(False),
+            jnp.array(False),
             rng_key,
         )
 
         def cond_fn(carry):
-            _, _, _, step_count, _, done, _ = carry
+            _, _, _, step_count, _, _, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
-            state, obs, action_mask, step_count, episode_reward, _, rng_key = carry
+            state, obs, action_mask, step_count, episode_reward, moved, _, rng_key = carry
 
             logits, _ = actor_critic_forward(params, obs[None, :], action_mask[None, :])
             logits = logits[0]
@@ -220,16 +253,18 @@ class JaxSimulator:
             action_mask = info["mask"]
             step_count = step_count + 1
             episode_reward = episode_reward + reward
+            moved = action == self.env.num_nodes
 
-            return state, obs, action_mask, step_count, episode_reward, done, rng_key
+            return state, obs, action_mask, step_count, episode_reward, moved, done, rng_key
 
-        state, _, _, step_count, episode_reward, _, rng_key = jax.lax.while_loop(cond_fn, body_fn, carry)
+        state, _, _, step_count, episode_reward, moved, _, rng_key = jax.lax.while_loop(cond_fn, body_fn, carry)
 
-        chosen_len = state.chosen_path_len
-        chosen_mask = jnp.arange(self.env.num_nodes, dtype=jnp.int32) < chosen_len
-        safe_path = jnp.where(chosen_mask, state.chosen_path, 0)
-        no_cost_reward = jnp.sum(jnp.where(chosen_mask, state.points[safe_path], 0.0))
-        no_cost_reward = no_cost_reward * self.env.scale_factor
+        no_cost_reward = jax.lax.cond(
+            moved,
+            lambda _: self.env._expected_move_reward(state) * self.env.scale_factor,
+            lambda _: jnp.array(0.0, dtype=jnp.float32),
+            operand=None,
+        )
 
         return episode_reward, no_cost_reward, step_count, rng_key
 
@@ -240,10 +275,33 @@ class JaxSimulator:
         return rewards, rewards_no_cost, steps
 
     def _run_trial_batch(self, params: Any, trial_keys: jax.Array, greedy: bool = False):
-        states, action_seqs, activation_seqs, count_seqs, g_seqs, q_seqs, logits_seqs, action_lens, _ = jax.vmap(
+        (
+            states,
+            action_seqs,
+            choice_paths,
+            activation_seqs,
+            count_seqs,
+            g_seqs,
+            q_seqs,
+            logits_seqs,
+            action_lens,
+            choice_path_lens,
+            _,
+        ) = jax.vmap(
             lambda key: self._run_trial(params, key, greedy=greedy)
         )(trial_keys)
-        return states, action_seqs, activation_seqs, count_seqs, g_seqs, q_seqs, logits_seqs, action_lens
+        return (
+            states,
+            action_seqs,
+            choice_paths,
+            activation_seqs,
+            count_seqs,
+            g_seqs,
+            q_seqs,
+            logits_seqs,
+            action_lens,
+            choice_path_lens,
+        )
 
     def simulate(
         self,
@@ -290,17 +348,21 @@ class JaxSimulator:
             (
                 states,
                 action_seqs,
+                choice_paths,
                 activation_seqs,
                 count_seqs,
                 g_seqs,
                 q_seqs,
                 logits_seqs,
                 action_lens,
+                choice_path_lens,
             ) = self._trial_batch_jit(params, trial_keys, greedy=greedy)
 
             states = jax.device_get(states)
             action_seqs = np.asarray(action_seqs)
+            choice_paths = np.asarray(choice_paths)
             action_lens = np.asarray(action_lens)
+            choice_path_lens = np.asarray(choice_path_lens)
             if detailed:
                 activation_seqs = np.asarray(activation_seqs)
                 count_seqs = np.asarray(count_seqs)
@@ -312,8 +374,6 @@ class JaxSimulator:
             parent_nodes_batch = np.asarray(states.parent_nodes)
             points_batch = np.asarray(states.points)
             root_nodes_batch = np.asarray(states.root_node)
-            chosen_paths_batch = np.asarray(states.chosen_path)
-            chosen_path_lens_batch = np.asarray(states.chosen_path_len)
 
             trials_remaining = num_trials - (batch_idx * batch_size)
             trials_in_batch = min(batch_size, trials_remaining)
@@ -327,8 +387,8 @@ class JaxSimulator:
                 action_len = int(action_lens[trial_idx])
                 action_seq = np.asarray(action_seqs[trial_idx, :action_len], dtype=np.int32).tolist()
 
-                choice_len = int(chosen_path_lens_batch[trial_idx])
-                choice_seq = np.asarray(chosen_paths_batch[trial_idx, :choice_len], dtype=np.int32).tolist()
+                choice_len = int(choice_path_lens[trial_idx])
+                choice_seq = np.asarray(choice_paths[trial_idx, :choice_len], dtype=np.int32).tolist()
 
                 data["child_dicts"].append(_child_array_to_dict(child_nodes))
                 data["parent_dicts"].append(_parent_array_to_dict(parent_nodes))

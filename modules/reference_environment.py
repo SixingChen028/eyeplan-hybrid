@@ -233,7 +233,24 @@ class ReferenceDecisionTreeEnv:
         q_drop_mask = (self.activation == 0.0) & (self.rng.uniform(size=self.num_nodes) < self.q_drop_rate)
         self.q_values[q_drop_mask] = 0.0
 
-    def _move(self):
+    def _expected_move_reward(self) -> float:
+        expected = np.zeros(self.num_nodes)
+
+        for _ in range(self.num_nodes):
+            next_expected = np.zeros(self.num_nodes)
+            for node in range(self.num_nodes):
+                children = self.child_nodes[node]
+                if children[0] < 0:
+                    continue
+
+                q_children = self.q_values[children]
+                probs = self._softmax(q_children)
+                next_expected[node] = float(np.sum(probs * (self.points[children] + expected[children])))
+            expected = next_expected
+
+        return float(expected[self.root_node])
+
+    def _sample_move_path(self):
         node = self.root_node
         cum_reward = 0.0
         chosen_path: list[int] = []
@@ -330,7 +347,6 @@ class ReferenceDecisionTreeEnv:
             self.seed(seed)
 
         self.time_elapsed = 0
-        self.chosen_path = []
 
         self.root_node, self.child_nodes, self.parent_nodes = self._build_tree()
 
@@ -393,11 +409,9 @@ class ReferenceDecisionTreeEnv:
             self._update_activation(raw_action)
             if self.canonicalize:
                 self._canonicalize_visible()
-            self.chosen_path = []
         elif action == self.num_nodes:
-            cum_reward, chosen_path = self._move()
+            cum_reward = self._expected_move_reward()
             reward = cum_reward * self.scale_factor
-            self.chosen_path = chosen_path
 
         done = bool(action == self.num_nodes or self.time_elapsed == self.t_max)
         obs = self.get_obs()

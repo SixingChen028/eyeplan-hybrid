@@ -126,15 +126,36 @@ def _optimal_path_reward_raw(child_nodes: np.ndarray, points: np.ndarray, root: 
     return float(dfs(root))
 
 
-def _episode_no_cost_rewards(state: Any, scale_factor: float) -> Tuple[float, float]:
-    chosen_len = int(state.chosen_path_len)
-    if chosen_len <= 0:
-        return 0.0, 0.0
+def _move_probs(q_children: np.ndarray, beta_move: float, eps_move: float) -> np.ndarray:
+    z = beta_move * (q_children - np.max(q_children))
+    probs = np.exp(z)
+    probs = probs / np.sum(probs)
+    return (1.0 - eps_move) * probs + eps_move * (1.0 / q_children.shape[0])
 
-    chosen_path = np.asarray(state.chosen_path[:chosen_len], dtype=np.int32)
+
+def _expected_move_reward_raw(state: Any, beta_move: float, eps_move: float) -> float:
+    child_nodes = np.asarray(state.child_nodes, dtype=np.int32)
     points = np.asarray(state.points, dtype=np.float32)
-    raw_reward = float(points[chosen_path].sum())
-    scaled_reward = raw_reward * float(scale_factor)
+    q_values = np.asarray(state.q_values, dtype=np.float32)
+    expected = np.zeros(points.shape[0], dtype=np.float32)
+
+    for _ in range(points.shape[0]):
+        next_expected = np.zeros_like(expected)
+        for node in range(points.shape[0]):
+            children = child_nodes[node]
+            if children[0] < 0:
+                continue
+
+            probs = _move_probs(q_values[children], beta_move, eps_move)
+            next_expected[node] = float(np.sum(probs * (points[children] + expected[children])))
+        expected = next_expected
+
+    return float(expected[int(state.root_node)])
+
+
+def _episode_no_cost_rewards(state: Any, env: JaxDecisionTreeEnv) -> Tuple[float, float]:
+    raw_reward = _expected_move_reward_raw(state, env.beta_move, env.eps_move)
+    scaled_reward = raw_reward * float(env.scale_factor)
 
     return scaled_reward, raw_reward
 
@@ -403,6 +424,7 @@ def evaluate_baseline_policies(
             done = False
             episode_reward = 0.0
             steps = 0
+            moved = False
 
             while (not done) and (steps < env.t_max):
                 obs_view = parse_obs(obs_np, layout)
@@ -419,9 +441,10 @@ def evaluate_baseline_policies(
                 obs_np = np.asarray(obs)
                 action_mask_np = np.asarray(info["mask"])
                 episode_reward += float(reward)
+                moved = int(action) == env.num_nodes
                 steps += 1
 
-            scaled_no_cost, raw_no_cost = _episode_no_cost_rewards(state, env.scale_factor)
+            scaled_no_cost, raw_no_cost = _episode_no_cost_rewards(state, env) if moved else (0.0, 0.0)
 
             policy_returns[policy_name].append(episode_reward)
             policy_no_cost_scaled[policy_name].append(scaled_no_cost)
@@ -466,6 +489,7 @@ def evaluate_network_greedy(
         done = False
         episode_reward = 0.0
         steps = 0
+        moved = False
 
         while (not done) and (steps < env.t_max):
             logits, _ = forward_fn(params, obs[None, :])
@@ -474,9 +498,10 @@ def evaluate_network_greedy(
 
             state, obs, reward, done, _, info = step_fn(state, action)
             episode_reward += float(reward)
+            moved = action == env.num_nodes
             steps += 1
 
-        scaled_no_cost, raw_no_cost = _episode_no_cost_rewards(state, env.scale_factor)
+        scaled_no_cost, raw_no_cost = _episode_no_cost_rewards(state, env) if moved else (0.0, 0.0)
 
         rewards.append(episode_reward)
         no_cost_scaled.append(scaled_no_cost)

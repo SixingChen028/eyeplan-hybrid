@@ -16,8 +16,6 @@ class JaxDecisionTreeState(NamedTuple):
     n_visits: jax.Array
     fixation_recency: jax.Array
     activation: jax.Array
-    chosen_path: jax.Array
-    chosen_path_len: jax.Array
     raw_to_canon: jax.Array
     canon_to_raw: jax.Array
     next_canon_id: jax.Array
@@ -196,11 +194,11 @@ class JaxDecisionTreeEnv:
         beta_move = self.beta_move if params is None else params.beta_move
         eps_move = self.eps_move if params is None else params.eps_move
 
-        z = beta_move * (x - jnp.max(x))
+        z = beta_move * (x - jnp.max(x, axis=-1, keepdims=True))
         p = jnp.exp(z)
-        p = p / jnp.sum(p)
+        p = p / jnp.sum(p, axis=-1, keepdims=True)
 
-        p = (1.0 - eps_move) * p + eps_move * (1.0 / x.shape[0])
+        p = (1.0 - eps_move) * p + eps_move * (1.0 / x.shape[-1])
 
         return p
 
@@ -522,7 +520,27 @@ class JaxDecisionTreeEnv:
         mask = mask.at[-1].set(True)
         return mask
 
-    def _move(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams | None = None):
+    def _expected_move_reward(
+        self,
+        state: JaxDecisionTreeState,
+        params: JaxDecisionTreeParams | None = None,
+    ):
+        expected = jnp.zeros((self.num_nodes,), dtype=jnp.float32)
+
+        def body_fn(_, expected):
+            children = state.child_nodes
+            has_children = children[:, 0] >= 0
+            safe_children = jnp.maximum(children, 0)
+            q_children = state.q_values[safe_children]
+            probs = self._softmax(q_children, params)
+            child_returns = state.points[safe_children] + expected[safe_children]
+            node_expected = jnp.sum(probs * child_returns, axis=-1)
+            return jnp.where(has_children, node_expected, 0.0)
+
+        expected = jax.lax.fori_loop(0, self.num_nodes, body_fn, expected)
+        return expected[state.root_node]
+
+    def _sample_move_path(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams | None = None):
         path = self.empty_path
 
         init = (
@@ -585,8 +603,6 @@ class JaxDecisionTreeEnv:
             n_visits=jnp.zeros((self.num_nodes,), dtype=jnp.int32),
             fixation_recency=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(recency_initial_value),
             activation=jnp.zeros((self.num_nodes,), dtype=jnp.float32),
-            chosen_path=self.empty_path,
-            chosen_path_len=jnp.int32(0),
             raw_to_canon=jnp.where(
                 self.canonicalize,
                 -jnp.ones((self.num_nodes,), dtype=jnp.int32),
@@ -641,13 +657,8 @@ class JaxDecisionTreeEnv:
 
         def move_branch(payload):
             state, reward = payload
-            cum_reward, path, path_len, key = self._move(state, params)
+            cum_reward = self._expected_move_reward(state, params)
             reward = cum_reward * params.scale_factor
-            state = state._replace(
-                rng_key=key,
-                chosen_path=path,
-                chosen_path_len=path_len,
-            )
             return state, reward
 
         state, reward = jax.lax.cond(
