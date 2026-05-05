@@ -26,7 +26,7 @@ DEFAULT_SBATCH = {
     "cpus_per_task": 1,
     "time": "08:00:00",
     "mem_per_cpu": "1G",
-    "log": "./log/%A_%a.log",
+    "log": "./log/%A_%a",
 }
 
 DEFAULT_RUNTIME = {
