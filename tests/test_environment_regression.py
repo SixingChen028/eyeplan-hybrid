@@ -83,7 +83,7 @@ def test_live_environment_matches_frozen_reference_for_random_policy_rollouts():
 
             done = False
             step = 0
-            max_steps = min(live_env.t_max, 2)
+            max_steps = live_env.t_max
             while not done and step < max_steps:
                 rollout_key, action_key = jax.random.split(rollout_key)
                 live_action = _sample_policy_action(policy_params, live_obs, live_info["mask"], action_key)
