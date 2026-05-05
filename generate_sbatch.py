@@ -3,6 +3,7 @@ import argparse
 import math
 import re
 import shlex
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -328,6 +329,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate an sbatch script from TOML.")
     parser.add_argument("config", help="Config file path or config stem (e.g. hybrid-dyna).")
     parser.add_argument("-o", "--output", help="Optional output sbatch path.")
+    parser.add_argument(
+        "--submit",
+        action="store_true",
+        help="Submit the generated sbatch script with `sbatch`.",
+    )
     args = parser.parse_args()
 
     config_path = _resolve_config_path(args.config)
@@ -340,6 +346,16 @@ def main() -> None:
     output_path.write_text(script_text, encoding="utf-8")
     output_path.chmod(0o755)
     print(f"Wrote {output_path}")
+    if args.submit:
+        result = subprocess.run(
+            ["sbatch", str(output_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        stdout = result.stdout.strip()
+        if stdout:
+            print(stdout)
 
 
 if __name__ == "__main__":
