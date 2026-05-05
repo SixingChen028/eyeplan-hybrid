@@ -16,7 +16,7 @@ CMD=(
   --output=./log/%j
   --time=2:00:00
   --gres=gpu:1
-  "--wrap=.venv/bin/python train_parallel.py ${CONFIG} --skip-simulate"
+  "--wrap=.venv/bin/python train_parallel.py ${CONFIG}"
 )
 
 echo "Command to run:"
