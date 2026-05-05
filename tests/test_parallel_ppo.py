@@ -110,7 +110,7 @@ def test_parallel_ppo_sweep_compiles_node_shared_network():
     np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((1, 1), 4))
 
 
-def test_parallel_ppo_uses_canonical_rollout_rows():
+def test_parallel_ppo_uses_valid_rollout_rows():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
         t_max=4,

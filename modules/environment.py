@@ -16,9 +16,6 @@ class JaxDecisionTreeState(NamedTuple):
     n_visits: jax.Array
     fixation_recency: jax.Array
     activation: jax.Array
-    raw_to_canon: jax.Array
-    canon_to_raw: jax.Array
-    next_canon_id: jax.Array
 
 
 class JaxDecisionTreeParams(NamedTuple):
@@ -91,7 +88,6 @@ class JaxDecisionTreeEnv:
         cost: float = 0.01,
         scale_factor: float = 1 / 8,
         shuffle_nodes: bool = True,
-        canonicalize: bool = False,
         recency_decay="off",
         wm_backup: bool = False,
         point_set=None,
@@ -112,7 +108,6 @@ class JaxDecisionTreeEnv:
         self.cost = float(cost)
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
-        self.canonicalize = bool(canonicalize)
         self.use_recency_obs, self.recency_decay_auto, self.recency_decay = self._parse_recency_decay(recency_decay)
         self.wm_backup = bool(wm_backup)
 
@@ -174,61 +169,6 @@ class JaxDecisionTreeEnv:
         idx = jnp.maximum(label, 0)
         mask = label >= 0
         return jax.nn.one_hot(idx, self.num_nodes, dtype=jnp.float32) * mask.astype(jnp.float32)
-
-    def _canonical_one_hot(self, state: JaxDecisionTreeState, raw_label: jax.Array) -> jax.Array:
-        raw_label = jnp.asarray(raw_label, dtype=jnp.int32)
-        safe_raw = jnp.maximum(raw_label, 0)
-        canon_label = jnp.where(raw_label >= 0, state.raw_to_canon[safe_raw], -1)
-        return self._one_hot(canon_label)
-
-    def _canonical_values(self, state: JaxDecisionTreeState, values: jax.Array) -> jax.Array:
-        raw_nodes = state.canon_to_raw
-        safe_raw_nodes = jnp.maximum(raw_nodes, 0)
-        canonical_values = values[safe_raw_nodes]
-        return jnp.where(raw_nodes >= 0, canonical_values, jnp.zeros((), dtype=values.dtype))
-
-    def _assign_canonical_node(
-        self,
-        state: JaxDecisionTreeState,
-        raw_node: jax.Array,
-    ) -> JaxDecisionTreeState:
-        raw_node = jnp.asarray(raw_node, dtype=jnp.int32)
-        safe_raw = jnp.maximum(raw_node, 0)
-        safe_canon = jnp.minimum(state.next_canon_id, self.num_nodes - 1)
-        is_new = (raw_node >= 0) & (state.raw_to_canon[safe_raw] < 0)
-
-        raw_to_canon = state.raw_to_canon.at[safe_raw].set(
-            jnp.where(is_new, state.next_canon_id, state.raw_to_canon[safe_raw])
-        )
-        canon_to_raw = state.canon_to_raw.at[safe_canon].set(
-            jnp.where(is_new, raw_node, state.canon_to_raw[safe_canon])
-        )
-        next_canon_id = state.next_canon_id + is_new.astype(jnp.int32)
-
-        return state._replace(
-            raw_to_canon=raw_to_canon,
-            canon_to_raw=canon_to_raw,
-            next_canon_id=next_canon_id,
-        )
-
-    def _canonicalize_visible(self, state: JaxDecisionTreeState) -> JaxDecisionTreeState:
-        fixation_parent = state.parent_nodes[state.fixation_node]
-        fixation_children = state.child_nodes[state.fixation_node]
-        visible_nodes = jnp.array(
-            [
-                state.fixation_node,
-                fixation_parent,
-                fixation_children[0],
-                fixation_children[1],
-            ],
-            dtype=jnp.int32,
-        )
-
-        def body_fn(carry, raw_node):
-            return self._assign_canonical_node(carry, raw_node), None
-
-        state, _ = jax.lax.scan(body_fn, state, visible_nodes)
-        return state
 
     def _softmax(self, x: jax.Array, params: JaxDecisionTreeParams | None = None) -> jax.Array:
         beta_move = self.beta_move if params is None else params.beta_move
@@ -498,72 +438,35 @@ class JaxDecisionTreeEnv:
             -10.0,
         )
 
-        if not self.canonicalize:
-            is_terminal_seen = is_terminal_seen_raw.astype(jnp.float32)
-            fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
-                fixation_children[1]
-            )
-            parts = [
-                self._one_hot(state.fixation_node),
-                jnp.array([state.points[state.fixation_node]], dtype=jnp.float32),
-                self._one_hot(fixation_parent),
-                fixation_child_mask,
-                self._one_hot(state.root_node),
-                visible_g_values_raw,
-                state.q_values,
-                state.n_visits.astype(jnp.float32),
-                is_terminal_seen,
-                jnp.array([best_open_value], dtype=jnp.float32),
-                jnp.array([best_terminal_value], dtype=jnp.float32),
-            ]
-            if self.use_recency_obs:
-                parts.append(state.fixation_recency)
-            parts.append(jnp.array([state.time_elapsed], dtype=jnp.float32))
-            return jnp.concatenate(parts)
-
-        fixation_child_mask = self._canonical_one_hot(
-            state,
-            fixation_children[0],
-        ) + self._canonical_one_hot(state, fixation_children[1])
+        is_terminal_seen = is_terminal_seen_raw.astype(jnp.float32)
+        fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
+            fixation_children[1]
+        )
 
         parts = [
-            self._canonical_one_hot(state, state.fixation_node),
+            self._one_hot(state.fixation_node),
             jnp.array([state.points[state.fixation_node]], dtype=jnp.float32),
-            self._canonical_one_hot(state, fixation_parent),
+            self._one_hot(fixation_parent),
             fixation_child_mask,
-            self._canonical_one_hot(state, state.root_node),
-            self._canonical_values(state, visible_g_values_raw),
-            self._canonical_values(state, state.q_values),
-            self._canonical_values(state, state.n_visits).astype(jnp.float32),
-            self._canonical_values(
-                state,
-                is_terminal_seen_raw.astype(jnp.float32),
-            ),
+            self._one_hot(state.root_node),
+            visible_g_values_raw,
+            state.q_values,
+            state.n_visits.astype(jnp.float32),
+            is_terminal_seen,
             jnp.array([best_open_value], dtype=jnp.float32),
             jnp.array([best_terminal_value], dtype=jnp.float32),
         ]
         if self.use_recency_obs:
-            parts.append(self._canonical_values(state, state.fixation_recency))
+            parts.append(state.fixation_recency)
         parts.append(jnp.array([state.time_elapsed], dtype=jnp.float32))
-
-        obs = jnp.concatenate(parts)
-
-        return obs
+        return jnp.concatenate(parts)
 
     def get_action_mask(self, state: JaxDecisionTreeState) -> jax.Array:
         fixation_allowed = state.time_elapsed != (self.t_max - 1)
         raw_node_mask = (state.activation > 0) & fixation_allowed
         raw_node_mask = raw_node_mask.at[state.root_node].set(fixation_allowed)
-        if not self.canonicalize:
-            mask = jnp.zeros((self.action_size,), dtype=jnp.bool_)
-            mask = mask.at[: self.num_nodes].set(raw_node_mask)
-            mask = mask.at[-1].set(True)
-            return mask
-
-        canonical_node_mask = self._canonical_values(state, raw_node_mask)
-        canonical_node_mask = canonical_node_mask & (state.canon_to_raw >= 0)
         mask = jnp.zeros((self.action_size,), dtype=jnp.bool_)
-        mask = mask.at[: self.num_nodes].set(canonical_node_mask)
+        mask = mask.at[: self.num_nodes].set(raw_node_mask)
         mask = mask.at[-1].set(True)
         return mask
 
@@ -650,22 +553,9 @@ class JaxDecisionTreeEnv:
             n_visits=jnp.zeros((self.num_nodes,), dtype=jnp.int32),
             fixation_recency=jnp.zeros((self.num_nodes,), dtype=jnp.float32).at[root].set(recency_initial_value),
             activation=jnp.zeros((self.num_nodes,), dtype=jnp.float32),
-            raw_to_canon=jnp.where(
-                self.canonicalize,
-                -jnp.ones((self.num_nodes,), dtype=jnp.int32),
-                jnp.arange(self.num_nodes, dtype=jnp.int32),
-            ),
-            canon_to_raw=jnp.where(
-                self.canonicalize,
-                -jnp.ones((self.num_nodes,), dtype=jnp.int32),
-                jnp.arange(self.num_nodes, dtype=jnp.int32),
-            ),
-            next_canon_id=jnp.where(self.canonicalize, jnp.int32(0), jnp.int32(self.num_nodes)),
         )
 
         state = self._update_activation(state, state.root_node, params)
-        if self.canonicalize:
-            state = self._canonicalize_visible(state)
 
         obs = self.get_obs(state)
         info = {"mask": self.get_action_mask(state)}
@@ -681,14 +571,7 @@ class JaxDecisionTreeEnv:
         params: JaxDecisionTreeParams,
     ):
         action = jnp.asarray(action, dtype=jnp.int32)
-        if self.canonicalize:
-            raw_action = jnp.where(
-                action < self.num_nodes,
-                state.canon_to_raw[jnp.minimum(action, self.num_nodes - 1)],
-                action,
-            )
-        else:
-            raw_action = action
+        raw_action = action
         state = state._replace(time_elapsed=state.time_elapsed + 1)
         state = self._decay_fixation_recency(state, params)
         reward = -jnp.asarray(params.cost, dtype=jnp.float32)
@@ -698,8 +581,6 @@ class JaxDecisionTreeEnv:
             state = self._look(state, raw_action, params)
             state = state._replace(fixation_node=raw_action)
             state = self._update_activation(state, raw_action, params)
-            if self.canonicalize:
-                state = self._canonicalize_visible(state)
             return state, reward
 
         def move_branch(payload):
