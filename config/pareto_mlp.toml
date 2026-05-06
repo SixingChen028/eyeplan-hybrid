@@ -1,5 +1,6 @@
 [meta]
 array_vars = ["seed"]
+experiment = ["pareto_mlp_v2"]
 
 [sbatch]
 time = "3:00:00"
@@ -8,8 +9,8 @@ gpu = true
 
 [params]
 # environment
-cost = [0.01, 0.02, 0.03, 0.04, 0.08, 0.12, 0.16, 0.20, 0.24]
-wm_decay = [0.0, 0.5, 1.0]
+cost = [0.001, 0.01, 0.02, 0.03, 0.04, 0.08, 0.12, 0.16, 0.20, 0.24]
+wm_decay = [0.0, 0.5]
 # training
-seed = [1, 2, 3]
+seed = 1
 beta_e_final = 0.0001
