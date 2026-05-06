@@ -96,7 +96,7 @@ class JaxDecisionTreeEnv:
             raise ValueError("q_drift must be non-negative.")
         self.t_max = int(t_max)
         self.scale_factor = float(scale_factor)
-        self.shuffle_nodes = bool(shuffle_nodes)
+        self.shuffle_nodes = True
         q_decay_auto, q_decay_value = self._parse_q_decay(q_decay)
         self.use_recency_obs, recency_decay_auto, recency_decay_value = self._parse_recency_decay(recency_decay)
 

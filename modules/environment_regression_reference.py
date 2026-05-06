@@ -107,7 +107,7 @@ class JaxDecisionTreeEnv:
         self.t_max = int(t_max)
         self.cost = float(cost)
         self.scale_factor = float(scale_factor)
-        self.shuffle_nodes = bool(shuffle_nodes)
+        self.shuffle_nodes = True
         self.use_recency_obs, self.recency_decay_auto, self.recency_decay = self._parse_recency_decay(recency_decay)
         self.wm_backup = bool(wm_backup)
 

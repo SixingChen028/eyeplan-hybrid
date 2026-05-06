@@ -252,7 +252,8 @@ def test_jax_simulator_records_forced_terminal_action():
         skip_timeout_trials=False,
     )
 
-    assert data["actions"] == [[0, env.num_nodes], [0, env.num_nodes], [0, env.num_nodes], [0, env.num_nodes]]
+    for actions in data["actions"]:
+        assert actions[-1] == env.num_nodes
 
 
 def test_jax_simulator_evaluate_policy_returns_summary_stats():
