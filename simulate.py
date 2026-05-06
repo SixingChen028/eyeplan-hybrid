@@ -7,7 +7,7 @@ import traceback
 
 from modules.a2c import load_jax_params
 from modules.analysis_targets import resolve_analysis_target
-from modules.environment import JaxDecisionTreeEnv
+from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 from modules.simulation import JaxSimulator
 
 
@@ -47,7 +47,8 @@ def _build_env_params_from_metadata_args(env: JaxDecisionTreeEnv, metadata_args:
     if recency_decay is None:
         recency_decay = "auto" if bool(metadata_args.get("use_recency_obs", False)) else "off"
 
-    return env.params(
+    return make_decision_tree_params(
+        env,
         beta_move=float(metadata_args.get("beta_move", 40.0)),
         eps_move=float(metadata_args.get("eps_move", 0.0)),
         learning_rate=float(metadata_args.get("learning_rate", 1.0)),

@@ -2,7 +2,7 @@ import jax
 import numpy as np
 
 from modules.baselines import evaluate_baseline_policies
-from modules.environment import JaxDecisionTreeEnv
+from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 
 
 def test_baseline_policy_evaluation_runs():
@@ -13,7 +13,7 @@ def test_baseline_policy_evaluation_runs():
         shuffle_nodes=False,
         point_set=np.array([1.0], dtype=np.float32),
     )
-    env_params = env.params(beta_move=4.0, eps_move=0.02, learning_rate=1.0, wm_decay=1.0, cost=0.01)
+    env_params = make_decision_tree_params(env, beta_move=4.0, eps_move=0.02, learning_rate=1.0, wm_decay=1.0, cost=0.01)
 
     reset_keys = jax.random.split(jax.random.PRNGKey(0), 12)
 
@@ -45,7 +45,7 @@ def test_visit_all_policy_has_bounded_length_after_fix():
         scale_factor=1 / 8,
         shuffle_nodes=True,
     )
-    env_params = env.params(beta_move=100.0, eps_move=0.0, learning_rate=1.0, wm_decay=1.0, cost=0.01)
+    env_params = make_decision_tree_params(env, beta_move=100.0, eps_move=0.0, learning_rate=1.0, wm_decay=1.0, cost=0.01)
 
     reset_keys = jax.random.split(jax.random.PRNGKey(11), 512)
     stats, _, _ = evaluate_baseline_policies(

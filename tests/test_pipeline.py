@@ -1,12 +1,12 @@
 import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
-from modules.environment import JaxDecisionTreeEnv
+from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 from modules.simulation import JaxSimulator, append_simulation_trial, empty_simulation_data
 
 
 def _env_params(env):
-    return env.params(beta_move=4.0, eps_move=0.0, learning_rate=1.0, wm_decay=1.0, cost=0.01)
+    return make_decision_tree_params(env, beta_move=4.0, eps_move=0.0, learning_rate=1.0, wm_decay=1.0, cost=0.01)
 
 
 def _train_params(env_params):

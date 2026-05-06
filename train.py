@@ -20,7 +20,7 @@ import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C, JaxTrainState, StepMetrics, save_jax_params
 from modules.argument import DEFAULT_PARAMS as ARG_DEFAULT_PARAMS
-from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
+from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams, make_decision_tree_params
 from modules.run_dirs import create_timestamped_run_dir, write_run_metadata
 from modules.simulation import JaxSimulator
 
@@ -522,7 +522,8 @@ def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
 
 
 def _env_params_from_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecisionTreeParams:
-    return env.params(
+    return make_decision_tree_params(
+        env,
         beta_move=args["beta_move"],
         eps_move=args["eps_move"],
         learning_rate=args["learning_rate"],

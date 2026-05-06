@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
-from modules.environment import JaxDecisionTreeEnv
+from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 from train import (
     VmappedA2CTrainer,
     build_hypers,
@@ -49,7 +49,7 @@ def _small_params(**overrides):
 
 def _a2c_train_params(env, config):
     return A2CTrainParams(
-        env=env.params(
+        env=make_decision_tree_params(env, 
             beta_move=config["beta_move"],
             eps_move=config["eps_move"],
             learning_rate=config["learning_rate"],
@@ -74,7 +74,7 @@ def test_dynamic_env_params_match_default_env_for_same_values():
         point_set=np.array([1.0], dtype=np.float32),
     )
     key = jax.random.PRNGKey(2)
-    params = env.params(
+    params = make_decision_tree_params(env, 
         beta_move=4.0,
         eps_move=0.0,
         learning_rate=1.0,
@@ -337,7 +337,7 @@ import numpy as np
 import jax
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
-from modules.environment import JaxDecisionTreeEnv
+from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 
 env = JaxDecisionTreeEnv(
     num_nodes=15,
@@ -357,7 +357,7 @@ trainer = JaxBatchMaskA2C(
     beta_v=0.05,
     beta_e=0.05,
 )
-env_params = env.params(
+env_params = make_decision_tree_params(env, 
     beta_move=40.0,
     eps_move=0.0,
     learning_rate=1.0,
@@ -437,5 +437,4 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
     with open(run_dir / "data_training_jax.p", "rb") as file:
         data = pickle.load(file)
     assert len(data["loss"]) == 2
-
 
