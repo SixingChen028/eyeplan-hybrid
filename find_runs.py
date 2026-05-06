@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from modules.analysis_targets import list_experiment_run_dirs
+from modules.results_layout import list_experiment_run_dirs
 
 
 @dataclass(frozen=True)

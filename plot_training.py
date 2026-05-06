@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from modules.analysis_targets import (
+from modules.results_layout import (
     get_run_analysis_dir,
     get_summary_analysis_dir,
     resolve_analysis_target,
@@ -257,7 +257,7 @@ def main():
         "targets",
         nargs="+",
         type=str,
-        help="One or more targets: <experiment>, <experiment>/<run_id>, <experiment>/*, or full path in runs/analysis.",
+        help="One or more targets: <experiment>, results/runs/<experiment>, or results/runs/<experiment>/<run_id>.",
     )
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--data_file", type=str, default="training.log")

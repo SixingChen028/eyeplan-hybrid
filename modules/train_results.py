@@ -13,7 +13,7 @@ import numpy as np
 from modules.a2c import save_jax_params
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams, make_decision_tree_params
-from modules.run_dirs import create_timestamped_run_dir, write_run_metadata
+from modules.results_layout import create_run_dir, write_run_metadata
 from modules.simulation import JaxSimulator
 
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
@@ -111,8 +111,8 @@ def prepare_run_dirs(
         run_args["parallel_config"] = str(config_path)
         run_args["parallel_varied_keys"] = list(varied_keys)
 
-        run_dir = create_timestamped_run_dir(
-            path=path,
+        run_dir = create_run_dir(
+            results_root=path,
             experiment=experiment,
             prefix=run_prefix(run, varied_keys),
         )

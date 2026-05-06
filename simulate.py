@@ -6,9 +6,9 @@ import sys
 import traceback
 
 from modules.a2c import load_jax_params
-from modules.analysis_targets import resolve_analysis_target
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
+from modules.results_layout import resolve_analysis_target
 from modules.simulation import JaxSimulator
 
 
@@ -238,7 +238,7 @@ def main() -> None:
         "targets",
         nargs="+",
         type=str,
-        help="One or more targets: <experiment>, <experiment>/<run_id>, <experiment>/*, or full path in runs/analysis.",
+        help="One or more targets: <experiment>, results/runs/<experiment>, or results/runs/<experiment>/<run_id>.",
     )
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--num_trials", type=int, default=None)

@@ -7,7 +7,7 @@ import os
 import sys
 import tomllib
 
-from modules.analysis_targets import get_summary_analysis_dir, resolve_analysis_target
+from modules.results_layout import get_summary_analysis_dir, resolve_analysis_target
 
 
 EVAL_FIELDS = [
@@ -283,7 +283,7 @@ def main() -> None:
     parser.add_argument(
         "target",
         type=str,
-        help="Experiment target or config file path, e.g. apr24, apr24/*, apr24/run_id, config/apr24.toml",
+        help="Experiment target, runs path, run path, or config file path, e.g. apr24, results/runs/apr24, config/apr24.toml",
     )
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--config_dir", type=str, default=os.path.join(os.getcwd(), "config"))
