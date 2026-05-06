@@ -7,5 +7,5 @@ mem_per_cpu = "1G"
 
 [params]
 seed = [1]
-num_updates = 500
-num_envs = 5
+num_updates = 1000
+num_envs = 10
