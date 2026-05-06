@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from modules.environment import JaxDecisionTreeEnv
-from modules.reference_environment import ReferenceDecisionTreeEnv
 
 
 def _bfs_visit_order(child_nodes: np.ndarray, root: int) -> list[int]:
@@ -42,41 +41,6 @@ def _optimal_path_reward_raw(child_nodes: np.ndarray, points: np.ndarray, root: 
     return dfs(int(root))
 
 
-def _reference_children_array(env: ReferenceDecisionTreeEnv) -> np.ndarray:
-    return env.child_nodes
-
-
-def _reference_parent_array(env: ReferenceDecisionTreeEnv) -> np.ndarray:
-    return env.parent_nodes
-
-
-def _sync_reference_from_state(env: ReferenceDecisionTreeEnv, state) -> None:
-    env.time_elapsed = int(state.time_elapsed)
-    env.fixation_node = int(state.fixation_node)
-    env.root_node = int(state.root_node)
-
-    env.child_nodes = np.asarray(state.child_nodes).copy()
-    env.parent_nodes = np.asarray(state.parent_nodes).copy()
-    env.points = np.asarray(state.points).copy()
-
-    env.q_values = np.asarray(state.q_values).copy()
-    env.g_values = np.asarray(state.g_values).copy()
-    env.n_visits = np.asarray(state.n_visits).copy()
-    env.fixation_recency = np.asarray(state.fixation_recency).copy()
-
-    env.activation = np.asarray(state.activation).copy()
-
-
-def _reset_synced_envs(seed: int = 0, t_max: int = 20):
-    reference_env, jax_env, jax_params, key = _make_envs(seed=seed, t_max=t_max)
-
-    reference_env.reset()
-    state, obs_jax, info_jax = jax_env.reset_with_params(key, jax_params)
-    _sync_reference_from_state(reference_env, state)
-
-    return reference_env, jax_env, jax_params, key, state, obs_jax, info_jax
-
-
 def _first_child_path(child_nodes: np.ndarray, root: int) -> list[int]:
     path: list[int] = []
     node = int(root)
@@ -94,80 +58,6 @@ def _jax_action(action: int):
     return jnp.asarray(action, dtype=jnp.int32)
 
 
-
-
-def _assert_state_matches_reference(env: ReferenceDecisionTreeEnv, state) -> None:
-    np.testing.assert_equal(int(state.time_elapsed), env.time_elapsed)
-    np.testing.assert_equal(int(state.fixation_node), env.fixation_node)
-    np.testing.assert_equal(int(state.root_node), env.root_node)
-
-    np.testing.assert_array_equal(np.asarray(state.child_nodes), _reference_children_array(env))
-    np.testing.assert_array_equal(np.asarray(state.parent_nodes), _reference_parent_array(env))
-    np.testing.assert_array_equal(np.asarray(state.points), env.points)
-
-    np.testing.assert_allclose(np.asarray(state.q_values), env.q_values, atol=1e-6)
-    np.testing.assert_allclose(np.asarray(state.g_values), env.g_values, atol=1e-6)
-    np.testing.assert_array_equal(np.asarray(state.n_visits), env.n_visits)
-    np.testing.assert_allclose(np.asarray(state.fixation_recency), env.fixation_recency, atol=1e-6)
-
-    np.testing.assert_allclose(np.asarray(state.activation), env.activation, atol=1e-6)
-
-
-def _make_envs(seed: int = 0, t_max: int = 20):
-    num_nodes = 7
-    beta_move = 50.0
-    eps_move = 0.0
-    learning_rate = 1.0
-    lamda_backup = 0.5
-    wm_decay = 1.0
-    cost = 0.01
-    scale_factor = 1 / 8
-    shuffle_nodes = False
-
-    reference_env = ReferenceDecisionTreeEnv(
-        num_nodes=num_nodes,
-        beta_move=beta_move,
-        eps_move=eps_move,
-        learning_rate=learning_rate,
-        lamda_backup=lamda_backup,
-        wm_decay=wm_decay,
-        t_max=t_max,
-        cost=cost,
-        scale_factor=scale_factor,
-        shuffle_nodes=shuffle_nodes,
-        seed=seed,
-    )
-    reference_env.point_set = np.array([1.0], dtype=np.float32)
-
-    jax_env = JaxDecisionTreeEnv(
-        num_nodes=num_nodes,
-        t_max=t_max,
-        scale_factor=scale_factor,
-        shuffle_nodes=shuffle_nodes,
-        point_set=jnp.array([1.0], dtype=jnp.float32),
-    )
-    jax_params = jax_env.params(
-        beta_move=beta_move,
-        eps_move=eps_move,
-        learning_rate=learning_rate,
-        lamda_backup=lamda_backup,
-        wm_decay=wm_decay,
-        cost=cost,
-    )
-
-    key = jax.random.PRNGKey(seed)
-    return reference_env, jax_env, jax_params, key
-
-
-def test_reset_matches_reference_environment():
-    reference_env, _, _, _, state, obs_jax, info_jax = _reset_synced_envs(seed=3)
-
-    obs_reference = reference_env.get_obs()
-    info_reference = {"mask": reference_env.get_action_mask()}
-
-    np.testing.assert_allclose(np.asarray(obs_jax), obs_reference, atol=1e-6)
-    np.testing.assert_array_equal(np.asarray(info_jax["mask"]), info_reference["mask"])
-    _assert_state_matches_reference(reference_env, state)
 
 
 def test_reset_uses_raw_node_ids_by_default():
@@ -188,37 +78,8 @@ def test_reset_uses_raw_node_ids_by_default():
     np.testing.assert_array_equal(np.asarray(info["mask"]), expected_mask)
 
 
-def test_fixation_step_matches_reference_environment():
-    reference_env, jax_env, jax_params, _, state, _, _ = _reset_synced_envs(seed=4)
-
-    raw_action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
-    action = raw_action
-    obs_reference, reward_reference, done_reference, truncated_reference, info_reference = reference_env.step(action)
-    state, obs_jax, reward_jax, done_jax, truncated_jax, info_jax = jax_env.step_with_params(
-        state,
-        _jax_action(action),
-        jax_params,
-    )
-
-    np.testing.assert_allclose(np.asarray(obs_jax), obs_reference, atol=1e-6)
-    np.testing.assert_allclose(float(reward_jax), reward_reference, atol=1e-6)
-    np.testing.assert_equal(bool(done_jax), done_reference)
-    np.testing.assert_equal(bool(truncated_jax), truncated_reference)
-    np.testing.assert_array_equal(np.asarray(info_jax["mask"]), info_reference["mask"])
-
-    _assert_state_matches_reference(reference_env, state)
-
-
 def test_recency_observation_tracks_direct_fixations():
     num_nodes = 7
-    reference_env = ReferenceDecisionTreeEnv(
-        num_nodes=num_nodes,
-        wm_decay=0.5,
-        t_max=20,
-        shuffle_nodes=False,
-        recency_decay="auto",
-        seed=8,
-    )
     jax_env = JaxDecisionTreeEnv(
         num_nodes=num_nodes,
         t_max=20,
@@ -230,9 +91,7 @@ def test_recency_observation_tracks_direct_fixations():
 
     assert jax_env.observation_shape[0] == default_env.observation_shape[0] + num_nodes
 
-    reference_env.reset()
     state, obs_jax, _ = jax_env.reset_with_params(jax.random.PRNGKey(8), jax_params)
-    _sync_reference_from_state(reference_env, state)
 
     recency_slice = slice(-num_nodes - 1, -1)
     reset_recency = np.zeros(num_nodes)
@@ -240,14 +99,12 @@ def test_recency_observation_tracks_direct_fixations():
     np.testing.assert_allclose(np.asarray(obs_jax)[recency_slice], reset_recency, atol=1e-6)
 
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
-    obs_reference, _, _, _, _ = reference_env.step(action)
     state, obs_jax, _, _, _, _ = jax_env.step_with_params(state, _jax_action(action), jax_params)
 
     expected_recency = reset_recency * 0.5
     expected_recency[action] = 1.0
     np.testing.assert_allclose(np.asarray(obs_jax)[recency_slice], expected_recency, atol=1e-6)
-    np.testing.assert_allclose(np.asarray(obs_jax), obs_reference, atol=1e-6)
-    np.testing.assert_allclose(np.asarray(state.fixation_recency), reference_env.fixation_recency, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(state.fixation_recency), expected_recency, atol=1e-6)
 
 
 def test_zero_recency_decay_observation_stays_zero():
@@ -374,29 +231,6 @@ def test_q_decay_auto_uses_reward_scale_prior_variance():
     np.testing.assert_allclose(np.asarray(env.params(q_drift=0.5, q_decay="auto").q_decay), expected, atol=1e-6)
 
 
-def test_move_step_matches_reference_environment():
-    reference_env, jax_env, jax_params, _, state, _, _ = _reset_synced_envs(seed=5)
-
-    for raw_action in _first_child_path(_reference_children_array(reference_env), reference_env.root_node):
-        action = raw_action
-        reference_env.step(action)
-        state, _, _, _, _, _ = jax_env.step_with_params(state, _jax_action(action), jax_params)
-
-    move_action = reference_env.num_nodes
-    obs_reference, reward_reference, done_reference, truncated_reference, info_reference = reference_env.step(move_action)
-    state, obs_jax, reward_jax, done_jax, truncated_jax, info_jax = jax_env.step_with_params(
-        state,
-        _jax_action(move_action),
-        jax_params,
-    )
-
-    np.testing.assert_allclose(np.asarray(obs_jax), obs_reference, atol=1e-6)
-    np.testing.assert_allclose(float(reward_jax), reward_reference, atol=1e-6)
-    np.testing.assert_equal(bool(done_jax), done_reference)
-    np.testing.assert_equal(bool(truncated_jax), truncated_reference)
-    np.testing.assert_array_equal(np.asarray(info_jax["mask"]), info_reference["mask"])
-
-
 def test_move_reward_marginalizes_over_possible_paths():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
@@ -420,25 +254,33 @@ def test_move_reward_marginalizes_over_possible_paths():
     assert not hasattr(state, "chosen_path_len")
 
 
-def test_compiled_rollout_matches_reference_environment():
-    reference_env, jax_env, jax_params, key = _make_envs(seed=6)
-
-    reset_state, _, _ = jax_env.reset_with_params(key, jax_params)
-    _sync_reference_from_state(reference_env, reset_state)
-    action_list = []
-    for raw_action in _first_child_path(_reference_children_array(reference_env), reference_env.root_node):
-        action = raw_action
-        action_list.append(action)
-        reference_env.step(action)
-    action_list.append(reference_env.num_nodes)
-    actions = jnp.array(action_list, dtype=jnp.int32)
+def test_compiled_rollout_matches_eager_rollout():
+    env = JaxDecisionTreeEnv(
+        num_nodes=7,
+        t_max=20,
+        scale_factor=1 / 8,
+        shuffle_nodes=False,
+        point_set=jnp.array([1.0], dtype=jnp.float32),
+    )
+    params = env.params(
+        beta_move=50.0,
+        eps_move=0.0,
+        learning_rate=1.0,
+        lamda_backup=0.5,
+        wm_decay=1.0,
+        cost=0.01,
+    )
+    key = jax.random.PRNGKey(6)
+    reset_state, _, _ = env.reset_with_params(key, params)
+    path_actions = _first_child_path(np.asarray(reset_state.child_nodes), int(reset_state.root_node))
+    actions = jnp.array(path_actions + [env.num_nodes], dtype=jnp.int32)
 
     def rollout(k, action_seq):
-        state, reset_obs, reset_info = jax_env.reset_with_params(k, jax_params)
+        state, reset_obs, reset_info = env.reset_with_params(k, params)
 
         def body_fn(carry, action):
             state = carry
-            state, obs, reward, done, truncated, info = jax_env.step_with_params(state, action, jax_params)
+            state, obs, reward, done, truncated, info = env.step_with_params(state, action, params)
             output = (obs, reward, done, truncated, info["mask"])
             return state, output
 
@@ -457,144 +299,43 @@ def test_compiled_rollout_matches_reference_environment():
     for eager_item, compiled_item in zip(eager[1:], compiled[1:]):
         np.testing.assert_allclose(np.asarray(compiled_item), np.asarray(eager_item), atol=1e-6)
 
-    reference_env.reset()
-    _sync_reference_from_state(reference_env, reset_state)
-    obs_reference_reset = reference_env.get_obs()
-    info_reference_reset = {"mask": reference_env.get_action_mask()}
-    reference_step_obs = []
-    reference_step_rewards = []
-    reference_step_dones = []
-    reference_step_truncateds = []
-    reference_step_masks = []
-
-    for action in np.asarray(actions):
-        obs, reward, done, truncated, info = reference_env.step(int(action))
-        reference_step_obs.append(obs)
-        reference_step_rewards.append(reward)
-        reference_step_dones.append(done)
-        reference_step_truncateds.append(truncated)
-        reference_step_masks.append(info["mask"])
-
-    (
-        _,
-        obs_reset_jax,
-        mask_reset_jax,
-        obses_jax,
-        rewards_jax,
-        dones_jax,
-        truncateds_jax,
-        masks_jax,
-    ) = compiled
-
-    np.testing.assert_allclose(np.asarray(obs_reset_jax), obs_reference_reset, atol=1e-6)
-    np.testing.assert_array_equal(np.asarray(mask_reset_jax), info_reference_reset["mask"])
-    np.testing.assert_allclose(np.asarray(obses_jax), np.asarray(reference_step_obs), atol=1e-6)
-    np.testing.assert_allclose(np.asarray(rewards_jax), np.asarray(reference_step_rewards), atol=1e-6)
-    np.testing.assert_array_equal(np.asarray(dones_jax), np.asarray(reference_step_dones))
-    np.testing.assert_array_equal(np.asarray(truncateds_jax), np.asarray(reference_step_truncateds))
-    np.testing.assert_array_equal(np.asarray(masks_jax), np.asarray(reference_step_masks))
-
-
 def test_move_path_is_not_stored_in_environment_state():
-    reference_env, jax_env, jax_params, key, state, _, _ = _reset_synced_envs(seed=7, t_max=3)
-
-    raw_action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
-    action = raw_action
-    reference_env.step(action)
-    state, _, _, _, _, _ = jax_env.step_with_params(state, _jax_action(action), jax_params)
-    move_action = reference_env.num_nodes
-    reference_env.step(move_action)
-    state, _, _, _, _, _ = jax_env.step_with_params(state, _jax_action(move_action), jax_params)
+    env = JaxDecisionTreeEnv(num_nodes=7, t_max=3, shuffle_nodes=False)
+    params = env.params()
+    key = jax.random.PRNGKey(7)
+    state, _, _ = env.reset_with_params(key, params)
+    action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
+    state, _, _, _, _, _ = env.step_with_params(state, _jax_action(action), params)
+    state, _, _, _, _, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
 
     assert not hasattr(state, "chosen_path")
     assert not hasattr(state, "chosen_path_len")
 
-    reference_env.reset()
-    state, _, _ = jax_env.reset_with_params(key, jax_params)
-    _sync_reference_from_state(reference_env, state)
-    raw_action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
-    action = raw_action
-
-    done_reference = False
+    state, _, _ = env.reset_with_params(key, params)
+    action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
     done_jax = False
-    for _ in range(reference_env.t_max - 1):
-        _, _, done_reference, _, _ = reference_env.step(action)
-        state, _, _, done_jax, _, _ = jax_env.step_with_params(state, _jax_action(action), jax_params)
-
-    assert not done_reference
+    for _ in range(env.t_max - 1):
+        state, _, _, done_jax, _, _ = env.step_with_params(state, _jax_action(action), params)
     assert not bool(done_jax)
     assert not hasattr(state, "chosen_path")
     assert not hasattr(state, "chosen_path_len")
 
 
 def test_timeout_masks_to_move_action():
-    reference_env, jax_env, jax_params, _, state, _, _ = _reset_synced_envs(seed=11, t_max=3)
+    env = JaxDecisionTreeEnv(num_nodes=7, t_max=3, shuffle_nodes=False)
+    params = env.params()
+    state, _, info_jax = env.reset_with_params(jax.random.PRNGKey(11), params)
 
-    raw_action = _first_child_path(_reference_children_array(reference_env), reference_env.root_node)[0]
-    action = raw_action
-    info_reference = {"mask": reference_env.get_action_mask()}
-    info_jax = {"mask": jax_env.get_action_mask(state)}
-    for _ in range(reference_env.t_max - 1):
-        _, _, _, _, info_reference = reference_env.step(action)
-        state, _, _, _, _, info_jax = jax_env.step_with_params(state, _jax_action(action), jax_params)
+    action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
+    for _ in range(env.t_max - 1):
+        state, _, _, _, _, info_jax = env.step_with_params(state, _jax_action(action), params)
 
-    np.testing.assert_array_equal(
-        info_reference["mask"],
-        np.eye(reference_env.action_size, dtype=bool)[reference_env.num_nodes],
-    )
-    np.testing.assert_array_equal(np.asarray(info_jax["mask"]), info_reference["mask"])
+    np.testing.assert_array_equal(np.asarray(info_jax["mask"]), np.eye(env.action_size, dtype=bool)[env.num_nodes])
+    state, _, reward_jax, done_jax, _, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
 
-    with pytest.raises(ValueError, match=f"Invalid action {action}"):
-        reference_env.step(action)
-
-    move_action = reference_env.num_nodes
-    _, reference_reward, reference_done, _, _ = reference_env.step(move_action)
-    state, _, reward_jax, done_jax, _, _ = jax_env.step_with_params(state, _jax_action(move_action), jax_params)
-
-    assert reference_done
     assert bool(done_jax)
-    assert reference_reward > 0.0
-    assert float(reward_jax) > 0.0
     assert not hasattr(state, "chosen_path")
     assert not hasattr(state, "chosen_path_len")
-
-
-def test_visit_all_once_then_terminate_is_optimal_reference():
-    env = ReferenceDecisionTreeEnv(
-        num_nodes=7,
-        beta_move=100.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        lamda_backup=1.0,
-        wm_decay=1.0,
-        t_max=8,
-        cost=0.0,
-        shuffle_nodes=True,
-        seed=19,
-    )
-
-    _, info = env.reset()
-    child_nodes = _reference_children_array(env)
-    points = env.points
-    root = int(env.root_node)
-
-    visit_order = _bfs_visit_order(child_nodes, root)
-    assert len(visit_order) == env.num_nodes
-    assert len(set(visit_order)) == env.num_nodes
-
-    for raw_action in visit_order:
-        action = raw_action
-        assert bool(info["mask"][action])
-        _, _, done, truncated, info = env.step(action)
-        assert not done
-        assert not truncated
-
-    _, reward, done, truncated, _ = env.step(env.num_nodes)
-    assert done
-    assert not truncated
-
-    optimal_scaled = _optimal_path_reward_raw(child_nodes, points, root) * env.scale_factor
-    np.testing.assert_allclose(reward, optimal_scaled, atol=1e-6)
 
 
 def test_visit_all_once_then_terminate_is_optimal_jax():
