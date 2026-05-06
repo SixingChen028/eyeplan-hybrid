@@ -7,6 +7,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from modules.config import SHAPE_KEYS
 
 DEFAULT_META = {
     "python": "python -u",
@@ -20,21 +21,6 @@ DEFAULT_SBATCH = {
     "mem_per_cpu": "1G",
     "log": "./log/%A_%a.log",
 }
-
-SHAPE_KEYS = {
-    "num_nodes",
-    "hidden_size",
-    "num_envs",
-    "rollout_length",
-    "t_max",
-    "num_updates",
-    "eval_episodes",
-    "network_type",
-    "max_compiled_updates_per_chunk",
-    "scale_factor",
-    "shuffle_nodes",
-}
-
 
 def _as_dict(value, name: str, default: dict | None = None) -> dict:
     if value is None:
