@@ -689,6 +689,7 @@ def _append_per_run_progress_logs(
     update_end: int,
     env_steps_per_update: int = 1,
     cumulative_episode_counts: np.ndarray | None = None,
+    emit_stdout: bool = False,
 ) -> None:
     metrics = jax.tree_util.tree_map(lambda x: np.asarray(jax.device_get(x)), chunk_metrics)
     run_dirs_by_index = np.asarray(run_dirs, dtype=object).reshape((num_hypers, num_seeds))
@@ -729,6 +730,8 @@ def _append_per_run_progress_logs(
             )
             with open(log_path, "a") as file:
                 file.write(line + "\n")
+            if emit_stdout:
+                _log(line)
 
 
 def train_with_progress(
@@ -743,6 +746,7 @@ def train_with_progress(
     print_frequency: int,
     max_compiled_updates_per_chunk: int = -1,
     include_gpu_summary: bool = False,
+    emit_single_run_progress_to_stdout: bool = False,
 ):
     has_run_dirs = run_dirs is not None
     if run_dirs is None:
@@ -797,6 +801,24 @@ def train_with_progress(
     _log("parallel_train_compile done=true", flush=True)
     if has_run_dirs:
         _init_per_run_training_logs(run_dirs)
+        if emit_single_run_progress_to_stdout:
+            col_sep = "   "
+            run_header = col_sep.join(
+                [
+                    f"{'update':>8}",
+                    f"{'ep_num':>10}",
+                    f"{'ep_rew':>8}",
+                    f"{'ep_len':>8}",
+                    f"{'loss':>8}",
+                    f"{'policy':>8}",
+                    f"{'value':>8}",
+                    f"{'entropy':>8}",
+                    f"{'grad_n':>8}",
+                    f"{'param_n':>8}",
+                ]
+            )
+            _log(run_header)
+            _log("-" * len(run_header))
 
     start = time.time()
     metrics_chunks = []
@@ -805,6 +827,7 @@ def train_with_progress(
     cumulative_episode_count_total = 0.0
     gpu_sampler = _GpuSampler(interval_seconds=0.5)
     gpu_sampler.start()
+    show_parallel_table = not emit_single_run_progress_to_stdout
     col_sep = "   "
     header = col_sep.join(
         [
@@ -817,8 +840,9 @@ def train_with_progress(
             f"{'mem%':>8}",
         ]
     )
-    _log(header)
-    _log("-" * len(header))
+    if show_parallel_table:
+        _log(header)
+        _log("-" * len(header))
 
     try:
         for update_start in range(0, num_updates, print_frequency):
@@ -846,6 +870,7 @@ def train_with_progress(
                     update_end=update_end,
                     env_steps_per_update=env_steps_per_update,
                     cumulative_episode_counts=cumulative_episode_counts,
+                    emit_stdout=emit_single_run_progress_to_stdout,
                 )
 
             elapsed_seconds = time.time() - start
@@ -876,20 +901,21 @@ def train_with_progress(
                     f"updates_per_second={updates_per_second:.6f}",
                     flush=True,
                 )
-            _log(
-                col_sep.join(
-                    [
-                        f"{updates_done:>8d}",
-                        f"{int(round(cumulative_episode_count_total / 1_000.0)):>9d}K",
-                        f"{_format_duration(elapsed_seconds):>8}",
-                        f"{_format_duration(eta_seconds):>8}",
-                        f"{updates_per_second:>8.3f}",
-                        f"{gpu_util_text:>8}",
-                        f"{gpu_mem_text:>8}",
-                    ]
-                ),
-                flush=True,
-            )
+            if show_parallel_table:
+                _log(
+                    col_sep.join(
+                        [
+                            f"{updates_done:>8d}",
+                            f"{int(round(cumulative_episode_count_total / 1_000.0)):>9d}K",
+                            f"{_format_duration(elapsed_seconds):>8}",
+                            f"{_format_duration(eta_seconds):>8}",
+                            f"{updates_per_second:>8.3f}",
+                            f"{gpu_util_text:>8}",
+                            f"{gpu_mem_text:>8}",
+                        ]
+                    ),
+                    flush=True,
+                )
     finally:
         gpu_sampler.stop()
 
@@ -1365,6 +1391,9 @@ def main() -> None:
         f"t_max={fixed['t_max']} "
         f"varied_keys={','.join(varied_keys)}"
     )
+    single_run_mode = len(combos) == 1 and len(seeds) == 1 and len(varied_keys) == 0
+    if single_run_mode:
+        _log("single_run_mode=true")
     run_dirs = prepare_run_dirs(
         combos,
         seeds,
@@ -1386,6 +1415,7 @@ def main() -> None:
         print_frequency=int(fixed["print_frequency"]),
         max_compiled_updates_per_chunk=int(fixed["max_compiled_updates_per_chunk"]),
         include_gpu_summary=True,
+        emit_single_run_progress_to_stdout=single_run_mode,
     )
     _log(f"parallel_train_elapsed_seconds={elapsed_seconds:.3f}")
     _log(gpu_summary_line)

@@ -10,7 +10,7 @@ from pathlib import Path
 
 DEFAULT_META = {
     "python": "python -u",
-    "entrypoint": "train.py",
+    "entrypoint": "train_parallel.py",
     "result_path": "./results",
     "resume": True,
     "jobid_from_task_id": True,
