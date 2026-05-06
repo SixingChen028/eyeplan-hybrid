@@ -80,7 +80,20 @@ def _split_python_command(command: str) -> tuple[str, list[str]]:
     return tokens[0], tokens[1:]
 
 
-def _resolve_config_path(config_arg: str) -> Path:
+def _latest_config_path() -> Path:
+    config_dir = Path("config")
+    if not config_dir.exists() or not config_dir.is_dir():
+        raise FileNotFoundError("No config provided and config/ directory was not found.")
+    tomls = sorted(config_dir.glob("*.toml"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not tomls:
+        raise FileNotFoundError("No config provided and no .toml files found in config/.")
+    return tomls[0].resolve()
+
+
+def _resolve_config_path(config_arg: str | None) -> Path:
+    if config_arg is None:
+        return _latest_config_path()
+
     raw = Path(config_arg)
     candidates: list[Path] = []
 
@@ -274,7 +287,7 @@ def _default_output_path(config_path: Path) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate a lightweight sbatch script for train.py sweeps.")
-    parser.add_argument("config", help="Config file path or config stem (e.g. wm_cost).")
+    parser.add_argument("config", nargs="?", help="Config file path or config stem (e.g. wm_cost). Defaults to the most recently modified file in config/.")
     parser.add_argument("-o", "--output", help="Optional output sbatch path.")
     parser.add_argument(
         "--submit",
@@ -295,8 +308,16 @@ def main() -> None:
     print(f"Wrote {output_path}")
 
     if args.submit:
+        submit_cmd = ["sbatch", str(output_path)]
+        print("Command to run:")
+        print(" " + " ".join(shlex.quote(part) for part in submit_cmd))
+        confirm = input("Submit job? [y/N] ").strip().lower()
+        if confirm != "y":
+            print("Cancelled.")
+            return
+
         result = subprocess.run(
-            ["sbatch", str(output_path)],
+            submit_cmd,
             check=True,
             capture_output=True,
             text=True,
