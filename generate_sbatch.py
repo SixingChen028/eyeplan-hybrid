@@ -12,21 +12,27 @@ DEFAULT_META = {
     "python": "python -u",
     "entrypoint": "train.py",
     "result_path": "./results",
-    "resume": True,
-    "jobid_from_task_id": True,
-    "eval_episodes": 102_400,
-    "print_frequency": 100,
-    "parallel": False,
-    "array_vars": [],
-    "parallel_config_arg": "path",
-    "post_simulate": None,
 }
 
 DEFAULT_SBATCH = {
     "cpus_per_task": 1,
     "time": "08:00:00",
     "mem_per_cpu": "1G",
-    "log": "./log/%A_%a",
+    "log": "./log/%A_%a.log",
+}
+
+SHAPE_KEYS = {
+    "num_nodes",
+    "hidden_size",
+    "num_envs",
+    "rollout_length",
+    "t_max",
+    "num_updates",
+    "eval_episodes",
+    "network_type",
+    "max_compiled_updates_per_chunk",
+    "scale_factor",
+    "shuffle_nodes",
 }
 
 
@@ -58,12 +64,6 @@ def _to_shell_scalar(value) -> str:
     raise ValueError(f"Unsupported value type: {type(value).__name__}")
 
 
-def _to_arg_literal(value) -> str:
-    if isinstance(value, str):
-        return shlex.quote(value)
-    return _to_shell_scalar(value)
-
-
 def _to_bash_name(key: str, suffix: str) -> str:
     token = re.sub(r"[^A-Za-z0-9]+", "_", key).strip("_").upper()
     if not token:
@@ -92,13 +92,9 @@ def _resolve_config_path(config_arg: str) -> Path:
 
     if not raw.is_absolute():
         stem = raw.stem if raw.suffix == ".toml" else raw.name
-        candidates.extend(
-            [
-                Path("config") / f"{stem}.toml",
-            ]
-        )
+        candidates.append(Path("config") / f"{stem}.toml")
 
-    seen = set()
+    seen: set[Path] = set()
     for candidate in candidates:
         resolved = candidate.resolve()
         if resolved in seen:
@@ -111,9 +107,9 @@ def _resolve_config_path(config_arg: str) -> Path:
     raise FileNotFoundError(f"Could not find config file. Tried:\n{options}")
 
 
-def _split_params(params: dict) -> tuple[list[tuple[str, object]], list[tuple[str, list[object]]]]:
-    fixed: list[tuple[str, object]] = []
-    vary: list[tuple[str, list[object]]] = []
+def _split_params(params: dict) -> tuple[dict[str, object], dict[str, list[object]]]:
+    scalars: dict[str, object] = {}
+    arrays: dict[str, list[object]] = {}
     for key, value in params.items():
         if isinstance(value, list):
             if len(value) == 0:
@@ -121,59 +117,51 @@ def _split_params(params: dict) -> tuple[list[tuple[str, object]], list[tuple[st
             for idx, item in enumerate(value):
                 if not _is_scalar(item):
                     raise ValueError(f"params.{key}[{idx}] must be scalar, got {type(item).__name__}.")
-            vary.append((key, value))
+            arrays[key] = value
             continue
         if not _is_scalar(value):
             raise ValueError(f"params.{key} must be scalar or array, got {type(value).__name__}.")
-        fixed.append((key, value))
-    return fixed, vary
+        scalars[key] = value
+    return scalars, arrays
+
+
+def _selected_array_axes(meta: dict, array_params: dict[str, list[object]]) -> list[str]:
+    axes: list[str] = [key for key in array_params if key in SHAPE_KEYS]
+
+    array_vars_raw = meta.get("array_vars")
+    if array_vars_raw is not None:
+        if not isinstance(array_vars_raw, list):
+            raise ValueError("meta.array_vars must be an array when provided.")
+        for item in array_vars_raw:
+            if not isinstance(item, str):
+                raise ValueError("meta.array_vars entries must be strings.")
+            if item not in array_params:
+                raise ValueError(f"meta.array_vars contains '{item}', but params.{item} is not an array.")
+            if item not in axes:
+                axes.append(item)
+
+    return axes
 
 
 def _render_script(config: dict, config_path: Path) -> str:
     meta = _as_dict(config.get("meta"), "meta", default=DEFAULT_META)
     sbatch = _as_dict(config.get("sbatch"), "sbatch", default=DEFAULT_SBATCH)
     params = _as_dict(config.get("params"), "params")
-    gpu_enabled = bool(sbatch.get("gpu", False))
+
+    _, array_params = _split_params(params)
+    selected_axes = _selected_array_axes(meta, array_params)
 
     experiment = str(meta.get("experiment", config_path.stem))
     job_name = str(sbatch.get("job_name", experiment))
     python_exec, python_extra_args = _split_python_command(str(meta["python"]))
-    log_path = str(sbatch.get("log", sbatch.get("output", sbatch.get("error", "./log/%A_%a.log"))))
+    entrypoint = str(meta.get("entrypoint", "train.py"))
+    result_path = str(meta["result_path"])
+    log_path = str(sbatch.get("log", "./log/%A_%a.log"))
+    gpu_enabled = bool(sbatch.get("gpu", False))
 
-    fixed, vary = _split_params(params)
-    vary_by_key = {key: values for key, values in vary}
-    parallel_mode = bool(meta.get("parallel", False))
-    array_vars_raw = meta.get("array_vars", [])
-    if array_vars_raw is None:
-        array_vars_raw = []
-    if not isinstance(array_vars_raw, list):
-        raise ValueError("meta.array_vars must be an array of parameter names.")
-    array_vars = [str(item) for item in array_vars_raw]
-    invalid_array_vars = [key for key in array_vars if key not in vary_by_key]
-    if invalid_array_vars:
-        invalid_keys = ", ".join(invalid_array_vars)
-        raise ValueError(f"meta.array_vars contains keys that are not sweep params: {invalid_keys}")
-    if parallel_mode and not array_vars:
-        raise ValueError("meta.parallel=true requires meta.array_vars to be non-empty.")
-
-    if parallel_mode:
-        selected_vary = [(key, vary_by_key[key]) for key in array_vars]
-        remaining_vary = [(key, values) for key, values in vary if key not in set(array_vars)]
-    else:
-        selected_vary = list(vary)
-        remaining_vary = []
-
-    entrypoint = str(meta["entrypoint"])
-    if parallel_mode and entrypoint == DEFAULT_META["entrypoint"]:
-        entrypoint = "train.py"
-    if meta.get("post_simulate") is None:
-        post_simulate = not parallel_mode
-    else:
-        post_simulate = bool(meta["post_simulate"])
-    n_terms = [_to_bash_name(key, "N") for key, _ in selected_vary]
     array_size = 1
-    for _, values in selected_vary:
-        array_size *= len(values)
+    for key in selected_axes:
+        array_size *= len(array_params[key])
 
     lines: list[str] = []
     lines.append("#!/bin/bash")
@@ -214,23 +202,24 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append('export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=${THREADS}"')
     lines.append("")
 
-    lines.append(f"RESULT_PATH={shlex.quote(str(meta['result_path']))}")
+    lines.append(f"RESULT_PATH={shlex.quote(result_path)}")
     lines.append(f"EXPERIMENT={shlex.quote(experiment)}")
     lines.append('mkdir -p "${RESULT_PATH}"')
     lines.append("")
 
-    if selected_vary:
-        lines.append("# Grid values from config.")
-        for key, values in selected_vary:
+    if selected_axes:
+        lines.append("# Slurm-array axes from config.")
+        for key in selected_axes:
             array_name = _to_bash_name(key, "VALUES")
-            shell_values = " ".join(shlex.quote(_to_shell_scalar(v)) for v in values)
+            shell_values = " ".join(shlex.quote(_to_shell_scalar(v)) for v in array_params[key])
             lines.append(f"{array_name}=({shell_values})")
         lines.append("")
 
-        for key, _ in selected_vary:
+        for key in selected_axes:
             n_name = _to_bash_name(key, "N")
             array_name = _to_bash_name(key, "VALUES")
             lines.append(f"{n_name}=${{#{array_name}[@]}}")
+        n_terms = [_to_bash_name(key, "N") for key in selected_axes]
         lines.append(f"TOTAL=$(({' * '.join(n_terms)}))")
         lines.append("")
 
@@ -242,13 +231,13 @@ def _render_script(config: dict, config_path: Path) -> str:
         lines.append("")
 
         lines.append("idx=${TASK_ID}")
-        for key, _ in reversed(selected_vary):
+        for key in reversed(selected_axes):
             idx_name = _to_bash_name(key, "IDX").lower()
             n_name = _to_bash_name(key, "N")
             lines.append(f"{idx_name}=$((idx % {n_name})); idx=$((idx / {n_name}))")
         lines.append("")
 
-        for key, _ in selected_vary:
+        for key in selected_axes:
             value_name = _to_bash_name(key, "VALUE")
             array_name = _to_bash_name(key, "VALUES")
             idx_name = _to_bash_name(key, "IDX").lower()
@@ -256,55 +245,26 @@ def _render_script(config: dict, config_path: Path) -> str:
         lines.append("")
 
         log_parts = ['echo "grid_task task_id=${TASK_ID}']
-        for key, _ in selected_vary:
+        for key in selected_axes:
             log_parts.append(f" {key}=${{{_to_bash_name(key, 'VALUE')}}}")
         log_parts.append('"')
         lines.append("".join(log_parts))
     else:
         lines.append("TASK_ID=${SLURM_ARRAY_TASK_ID:-0}")
+
     lines.append("")
 
-    python_cmd_parts = ['"${PYTHON_BIN}"']
-    python_cmd_parts.extend(shlex.quote(arg) for arg in python_extra_args)
-    python_cmd_parts.append(shlex.quote(entrypoint))
-    lines.append(" ".join(python_cmd_parts) + " \\")
-    if parallel_mode:
-        config_arg_mode = str(meta.get("parallel_config_arg", "path")).lower()
-        if config_arg_mode == "stem":
-            parallel_config_arg = config_path.stem
-        elif config_arg_mode == "path":
-            parallel_config_arg = str(config_path)
-        else:
-            raise ValueError("meta.parallel_config_arg must be 'path' or 'stem'.")
-        lines.append(f"    {shlex.quote(parallel_config_arg)} \\")
-        lines.append('    --path="${RESULT_PATH}" \\')
-        lines.append('    --experiment="${EXPERIMENT}" \\')
-        for key, _ in selected_vary:
-            lines.append(f'    --{key}="${{{_to_bash_name(key, "VALUE")}}}" \\')
-    else:
-        if bool(meta["jobid_from_task_id"]):
-            lines.append('    --jobid="${TASK_ID}" \\')
-        lines.append('    --path="${RESULT_PATH}" \\')
-        lines.append('    --experiment="${EXPERIMENT}" \\')
-        lines.append(f"    --resume={_to_shell_scalar(bool(meta['resume']))} \\")
-        lines.append(f"    --eval_episodes={_to_arg_literal(meta['eval_episodes'])} \\")
-        lines.append(f"    --print_frequency={_to_arg_literal(meta['print_frequency'])} \\")
+    cmd_parts = ['"${PYTHON_BIN}"']
+    cmd_parts.extend(shlex.quote(arg) for arg in python_extra_args)
+    cmd_parts.append(shlex.quote(entrypoint))
+    cmd_parts.append(shlex.quote(str(config_path)))
+    cmd_parts.append('--path="${RESULT_PATH}"')
+    cmd_parts.append('--experiment="${EXPERIMENT}"')
+    for key in selected_axes:
+        cmd_parts.append(f'--{key}="${{{_to_bash_name(key, "VALUE")}}}"')
 
-        for key, value in fixed:
-            lines.append(f"    --{key}={_to_arg_literal(value)} \\")
-        for key, _ in selected_vary:
-            lines.append(f'    --{key}="${{{_to_bash_name(key, "VALUE")}}}" \\')
-        for key, _ in remaining_vary:
-            lines.append(f"    --{key}={_to_arg_literal(vary_by_key[key])} \\")
-
-    if lines[-1].endswith(" \\"):
-        lines[-1] = lines[-1][:-2]
+    lines.append(" \\\n    ".join(cmd_parts))
     lines.append("")
-    if post_simulate:
-        lines.append('RUN=$(ls -td "${RESULT_PATH}/runs/${EXPERIMENT}/${TASK_ID}"_* | head -n 1)')
-        lines.append('"${PYTHON_BIN}" simulate.py "${RUN}"')
-        lines.append('"${PYTHON_BIN}" simulate.py "${RUN}" --detailed')
-        lines.append("")
     return "\n".join(lines)
 
 
@@ -313,8 +273,8 @@ def _default_output_path(config_path: Path) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate an sbatch script from TOML.")
-    parser.add_argument("config", help="Config file path or config stem (e.g. hybrid-dyna).")
+    parser = argparse.ArgumentParser(description="Generate a lightweight sbatch script for train.py sweeps.")
+    parser.add_argument("config", help="Config file path or config stem (e.g. wm_cost).")
     parser.add_argument("-o", "--output", help="Optional output sbatch path.")
     parser.add_argument(
         "--submit",
@@ -333,6 +293,7 @@ def main() -> None:
     output_path.write_text(script_text, encoding="utf-8")
     output_path.chmod(0o755)
     print(f"Wrote {output_path}")
+
     if args.submit:
         result = subprocess.run(
             ["sbatch", str(output_path)],

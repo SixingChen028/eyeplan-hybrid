@@ -1,5 +1,4 @@
 [meta]
-parallel = true
 array_vars = ["cost"]
 
 [sbatch]
