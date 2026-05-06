@@ -221,14 +221,6 @@ def _parse_unit_interval(value, *, name: str) -> float:
     return value
 
 
-def _resolve_recency_decay(value) -> float:
-    return _parse_unit_interval(value, name="recency_decay")
-
-
-def _resolve_q_decay(value) -> float:
-    return _parse_unit_interval(value, name="q_decay")
-
-
 def _validate_params(params: dict) -> None:
     for key, value in params.items():
         if not _is_list(value):
@@ -362,20 +354,8 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
         wm_backup=array("wm_backup", dtype=np.bool_),
         q_drop_rate=array("q_drop_rate"),
         q_drift=array("q_drift"),
-        q_decay=jnp.asarray(
-            [
-                _resolve_q_decay(combo["q_decay"])
-                for combo in combos
-            ],
-            dtype=jnp.float32,
-        ),
-        recency_decay=jnp.asarray(
-            [
-                _resolve_recency_decay(combo["recency_decay"])
-                for combo in combos
-            ],
-            dtype=jnp.float32,
-        ),
+        q_decay=array("q_decay"),
+        recency_decay=array("recency_decay"),
         cost=array("cost"),
     )
     return A2CHyperParams(
