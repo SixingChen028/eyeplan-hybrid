@@ -33,6 +33,18 @@ class JaxDecisionTreeParams(NamedTuple):
     wm_backup: jax.Array
 
 
+def _parse_unit_interval(value, *, name: str) -> float:
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError as error:
+            raise ValueError(f"{name} must be a number in [0, 1].") from error
+    value = float(value)
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(f"{name} numeric values must satisfy 0 <= {name} <= 1.")
+    return value
+
+
 def make_decision_tree_params(
     env: "JaxDecisionTreeEnv",
     *,
@@ -52,8 +64,8 @@ def make_decision_tree_params(
     q_drift = float(q_drift)
     if q_drift < 0.0:
         raise ValueError("q_drift must be non-negative.")
-    q_decay_value = JaxDecisionTreeEnv._parse_q_decay(q_decay)
-    recency_decay_value = JaxDecisionTreeEnv._parse_recency_decay(recency_decay)
+    q_decay_value = _parse_unit_interval(q_decay, name="q_decay")
+    recency_decay_value = _parse_unit_interval(recency_decay, name="recency_decay")
     resolved_q_decay = jnp.asarray(q_decay_value, dtype=jnp.float32)
     resolved_recency_decay = jnp.asarray(recency_decay_value, dtype=jnp.float32)
     return JaxDecisionTreeParams(
@@ -74,32 +86,6 @@ def make_decision_tree_params(
 
 class JaxDecisionTreeEnv:
     metadata = {"render_modes": ["human", "rgb_array"]}
-
-    @staticmethod
-    def _parse_recency_decay(recency_decay) -> float:
-        if isinstance(recency_decay, str):
-            try:
-                recency_decay = float(recency_decay.strip())
-            except ValueError as error:
-                raise ValueError("recency_decay must be a number in [0, 1].") from error
-
-        value = float(recency_decay)
-        if not 0.0 <= value <= 1.0:
-            raise ValueError("recency_decay numeric values must satisfy 0 <= recency_decay <= 1.")
-        return value
-
-    @staticmethod
-    def _parse_q_decay(q_decay) -> float:
-        if isinstance(q_decay, str):
-            try:
-                q_decay = float(q_decay.strip())
-            except ValueError as error:
-                raise ValueError("q_decay must be a number in [0, 1].") from error
-
-        value = float(q_decay)
-        if not 0.0 <= value <= 1.0:
-            raise ValueError("q_decay numeric values must satisfy 0 <= q_decay <= 1.")
-        return value
 
     def __init__(
         self,

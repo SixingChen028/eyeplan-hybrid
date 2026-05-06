@@ -209,12 +209,24 @@ def _is_list(value) -> bool:
     return isinstance(value, list)
 
 
+def _parse_unit_interval(value, *, name: str) -> float:
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError as error:
+            raise ValueError(f"{name} must be a number in [0, 1].") from error
+    value = float(value)
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(f"{name} numeric values must satisfy 0 <= {name} <= 1.")
+    return value
+
+
 def _resolve_recency_decay(value) -> float:
-    return float(JaxDecisionTreeEnv._parse_recency_decay(value))
+    return _parse_unit_interval(value, name="recency_decay")
 
 
 def _resolve_q_decay(value) -> float:
-    return float(JaxDecisionTreeEnv._parse_q_decay(value))
+    return _parse_unit_interval(value, name="q_decay")
 
 
 def _validate_params(params: dict) -> None:
@@ -232,16 +244,16 @@ def _validate_params(params: dict) -> None:
 
     recency_decay = params.get("recency_decay", 0.0)
     if not _is_list(recency_decay):
-        JaxDecisionTreeEnv._parse_recency_decay(recency_decay)
+        _parse_unit_interval(recency_decay, name="recency_decay")
     else:
         for item in recency_decay:
-            JaxDecisionTreeEnv._parse_recency_decay(item)
+            _parse_unit_interval(item, name="recency_decay")
     q_decay = params.get("q_decay", 0.0)
     if _is_list(q_decay):
         for item in q_decay:
-            JaxDecisionTreeEnv._parse_q_decay(item)
+            _parse_unit_interval(item, name="q_decay")
     else:
-        JaxDecisionTreeEnv._parse_q_decay(q_decay)
+        _parse_unit_interval(q_decay, name="q_decay")
 
 
 def expand_sweep(params: dict) -> tuple[dict, list[dict], list[int], list[str]]:
