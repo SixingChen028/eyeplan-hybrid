@@ -2,9 +2,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from modules.environment import JaxDecisionTreeEnv
+from modules.config_defaults import load_canonical_defaults
+from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 from modules.environment_regression_reference import JaxDecisionTreeEnv as ReferenceJaxDecisionTreeEnv
 
+_, _DEFAULT_PARAMS = load_canonical_defaults()
 
 ENV_CONFIGS = [
     {
@@ -72,6 +74,8 @@ PARAM_KEYS = {
 
 def _live_env_from_config(config):
     env_kwargs = {key: value for key, value in config.items() if key in ENV_INIT_KEYS}
+    if "scale_factor" not in env_kwargs:
+        env_kwargs["scale_factor"] = _DEFAULT_PARAMS["scale_factor"]
     # The frozen reference currently ignores shuffle_nodes=False at init time.
     env_kwargs["shuffle_nodes"] = True
     recency_decay = config.get("recency_decay", "off")
@@ -80,7 +84,22 @@ def _live_env_from_config(config):
 
 
 def _live_params_from_config(env, config):
-    return env.params(**{key: value for key, value in config.items() if key in PARAM_KEYS})
+    params = {
+        "beta_move": 4.0,
+        "eps_move": 0.02,
+        "learning_rate": 0.2,
+        "lamda_backup": 0.0,
+        "backup_steps": 100,
+        "wm_decay": 0.8,
+        "q_drop_rate": 0.0,
+        "q_drift": 0.0,
+        "q_decay": 0.0,
+        "recency_decay": "off",
+        "cost": 0.01,
+        "wm_backup": False,
+    }
+    params.update({key: value for key, value in config.items() if key in PARAM_KEYS})
+    return make_decision_tree_params(env, **params)
 
 
 def _assert_public_outputs_match(live, reference):

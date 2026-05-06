@@ -35,18 +35,19 @@ class JaxDecisionTreeParams(NamedTuple):
 
 def make_decision_tree_params(
     env: "JaxDecisionTreeEnv",
-    beta_move: float = 4.0,
-    eps_move: float = 0.02,
-    learning_rate: float = 0.2,
-    lamda_backup: float = 0.0,
-    backup_steps: int = 100,
-    wm_decay: float = 0.8,
-    q_drop_rate: float = 0.0,
-    q_drift: float = 0.0,
-    q_decay=0.0,
-    recency_decay="off",
-    cost: float = 0.01,
-    wm_backup: bool = False,
+    *,
+    beta_move: float,
+    eps_move: float,
+    learning_rate: float,
+    lamda_backup: float,
+    backup_steps: int,
+    wm_decay: float,
+    q_drop_rate: float,
+    q_drift: float,
+    q_decay,
+    recency_decay,
+    cost: float,
+    wm_backup: bool,
 ) -> JaxDecisionTreeParams:
     q_drift = float(q_drift)
     if q_drift < 0.0:
@@ -118,10 +119,10 @@ class JaxDecisionTreeEnv:
 
     def __init__(
         self,
-        num_nodes: int = 15,
-        t_max: int = 100,
-        scale_factor: float = 1 / 8,
-        shuffle_nodes: bool = True,
+        num_nodes: int,
+        t_max: int,
+        scale_factor: float,
+        shuffle_nodes: bool,
         use_recency_obs: bool = False,
         point_set=None,
     ):

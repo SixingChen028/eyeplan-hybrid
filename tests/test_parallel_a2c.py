@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
+from modules.config_defaults import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 from train import (
     VmappedA2CTrainer,
@@ -16,6 +17,27 @@ from train import (
     save_results,
     train_with_progress,
 )
+
+_, _DEFAULT_PARAMS = load_canonical_defaults()
+
+
+def _env(**overrides):
+    params = dict(_DEFAULT_PARAMS)
+    params.update(overrides)
+    return JaxDecisionTreeEnv(
+        num_nodes=int(params["num_nodes"]),
+        t_max=int(params["t_max"]),
+        scale_factor=float(params["scale_factor"]),
+        shuffle_nodes=bool(params["shuffle_nodes"]),
+        use_recency_obs=bool(params.get("use_recency_obs", False)),
+        point_set=params.get("point_set"),
+    )
+
+
+def _env_params(env, **overrides):
+    params = {key: _DEFAULT_PARAMS[key] for key in ENV_DYNAMIC_PARAM_KEYS}
+    params.update(overrides)
+    return make_decision_tree_params(env, **params)
 
 
 def _small_params(**overrides):
@@ -49,8 +71,7 @@ def _small_params(**overrides):
 
 def _a2c_train_params(env, config):
     return A2CTrainParams(
-        env=make_decision_tree_params(env, 
-            beta_move=config["beta_move"],
+        env=_env_params(env, beta_move=config["beta_move"],
             eps_move=config["eps_move"],
             learning_rate=config["learning_rate"],
             lamda_backup=config["lamda_backup"],
@@ -66,7 +87,7 @@ def _a2c_train_params(env, config):
 
 
 def test_dynamic_env_params_match_default_env_for_same_values():
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=3,
         t_max=4,
         scale_factor=1.0,
@@ -74,8 +95,7 @@ def test_dynamic_env_params_match_default_env_for_same_values():
         point_set=np.array([1.0], dtype=np.float32),
     )
     key = jax.random.PRNGKey(2)
-    params = make_decision_tree_params(env, 
-        beta_move=4.0,
+    params = _env_params(env, beta_move=4.0,
         eps_move=0.0,
         learning_rate=1.0,
         lamda_backup=0.5,
@@ -109,7 +129,7 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
     assert len(combos) == 2
     assert seeds == [0, 1]
 
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
         shuffle_nodes=fixed["shuffle_nodes"],
@@ -136,7 +156,7 @@ def test_parallel_sweep_compiles_node_shared_network():
     fixed, combos, seeds, _ = expand_sweep(
         _small_params(seed=[0], wm_decay=[1.0], network_type="node_shared")
     )
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
         shuffle_nodes=fixed["shuffle_nodes"],
@@ -170,14 +190,14 @@ def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
     hypers = build_hypers(combos)
     np.testing.assert_allclose(np.asarray(hypers.env.recency_decay), np.array([0.0, 0.5], dtype=np.float32))
 
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
         shuffle_nodes=fixed["shuffle_nodes"],
         use_recency_obs=True,
         point_set=np.array([1.0], dtype=np.float32),
     )
-    assert env.observation_shape[0] == JaxDecisionTreeEnv(num_nodes=fixed["num_nodes"]).observation_shape[0] + fixed["num_nodes"]
+    assert env.observation_shape[0] == _env(num_nodes=fixed["num_nodes"]).observation_shape[0] + fixed["num_nodes"]
 
 
 def test_parallel_sweep_allows_q_drop_rate_arrays():
@@ -233,7 +253,7 @@ def test_parallel_sweep_rejects_recency_decay_arrays_with_off():
 
 def test_train_with_progress_reports_numeric_rate(capsys):
     fixed, combos, seeds, _ = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
         shuffle_nodes=fixed["shuffle_nodes"],
@@ -277,7 +297,7 @@ def test_parallel_single_combo_matches_existing_a2c():
     assert len(combos) == 1
     assert seeds == [0]
 
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
         scale_factor=fixed["scale_factor"],
@@ -357,12 +377,19 @@ trainer = JaxBatchMaskA2C(
     beta_v=0.05,
     beta_e=0.05,
 )
-env_params = make_decision_tree_params(env, 
+env_params = make_decision_tree_params(
+    env,
     beta_move=40.0,
     eps_move=0.0,
     learning_rate=1.0,
     lamda_backup=1.0,
+    backup_steps=100,
     wm_decay=1.0,
+    wm_backup=False,
+    q_drop_rate=0.0,
+    q_drift=0.0,
+    q_decay=0.0,
+    recency_decay="off",
     cost=0.01,
 )
 train_params = A2CTrainParams(
@@ -401,7 +428,7 @@ def test_expand_sweep_rejects_shape_changing_arrays():
 
 def test_save_results_writes_existing_style_run_dirs(tmp_path):
     fixed, combos, seeds, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
         shuffle_nodes=fixed["shuffle_nodes"],
@@ -437,4 +464,3 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
     with open(run_dir / "data_training_jax.p", "rb") as file:
         data = pickle.load(file)
     assert len(data["loss"]) == 2
-

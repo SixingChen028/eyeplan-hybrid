@@ -7,6 +7,7 @@ import traceback
 
 from modules.a2c import load_jax_params
 from modules.analysis_targets import resolve_analysis_target
+from modules.config_defaults import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 from modules.simulation import JaxSimulator
 
@@ -28,38 +29,45 @@ def _read_metadata_args(run_dir: str) -> dict:
     return args
 
 
+def _require_metadata_keys(metadata_args: dict, keys: tuple[str, ...], section_name: str) -> None:
+    missing = [key for key in keys if key not in metadata_args]
+    if missing:
+        raise ValueError(
+            f"Run metadata args missing required {section_name} keys: {', '.join(sorted(missing))}"
+        )
+
+
 def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
-    recency_decay = metadata_args.get("recency_decay")
-    if recency_decay is None:
-        recency_decay = "auto" if bool(metadata_args.get("use_recency_obs", False)) else "off"
+    _require_metadata_keys(metadata_args, ENV_STATIC_PARAM_KEYS, "environment static")
+    _require_metadata_keys(metadata_args, ("recency_decay",), "environment dynamic")
+    recency_decay = metadata_args["recency_decay"]
 
     return JaxDecisionTreeEnv(
-        num_nodes=int(metadata_args.get("num_nodes", 15)),
-        t_max=int(metadata_args.get("t_max", 100)),
-        scale_factor=float(metadata_args.get("scale_factor", 1 / 8)),
-        shuffle_nodes=bool(metadata_args.get("shuffle_nodes", True)),
+        num_nodes=int(metadata_args["num_nodes"]),
+        t_max=int(metadata_args["t_max"]),
+        scale_factor=float(metadata_args["scale_factor"]),
+        shuffle_nodes=bool(metadata_args["shuffle_nodes"]),
         use_recency_obs=JaxDecisionTreeEnv._parse_recency_decay(recency_decay)[0],
     )
 
 
 def _build_env_params_from_metadata_args(env: JaxDecisionTreeEnv, metadata_args: dict):
-    recency_decay = metadata_args.get("recency_decay")
-    if recency_decay is None:
-        recency_decay = "auto" if bool(metadata_args.get("use_recency_obs", False)) else "off"
+    _require_metadata_keys(metadata_args, ENV_DYNAMIC_PARAM_KEYS, "environment dynamic")
+    recency_decay = metadata_args["recency_decay"]
 
     return make_decision_tree_params(
         env,
-        beta_move=float(metadata_args.get("beta_move", 40.0)),
-        eps_move=float(metadata_args.get("eps_move", 0.0)),
-        learning_rate=float(metadata_args.get("learning_rate", 1.0)),
-        lamda_backup=float(metadata_args.get("lamda_backup", 1.0)),
-        backup_steps=int(metadata_args.get("backup_steps", 100)),
-        wm_decay=float(metadata_args.get("wm_decay", 1.0)),
-        wm_backup=bool(metadata_args.get("wm_backup", False)),
-        q_drop_rate=float(metadata_args.get("q_drop_rate", 0.0)),
-        q_drift=float(metadata_args.get("q_drift", 0.0)),
-        q_decay=metadata_args.get("q_decay", 0.0),
-        cost=float(metadata_args.get("cost", 0.01)),
+        beta_move=float(metadata_args["beta_move"]),
+        eps_move=float(metadata_args["eps_move"]),
+        learning_rate=float(metadata_args["learning_rate"]),
+        lamda_backup=float(metadata_args["lamda_backup"]),
+        backup_steps=int(metadata_args["backup_steps"]),
+        wm_decay=float(metadata_args["wm_decay"]),
+        wm_backup=bool(metadata_args["wm_backup"]),
+        q_drop_rate=float(metadata_args["q_drop_rate"]),
+        q_drift=float(metadata_args["q_drift"]),
+        q_decay=metadata_args["q_decay"],
+        cost=float(metadata_args["cost"]),
         recency_decay=recency_decay,
     )
 

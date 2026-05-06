@@ -19,6 +19,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C, JaxTrainState, StepMetrics, save_jax_params
+from modules.config_defaults import load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams, make_decision_tree_params
 from modules.run_dirs import create_timestamped_run_dir, write_run_metadata
 from modules.simulation import JaxSimulator
@@ -28,9 +29,7 @@ jax.config.update('jax_compiler_enable_remat_pass', False)
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 TRAINING_DATA_NAME = "data_training_jax.p"
 
-DEFAULT_META = {
-    "result_path": "./results",
-}
+DEFAULT_META, DEFAULT_PARAMS = load_canonical_defaults()
 
 
 class A2CHyperParams(NamedTuple):
@@ -48,53 +47,6 @@ class A2CSweepResult(NamedTuple):
     states: JaxTrainState
     metrics: StepMetrics
 
-
-DEFAULT_PARAMS = {
-    # Job/runtime
-    "algo": "a2c",
-    "jobid": "",
-    "seed": 15,
-    # Network
-    "network_type": "mlp",
-    "hidden_size": 128,
-    # Environment
-    "num_nodes": 15,
-    "beta_move": 40.0,
-    "eps_move": 0.0,
-    "learning_rate": 1.0,
-    "lamda_backup": 1.0,
-    "backup_steps": 100,
-    "wm_decay": 1.0,
-    "wm_backup": False,
-    "q_drop_rate": 0.0,
-    "q_drift": 0.0,
-    "q_decay": 0.0,
-    "t_max": 100,
-    "cost": 0.01,
-    "scale_factor": 1 / 8,
-    "shuffle_nodes": True,
-    "recency_decay": "off",
-    "mask_fixation": True,
-    # Training
-    "num_updates": 31_250,
-    "num_envs": 64,
-    "rollout_length": 100,
-    "eval_episodes": 102_400,
-    "lr": 5e-4,
-    "max_grad_norm": 1.0,
-    "gamma": 1.0,
-    "lamda": 0.9,
-    "beta_v": 0.05,
-    "beta_e": 0.05,
-    "beta_e_init": 0.05,
-    "beta_e_final": 0.001,
-    # Logging/checkpointing
-    "print_frequency": 100,
-    "checkpoint_frequency": -1,
-    "log_full_metrics": True,
-    # JAX compilation behavior
-    "max_compiled_updates_per_chunk": -1,
-}
 
 ENV_SWEEP_KEYS = {
     "beta_move",

@@ -1,0 +1,42 @@
+[meta]
+result_path = "./results"
+
+[params]
+algo = "a2c"
+jobid = ""
+seed = 15
+network_type = "mlp"
+hidden_size = 128
+num_nodes = 15
+beta_move = 40.0
+eps_move = 0.0
+learning_rate = 1.0
+lamda_backup = 1.0
+backup_steps = 100
+wm_decay = 1.0
+wm_backup = false
+q_drop_rate = 0.0
+q_drift = 0.0
+q_decay = 0.0
+t_max = 100
+cost = 0.01
+scale_factor = 0.125
+shuffle_nodes = true
+recency_decay = "off"
+mask_fixation = true
+num_updates = 31250
+num_envs = 64
+rollout_length = 100
+eval_episodes = 102400
+lr = 0.0005
+max_grad_norm = 1.0
+gamma = 1.0
+lamda = 0.9
+beta_v = 0.05
+beta_e = 0.05
+beta_e_init = 0.05
+beta_e_final = 0.001
+print_frequency = 100
+checkpoint_frequency = -1
+log_full_metrics = true
+max_compiled_updates_per_chunk = -1

@@ -1,12 +1,30 @@
 import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
+from modules.config_defaults import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 from modules.simulation import JaxSimulator, append_simulation_trial, empty_simulation_data
 
+_, _DEFAULT_PARAMS = load_canonical_defaults()
 
-def _env_params(env):
-    return make_decision_tree_params(env, beta_move=4.0, eps_move=0.0, learning_rate=1.0, wm_decay=1.0, cost=0.01)
+
+def _env(**overrides):
+    params = dict(_DEFAULT_PARAMS)
+    params.update(overrides)
+    return JaxDecisionTreeEnv(
+        num_nodes=int(params["num_nodes"]),
+        t_max=int(params["t_max"]),
+        scale_factor=float(params["scale_factor"]),
+        shuffle_nodes=bool(params["shuffle_nodes"]),
+        use_recency_obs=bool(params.get("use_recency_obs", False)),
+        point_set=params.get("point_set"),
+    )
+
+
+def _env_params(env, **overrides):
+    params = {key: _DEFAULT_PARAMS[key] for key in ENV_DYNAMIC_PARAM_KEYS}
+    params.update(overrides)
+    return make_decision_tree_params(env, **params)
 
 
 def _train_params(env_params):
@@ -21,7 +39,7 @@ def _train_params(env_params):
 
 
 def test_jax_train_step_compiles_and_runs():
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=3,
         t_max=5,
         scale_factor=1.0,
@@ -55,7 +73,7 @@ def test_jax_train_step_compiles_and_runs():
 
 
 def test_jax_train_step_runs_node_shared_network():
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=3,
         t_max=5,
         scale_factor=1.0,
@@ -88,7 +106,7 @@ def test_jax_train_step_runs_node_shared_network():
 
 
 def test_jax_simulator_runs_trials():
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=3,
         t_max=5,
         scale_factor=1.0,
@@ -127,7 +145,7 @@ def test_jax_simulator_runs_trials():
 
 
 def test_jax_simulator_runs_node_shared_trials():
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=3,
         t_max=5,
         scale_factor=1.0,
@@ -166,7 +184,7 @@ def test_jax_simulator_runs_node_shared_trials():
 
 
 def test_jax_simulator_runs_detailed_trials():
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=3,
         t_max=5,
         scale_factor=1.0,
@@ -212,7 +230,7 @@ def test_jax_simulator_runs_detailed_trials():
 
 
 def test_jax_simulator_records_forced_terminal_action():
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=3,
         t_max=1,
         scale_factor=1.0,
@@ -250,7 +268,7 @@ def test_jax_simulator_records_forced_terminal_action():
 
 
 def test_jax_simulator_evaluate_policy_returns_summary_stats():
-    env = JaxDecisionTreeEnv(
+    env = _env(
         num_nodes=3,
         t_max=5,
         scale_factor=1.0,
