@@ -81,7 +81,7 @@ def test_mlp_forward_shape_is_unchanged():
 
 
 def test_node_shared_forward_shape_with_and_without_recency():
-    for use_recency_obs, recency_decay in [(False, "off"), (True, 0.5)]:
+    for use_recency_obs, recency_decay in [(False, 0.0), (True, 0.5)]:
         env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=use_recency_obs)
         _, obs, info = env.reset_with_params(jax.random.PRNGKey(0), _env_params(env, recency_decay=recency_decay))
         params = init_actor_critic_params(

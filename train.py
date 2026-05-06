@@ -84,6 +84,7 @@ SHAPE_KEYS = {
     "max_compiled_updates_per_chunk",
     "scale_factor",
     "shuffle_nodes",
+    "use_recency_obs",
 }
 
 
@@ -208,14 +209,8 @@ def _is_list(value) -> bool:
     return isinstance(value, list)
 
 
-def _resolve_recency_decay(value, wm_decay) -> float:
-    enabled, auto, decay = JaxDecisionTreeEnv._parse_recency_decay(value)
-    if not enabled:
-        return 0.0
-    if auto:
-        wm_decay = float(wm_decay)
-        return 0.5 if wm_decay == 1.0 else wm_decay
-    return float(decay)
+def _resolve_recency_decay(value) -> float:
+    return float(JaxDecisionTreeEnv._parse_recency_decay(value))
 
 
 def _resolve_q_decay(value) -> float:
@@ -228,14 +223,6 @@ def _validate_params(params: dict) -> None:
             continue
         if len(value) == 0:
             raise ValueError(f"params.{key} must not be an empty array.")
-        if key == "recency_decay":
-            for item in value:
-                enabled, _, _ = JaxDecisionTreeEnv._parse_recency_decay(item)
-                if not enabled:
-                    raise ValueError(
-                        "params.recency_decay cannot include 'off' in train.py because it changes compiled shapes."
-                    )
-            continue
         if key in SHAPE_KEYS:
             raise ValueError(
                 f"params.{key} cannot be an array in train.py because it changes compiled shapes."
@@ -243,9 +230,12 @@ def _validate_params(params: dict) -> None:
         if key not in SWEEP_KEYS:
             raise ValueError(f"params.{key} is not a supported parallel sweep parameter.")
 
-    recency_decay = params.get("recency_decay", "off")
+    recency_decay = params.get("recency_decay", 0.0)
     if not _is_list(recency_decay):
         JaxDecisionTreeEnv._parse_recency_decay(recency_decay)
+    else:
+        for item in recency_decay:
+            JaxDecisionTreeEnv._parse_recency_decay(item)
     q_decay = params.get("q_decay", 0.0)
     if _is_list(q_decay):
         for item in q_decay:
@@ -369,7 +359,7 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
         ),
         recency_decay=jnp.asarray(
             [
-                _resolve_recency_decay(combo["recency_decay"], combo["wm_decay"])
+                _resolve_recency_decay(combo["recency_decay"])
                 for combo in combos
             ],
             dtype=jnp.float32,
@@ -497,13 +487,12 @@ class VmappedA2CTrainer:
 
 
 def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
-    use_recency_obs, _, _ = JaxDecisionTreeEnv._parse_recency_decay(args["recency_decay"])
     return JaxDecisionTreeEnv(
         num_nodes=args["num_nodes"],
         t_max=args["t_max"],
         scale_factor=args["scale_factor"],
         shuffle_nodes=args["shuffle_nodes"],
-        use_recency_obs=use_recency_obs,
+        use_recency_obs=bool(args["use_recency_obs"]),
     )
 
 
@@ -542,6 +531,7 @@ def _env_cache_key(args: dict) -> tuple:
         "cost",
         "scale_factor",
         "shuffle_nodes",
+        "use_recency_obs",
         "recency_decay",
     )
     return tuple(args[key] for key in keys)

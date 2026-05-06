@@ -26,6 +26,7 @@ REQUIRED_PARAM_KEYS = (
     "cost",
     "scale_factor",
     "shuffle_nodes",
+    "use_recency_obs",
     "recency_decay",
     "mask_fixation",
     "num_updates",
@@ -51,6 +52,7 @@ ENV_STATIC_PARAM_KEYS = (
     "t_max",
     "scale_factor",
     "shuffle_nodes",
+    "use_recency_obs",
 )
 
 ENV_DYNAMIC_PARAM_KEYS = (
@@ -90,4 +92,3 @@ def load_canonical_defaults() -> tuple[dict, dict]:
         )
 
     return dict(meta), dict(params)
-

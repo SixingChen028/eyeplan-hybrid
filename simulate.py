@@ -39,15 +39,13 @@ def _require_metadata_keys(metadata_args: dict, keys: tuple[str, ...], section_n
 
 def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
     _require_metadata_keys(metadata_args, ENV_STATIC_PARAM_KEYS, "environment static")
-    _require_metadata_keys(metadata_args, ("recency_decay",), "environment dynamic")
-    recency_decay = metadata_args["recency_decay"]
 
     return JaxDecisionTreeEnv(
         num_nodes=int(metadata_args["num_nodes"]),
         t_max=int(metadata_args["t_max"]),
         scale_factor=float(metadata_args["scale_factor"]),
         shuffle_nodes=bool(metadata_args["shuffle_nodes"]),
-        use_recency_obs=JaxDecisionTreeEnv._parse_recency_decay(recency_decay)[0],
+        use_recency_obs=bool(metadata_args["use_recency_obs"]),
     )
 
 

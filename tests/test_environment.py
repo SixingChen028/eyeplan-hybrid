@@ -108,7 +108,7 @@ def test_recency_observation_tracks_direct_fixations():
         shuffle_nodes=False,
         use_recency_obs=True,
     )
-    jax_params = _env_params(jax_env, wm_decay=0.5, recency_decay="auto")
+    jax_params = _env_params(jax_env, wm_decay=0.5, recency_decay=0.5)
     default_env = _env(num_nodes=num_nodes, use_recency_obs=False)
 
     assert jax_env.observation_shape[0] == default_env.observation_shape[0] + num_nodes
@@ -129,7 +129,7 @@ def test_recency_observation_tracks_direct_fixations():
     np.testing.assert_allclose(np.asarray(state.fixation_recency), expected_recency, atol=1e-6)
 
 
-def test_zero_recency_decay_observation_stays_zero():
+def test_zero_recency_decay_keeps_only_current_fixation():
     env = _env(
         num_nodes=7,
         t_max=20,
@@ -140,30 +140,34 @@ def test_zero_recency_decay_observation_stays_zero():
     state, obs, _ = env.reset_with_params(jax.random.PRNGKey(9), params)
     recency_slice = slice(-env.num_nodes - 1, -1)
 
-    np.testing.assert_allclose(np.asarray(obs)[recency_slice], np.zeros(env.num_nodes), atol=1e-6)
+    expected_reset = np.zeros(env.num_nodes)
+    expected_reset[int(state.root_node)] = 1.0
+    np.testing.assert_allclose(np.asarray(obs)[recency_slice], expected_reset, atol=1e-6)
 
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
     state, obs, _, _, _, _ = env.step_with_params(state, _jax_action(action), params)
 
-    np.testing.assert_allclose(np.asarray(obs)[recency_slice], np.zeros(env.num_nodes), atol=1e-6)
-    np.testing.assert_allclose(np.asarray(state.fixation_recency), np.zeros(env.num_nodes), atol=1e-6)
+    expected_step = np.zeros(env.num_nodes)
+    expected_step[action] = 1.0
+    np.testing.assert_allclose(np.asarray(obs)[recency_slice], expected_step, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(state.fixation_recency), expected_step, atol=1e-6)
 
 
-def test_auto_recency_decay_uses_half_when_wm_decay_is_one():
+def test_recency_decay_one_means_no_decay():
     env = _env(
         num_nodes=7,
         t_max=20,
         shuffle_nodes=False,
         use_recency_obs=True,
     )
-    params = _env_params(env, wm_decay=1.0, recency_decay="auto")
+    params = _env_params(env, wm_decay=1.0, recency_decay=1.0)
     state, _, _ = env.reset_with_params(jax.random.PRNGKey(10), params)
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
     state, obs, _, _, _, _ = env.step_with_params(state, _jax_action(action), params)
 
     recency = np.asarray(obs)[-env.num_nodes - 1 : -1]
     expected = np.zeros(env.num_nodes)
-    expected[int(state.root_node)] = 0.5
+    expected[int(state.root_node)] = 1.0
     expected[action] = 1.0
     np.testing.assert_allclose(recency, expected, atol=1e-6)
 

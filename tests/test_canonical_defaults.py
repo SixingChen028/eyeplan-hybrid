@@ -33,7 +33,8 @@ def test_simulate_requires_scale_factor_in_metadata():
         "num_nodes": 15,
         "t_max": 100,
         "shuffle_nodes": True,
-        "recency_decay": "off",
+        "use_recency_obs": False,
+        "recency_decay": 0.0,
     }
     with pytest.raises(ValueError, match="scale_factor"):
         simulate._build_env_from_metadata_args(metadata_args)
@@ -45,11 +46,12 @@ def test_simulate_reports_all_missing_env_dynamic_keys():
         "t_max": 100,
         "scale_factor": 0.125,
         "shuffle_nodes": True,
+        "use_recency_obs": False,
     }
     with pytest.raises(ValueError) as error:
         simulate._build_env_params_from_metadata_args(
             simulate._build_env_from_metadata_args(
-                {**metadata_args, "recency_decay": "off"}
+                {**metadata_args, "recency_decay": 0.0}
             ),
             metadata_args,
         )

@@ -53,13 +53,9 @@ def make_decision_tree_params(
     if q_drift < 0.0:
         raise ValueError("q_drift must be non-negative.")
     q_decay_value = JaxDecisionTreeEnv._parse_q_decay(q_decay)
-    _, recency_decay_auto, recency_decay_value = JaxDecisionTreeEnv._parse_recency_decay(recency_decay)
+    recency_decay_value = JaxDecisionTreeEnv._parse_recency_decay(recency_decay)
     resolved_q_decay = jnp.asarray(q_decay_value, dtype=jnp.float32)
-    resolved_recency_decay = (
-        jnp.where(float(wm_decay) == 1.0, 0.5, float(wm_decay))
-        if recency_decay_auto
-        else jnp.asarray(recency_decay_value, dtype=jnp.float32)
-    )
+    resolved_recency_decay = jnp.asarray(recency_decay_value, dtype=jnp.float32)
     return JaxDecisionTreeParams(
         beta_move=jnp.asarray(beta_move, dtype=jnp.float32),
         eps_move=jnp.asarray(eps_move, dtype=jnp.float32),
@@ -80,22 +76,17 @@ class JaxDecisionTreeEnv:
     metadata = {"render_modes": ["human", "rgb_array"]}
 
     @staticmethod
-    def _parse_recency_decay(recency_decay) -> tuple[bool, bool, float]:
+    def _parse_recency_decay(recency_decay) -> float:
         if isinstance(recency_decay, str):
-            value = recency_decay.strip().lower()
-            if value == "off":
-                return False, False, 0.0
-            if value == "auto":
-                return True, True, 0.0
             try:
-                recency_decay = float(value)
+                recency_decay = float(recency_decay.strip())
             except ValueError as error:
-                raise ValueError("recency_decay must be 'off', 'auto', or a number in [0, 1).") from error
+                raise ValueError("recency_decay must be a number in [0, 1].") from error
 
         value = float(recency_decay)
-        if not 0.0 <= value < 1.0:
-            raise ValueError("recency_decay numeric values must satisfy 0 <= recency_decay < 1.")
-        return True, False, value
+        if not 0.0 <= value <= 1.0:
+            raise ValueError("recency_decay numeric values must satisfy 0 <= recency_decay <= 1.")
+        return value
 
     @staticmethod
     def _parse_q_decay(q_decay) -> float:
@@ -322,7 +313,7 @@ class JaxDecisionTreeEnv:
             q_values=q_values,
             n_visits=n_visits,
             fixation_recency=state.fixation_recency.at[node].set(
-                jnp.where(params.recency_decay > 0.0, 1.0, 0.0),
+                1.0,
             ),
         )
 
@@ -494,7 +485,7 @@ class JaxDecisionTreeEnv:
         points = points.at[root].set(0.0)
         g_values = self._compute_path_values(parent_nodes, points)
 
-        recency_initial_value = jnp.where(params.recency_decay > 0.0, 1.0, 0.0)
+        recency_initial_value = jnp.asarray(1.0, dtype=jnp.float32)
         state = JaxDecisionTreeState(
             rng_key=key,
             time_elapsed=jnp.int32(0),

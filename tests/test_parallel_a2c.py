@@ -240,13 +240,9 @@ def test_parallel_sweep_keeps_q_decay_float():
     np.testing.assert_allclose(np.asarray(hypers.env.q_decay), expected, atol=1e-6)
 
 
-def test_parallel_sweep_rejects_recency_decay_arrays_with_off():
-    try:
+def test_parallel_sweep_rejects_non_numeric_recency_decay_arrays():
+    with np.testing.assert_raises(ValueError):
         expand_sweep(_small_params(seed=0, recency_decay=["off", 0.5]))
-    except ValueError as error:
-        assert "changes compiled shapes" in str(error)
-        return
-    assert False, "recency_decay sweeps that include off should be rejected"
 
 
 def test_train_with_progress_reports_numeric_rate(capsys):
@@ -387,7 +383,7 @@ env_params = make_decision_tree_params(
     q_drop_rate=0.0,
     q_drift=0.0,
     q_decay=0.0,
-    recency_decay="off",
+    recency_decay=0.0,
     cost=0.01,
 )
 train_params = A2CTrainParams(

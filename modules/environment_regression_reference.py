@@ -39,22 +39,17 @@ class JaxDecisionTreeEnv:
     metadata = {"render_modes": ["human", "rgb_array"]}
 
     @staticmethod
-    def _parse_recency_decay(recency_decay) -> tuple[bool, bool, float]:
+    def _parse_recency_decay(recency_decay) -> float:
         if isinstance(recency_decay, str):
-            value = recency_decay.strip().lower()
-            if value == "off":
-                return False, False, 0.0
-            if value == "auto":
-                return True, True, 0.0
             try:
-                recency_decay = float(value)
+                recency_decay = float(recency_decay.strip())
             except ValueError as error:
-                raise ValueError("recency_decay must be 'off', 'auto', or a number in [0, 1).") from error
+                raise ValueError("recency_decay must be a number in [0, 1].") from error
 
         value = float(recency_decay)
-        if not 0.0 <= value < 1.0:
-            raise ValueError("recency_decay numeric values must satisfy 0 <= recency_decay < 1.")
-        return True, False, value
+        if not 0.0 <= value <= 1.0:
+            raise ValueError("recency_decay numeric values must satisfy 0 <= recency_decay <= 1.")
+        return value
 
     @staticmethod
     def _parse_q_decay(q_decay) -> float:
@@ -85,7 +80,8 @@ class JaxDecisionTreeEnv:
         cost: float = 0.01,
         scale_factor: float = 1 / 8,
         shuffle_nodes: bool = True,
-        recency_decay="off",
+        use_recency_obs: bool = False,
+        recency_decay=0.0,
         wm_backup: bool = False,
         point_set=None,
     ):
@@ -105,7 +101,8 @@ class JaxDecisionTreeEnv:
         self.cost = float(cost)
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = True
-        self.use_recency_obs, self.recency_decay_auto, self.recency_decay = self._parse_recency_decay(recency_decay)
+        self.use_recency_obs = bool(use_recency_obs)
+        self.recency_decay = self._parse_recency_decay(recency_decay)
         self.wm_backup = bool(wm_backup)
 
         if point_set is None:
@@ -140,7 +137,7 @@ class JaxDecisionTreeEnv:
             q_drop_rate=jnp.asarray(self.q_drop_rate, dtype=jnp.float32),
             q_drift=jnp.asarray(self.q_drift, dtype=jnp.float32),
             q_decay=jnp.asarray(self.q_decay, dtype=jnp.float32),
-            recency_decay=jnp.asarray(self._recency_decay_value(), dtype=jnp.float32),
+            recency_decay=jnp.asarray(self.recency_decay, dtype=jnp.float32),
             cost=jnp.asarray(self.cost, dtype=jnp.float32),
             scale_factor=jnp.asarray(self.scale_factor, dtype=jnp.float32),
             shuffle_nodes=jnp.asarray(self.shuffle_nodes, dtype=jnp.bool_),
@@ -314,15 +311,8 @@ class JaxDecisionTreeEnv:
         state: JaxDecisionTreeState,
         params: JaxDecisionTreeParams | None = None,
     ) -> JaxDecisionTreeState:
-        recency_decay = self._recency_decay_value(params)
+        recency_decay = self.recency_decay if params is None else params.recency_decay
         return state._replace(fixation_recency=state.fixation_recency * recency_decay)
-
-    def _recency_decay_value(self, params: JaxDecisionTreeParams | None = None):
-        if params is not None:
-            return params.recency_decay
-        if self.recency_decay_auto:
-            return jnp.where(self.wm_decay == 1.0, 0.5, self.wm_decay)
-        return jnp.asarray(self.recency_decay, dtype=jnp.float32)
 
     def _look(
         self,
@@ -346,7 +336,7 @@ class JaxDecisionTreeEnv:
             q_values=q_values,
             n_visits=n_visits,
             fixation_recency=state.fixation_recency.at[node].set(
-                jnp.where(self._recency_decay_value(params) > 0.0, 1.0, 0.0),
+                1.0,
             ),
         )
 
@@ -522,7 +512,7 @@ class JaxDecisionTreeEnv:
         points = points.at[root].set(0.0)
         g_values = self._compute_path_values(parent_nodes, points)
 
-        recency_initial_value = jnp.where(self._recency_decay_value(params) > 0.0, 1.0, 0.0)
+        recency_initial_value = jnp.asarray(1.0, dtype=jnp.float32)
         state = JaxDecisionTreeState(
             rng_key=key,
             time_elapsed=jnp.int32(0),

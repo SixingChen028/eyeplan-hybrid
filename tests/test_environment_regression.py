@@ -19,10 +19,11 @@ ENV_CONFIGS = [
         "num_nodes": 7,
         "t_max": 6,
         "shuffle_nodes": True,
+        "use_recency_obs": True,
         "learning_rate": 0.4,
         "lamda_backup": 0.7,
         "backup_steps": 2,
-        "recency_decay": "auto",
+        "recency_decay": 0.6,
         "wm_decay": 0.6,
     },
     {
@@ -55,7 +56,7 @@ ENV_CONFIGS = [
 ]
 
 
-ENV_INIT_KEYS = {"num_nodes", "t_max", "scale_factor", "shuffle_nodes", "point_set"}
+ENV_INIT_KEYS = {"num_nodes", "t_max", "scale_factor", "shuffle_nodes", "use_recency_obs", "point_set"}
 PARAM_KEYS = {
     "beta_move",
     "eps_move",
@@ -78,8 +79,6 @@ def _live_env_from_config(config):
         env_kwargs["scale_factor"] = _DEFAULT_PARAMS["scale_factor"]
     # The frozen reference currently ignores shuffle_nodes=False at init time.
     env_kwargs["shuffle_nodes"] = True
-    recency_decay = config.get("recency_decay", "off")
-    env_kwargs["use_recency_obs"] = JaxDecisionTreeEnv._parse_recency_decay(recency_decay)[0]
     return JaxDecisionTreeEnv(**env_kwargs)
 
 
@@ -94,7 +93,7 @@ def _live_params_from_config(env, config):
         "q_drop_rate": 0.0,
         "q_drift": 0.0,
         "q_decay": 0.0,
-        "recency_decay": "off",
+        "recency_decay": 0.0,
         "cost": 0.01,
         "wm_backup": False,
     }
