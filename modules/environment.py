@@ -2,6 +2,8 @@ import jax
 import jax.numpy as jnp
 from typing import NamedTuple
 
+from modules.tree_generation import build_tree_templates
+
 
 class JaxDecisionTreeState(NamedTuple):
     rng_key: jax.Array
@@ -107,6 +109,12 @@ class JaxDecisionTreeEnv:
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
         self.empty_path = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
 
+        templates = build_tree_templates(self.num_nodes)
+        self._tree_roots = jnp.asarray(templates.roots, dtype=jnp.int32)
+        self._tree_child_nodes = jnp.asarray(templates.child_nodes, dtype=jnp.int32)
+        self._tree_parent_nodes = jnp.asarray(templates.parent_nodes, dtype=jnp.int32)
+        self._tree_probabilities = jnp.asarray(templates.probabilities, dtype=jnp.float32)
+
         observation_size = (
             self.num_nodes
             + 1
@@ -139,53 +147,29 @@ class JaxDecisionTreeEnv:
         return p
 
     def _build_tree(self, key: jax.Array):
-        nodes = jnp.arange(self.num_nodes, dtype=jnp.int32)
+        key, tree_key = jax.random.split(key)
+        tree_idx = jax.random.choice(
+            tree_key,
+            self._tree_probabilities.shape[0],
+            p=self._tree_probabilities,
+        )
 
-        def shuffled_fn(k):
-            k, perm_key = jax.random.split(k)
-            return k, jax.random.permutation(perm_key, nodes)
+        root = self._tree_roots[tree_idx]
+        child_nodes = self._tree_child_nodes[tree_idx]
+        parent_nodes = self._tree_parent_nodes[tree_idx]
 
         if self.shuffle_nodes:
-            key, nodes = shuffled_fn(key)
+            key, perm_key = jax.random.split(key)
+            perm = jax.random.permutation(perm_key, jnp.arange(self.num_nodes, dtype=jnp.int32))
 
-        root = nodes[0]
-        child_nodes = -jnp.ones((self.num_nodes, 2), dtype=jnp.int32)
-        parent_nodes = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
+            child_safe = jnp.maximum(child_nodes, 0)
+            parent_safe = jnp.maximum(parent_nodes, 0)
+            mapped_children = jnp.where(child_nodes >= 0, perm[child_safe], -1)
+            mapped_parents = jnp.where(parent_nodes >= 0, perm[parent_safe], -1)
 
-        leaf_nodes = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
-        leaf_nodes = leaf_nodes.at[0].set(root)
-        leaf_count = jnp.int32(1)
-
-        num_edges = (self.num_nodes - 1) // 2
-
-        def body_fn(i, carry):
-            key, child_nodes, parent_nodes, leaf_nodes, leaf_count = carry
-
-            key, parent_key = jax.random.split(key)
-            parent_idx = jax.random.randint(parent_key, shape=(), minval=0, maxval=leaf_count)
-
-            node_idx = 1 + 2 * i
-            children = jax.lax.dynamic_slice(nodes, (node_idx,), (2,))
-            parent = leaf_nodes[parent_idx]
-
-            child_nodes = child_nodes.at[parent].set(children)
-            parent_nodes = parent_nodes.at[children[0]].set(parent)
-            parent_nodes = parent_nodes.at[children[1]].set(parent)
-
-            last_idx = leaf_count - 1
-            leaf_nodes = leaf_nodes.at[parent_idx].set(leaf_nodes[last_idx])
-            leaf_nodes = leaf_nodes.at[last_idx].set(children[0])
-            leaf_nodes = leaf_nodes.at[leaf_count].set(children[1])
-            leaf_count = leaf_count + 1
-
-            return key, child_nodes, parent_nodes, leaf_nodes, leaf_count
-
-        key, child_nodes, parent_nodes, _, _ = jax.lax.fori_loop(
-            0,
-            num_edges,
-            body_fn,
-            (key, child_nodes, parent_nodes, leaf_nodes, leaf_count),
-        )
+            child_nodes = jnp.full_like(child_nodes, -1).at[perm].set(mapped_children)
+            parent_nodes = jnp.full_like(parent_nodes, -1).at[perm].set(mapped_parents)
+            root = perm[root]
 
         return key, root, child_nodes, parent_nodes
 
