@@ -1,0 +1,16 @@
+[meta]
+array_vars = ["seed"]
+
+[sbatch]
+time = "1:30:00"
+mem_per_cpu = "4000M"
+gpu = true
+
+[params]
+# environment
+cost = [0.001, 0.005]
+wm_decay = [0.5, 0.9]
+# training
+seed = [1, 2]
+lr = [0.0005, 0.001]
+beta_e_final = 0.0001
