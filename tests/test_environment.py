@@ -190,7 +190,7 @@ def test_q_drop_rate_zero_preserves_inactive_q_values():
         num_nodes=7,
         shuffle_nodes=False,
     )
-    params = _env_params(env, wm_decay=0.0, q_drop_rate=0.0)
+    params = _env_params(env, wm_decay=0.0, q_drop_rate=0.0, q_decay=1.0)
     state, _, _ = env.reset_with_params(jax.random.PRNGKey(13), params)
     q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
     activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
@@ -202,12 +202,12 @@ def test_q_drop_rate_zero_preserves_inactive_q_values():
     np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], np.asarray(q_values)[inactive_mask], atol=1e-6)
 
 
-def test_q_decay_shrinks_inactive_q_values():
+def test_q_decay_scales_inactive_q_values():
     env = _env(
         num_nodes=7,
         shuffle_nodes=False,
     )
-    params = _env_params(env, wm_decay=0.0, q_decay=0.25)
+    params = _env_params(env, wm_decay=0.0, q_decay=0.75)
     state, _, _ = env.reset_with_params(jax.random.PRNGKey(14), params)
     q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
     activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
@@ -243,14 +243,25 @@ def test_q_drift_adds_noise_to_inactive_q_values_only():
     assert np.any(np.abs(np.asarray(state.q_values)[inactive_mask]) > 1e-6)
 
 
-def test_q_decay_auto_uses_reward_scale_prior_variance():
+def test_q_decay_one_means_no_decay():
     env = _env(
-        scale_factor=0.25,
-        point_set=jnp.array([-2.0, 2.0], dtype=jnp.float32),
+        num_nodes=7,
+        shuffle_nodes=False,
     )
+    params = _env_params(env, wm_decay=0.0, q_decay=1.0)
+    state, _, _ = env.reset_with_params(jax.random.PRNGKey(16), params)
+    q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
+    activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
+    state = state._replace(q_values=q_values, activation=activation)
 
-    expected = 0.5**2 / (0.5**2 + np.var(np.array([-2.0, 2.0], dtype=np.float32) * 0.25))
-    np.testing.assert_allclose(np.asarray(_env_params(env, q_drift=0.5, q_decay="auto").q_decay), expected, atol=1e-6)
+    state = env._update_activation(state, state.root_node, params)
+
+    inactive_mask = np.asarray(state.activation) == 0.0
+    np.testing.assert_allclose(
+        np.asarray(state.q_values)[inactive_mask],
+        np.asarray(q_values)[inactive_mask],
+        atol=1e-6,
+    )
 
 
 def test_move_reward_marginalizes_over_possible_paths():

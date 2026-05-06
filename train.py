@@ -218,15 +218,8 @@ def _resolve_recency_decay(value, wm_decay) -> float:
     return float(decay)
 
 
-def _resolve_q_decay(value, q_drift, scale_factor) -> float:
-    auto, decay = JaxDecisionTreeEnv._parse_q_decay(value)
-    if not auto:
-        return float(decay)
-
-    drift_var = float(q_drift) ** 2
-    point_set = np.asarray([-8, -4, -2, -1, 1, 2, 4, 8], dtype=np.float32)
-    prior_var = max(float(np.var(point_set * float(scale_factor))), 1e-8)
-    return drift_var / (drift_var + prior_var)
+def _resolve_q_decay(value) -> float:
+    return float(JaxDecisionTreeEnv._parse_q_decay(value))
 
 
 def _validate_params(params: dict) -> None:
@@ -369,7 +362,7 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
         q_drift=array("q_drift"),
         q_decay=jnp.asarray(
             [
-                _resolve_q_decay(combo["q_decay"], combo["q_drift"], combo["scale_factor"])
+                _resolve_q_decay(combo["q_decay"])
                 for combo in combos
             ],
             dtype=jnp.float32,

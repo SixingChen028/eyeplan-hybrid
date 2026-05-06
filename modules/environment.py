@@ -52,13 +52,9 @@ def make_decision_tree_params(
     q_drift = float(q_drift)
     if q_drift < 0.0:
         raise ValueError("q_drift must be non-negative.")
-    q_decay_auto, q_decay_value = JaxDecisionTreeEnv._parse_q_decay(q_decay)
+    q_decay_value = JaxDecisionTreeEnv._parse_q_decay(q_decay)
     _, recency_decay_auto, recency_decay_value = JaxDecisionTreeEnv._parse_recency_decay(recency_decay)
-    resolved_q_decay = (
-        env._q_decay_value(q_drift, env.scale_factor)
-        if q_decay_auto
-        else jnp.asarray(q_decay_value, dtype=jnp.float32)
-    )
+    resolved_q_decay = jnp.asarray(q_decay_value, dtype=jnp.float32)
     resolved_recency_decay = (
         jnp.where(float(wm_decay) == 1.0, 0.5, float(wm_decay))
         if recency_decay_auto
@@ -102,20 +98,17 @@ class JaxDecisionTreeEnv:
         return True, False, value
 
     @staticmethod
-    def _parse_q_decay(q_decay) -> tuple[bool, float]:
+    def _parse_q_decay(q_decay) -> float:
         if isinstance(q_decay, str):
-            value = q_decay.strip().lower()
-            if value == "auto":
-                return True, 0.0
             try:
-                q_decay = float(value)
+                q_decay = float(q_decay.strip())
             except ValueError as error:
-                raise ValueError("q_decay must be 'auto' or a number in [0, 1].") from error
+                raise ValueError("q_decay must be a number in [0, 1].") from error
 
         value = float(q_decay)
         if not 0.0 <= value <= 1.0:
             raise ValueError("q_decay numeric values must satisfy 0 <= q_decay <= 1.")
-        return False, value
+        return value
 
     def __init__(
         self,
@@ -152,16 +145,6 @@ class JaxDecisionTreeEnv:
         )
         self.observation_shape = (observation_size,)
         self.action_size = self.num_nodes + 1
-
-    def _q_prior_var(self, scale_factor: jax.Array) -> jax.Array:
-        scale = jnp.asarray(scale_factor, dtype=jnp.float32)
-        values = self.point_set * scale
-        return jnp.var(values)
-
-    def _q_decay_value(self, q_drift: jax.Array, scale_factor: jax.Array) -> jax.Array:
-        drift_var = jnp.square(jnp.asarray(q_drift, dtype=jnp.float32))
-        prior_var = jnp.maximum(self._q_prior_var(scale_factor), jnp.asarray(1e-8, dtype=jnp.float32))
-        return drift_var / (drift_var + prior_var)
 
     def _one_hot(self, label: jax.Array) -> jax.Array:
         label = jnp.asarray(label, dtype=jnp.int32)
@@ -379,7 +362,7 @@ class JaxDecisionTreeEnv:
         )
         inactive = activation == 0.0
         q_drift_key = jax.random.fold_in(q_drop_key, 1)
-        q_values = jnp.where(inactive, state.q_values * (1.0 - params.q_decay), state.q_values)
+        q_values = jnp.where(inactive, state.q_values * params.q_decay, state.q_values)
         q_noise = jax.random.normal(q_drift_key, shape=(self.num_nodes,)) * params.q_drift
         q_values = jnp.where(inactive, q_values + q_noise, q_values)
         q_values = jnp.where(q_drop_mask, 0.0, q_values)

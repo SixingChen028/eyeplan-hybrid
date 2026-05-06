@@ -226,18 +226,16 @@ def test_parallel_sweep_allows_q_drift_arrays():
     np.testing.assert_allclose(np.asarray(hypers.env.q_drift), np.array([0.0, 0.25], dtype=np.float32))
 
 
-def test_parallel_sweep_resolves_q_decay_auto():
+def test_parallel_sweep_keeps_q_decay_float():
     fixed, combos, seeds, varied_keys = expand_sweep(
-        _small_params(seed=0, wm_decay=1.0, q_drift=[0.0, 0.5], q_decay="auto", scale_factor=0.25)
+        _small_params(seed=0, wm_decay=1.0, q_drift=[0.0, 0.5], q_decay=0.75, scale_factor=0.25)
     )
 
     assert varied_keys == ["q_drift"]
     assert len(combos) == 2
     assert seeds == [0]
 
-    point_set = np.array([-8, -4, -2, -1, 1, 2, 4, 8], dtype=np.float32)
-    prior_var = np.var(point_set * 0.25)
-    expected = np.array([0.0, 0.5**2 / (0.5**2 + prior_var)], dtype=np.float32)
+    expected = np.array([0.75, 0.75], dtype=np.float32)
     hypers = build_hypers(combos)
     np.testing.assert_allclose(np.asarray(hypers.env.q_decay), expected, atol=1e-6)
 

@@ -32,7 +32,7 @@ ENV_CONFIGS = [
         "eps_move": 0.1,
         "q_drop_rate": 0.2,
         "q_drift": 0.05,
-        "q_decay": "auto",
+        "q_decay": 0.95,
         "wm_backup": True,
     },
     {
