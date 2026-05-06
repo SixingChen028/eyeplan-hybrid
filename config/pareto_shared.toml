@@ -1,5 +1,5 @@
 [meta]
-array_vars = ["seed"]
+array_vars = []
 experiment = ["pareto_shared_v2"]
 
 [sbatch]
