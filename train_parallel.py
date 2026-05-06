@@ -617,6 +617,18 @@ def _format_duration(seconds: float) -> str:
     return f"{minutes:d}m{seconds:02d}s"
 
 
+def _log_run_dirs_preview(run_dirs: list[str]) -> None:
+    if len(run_dirs) <= 10:
+        for run_dir in run_dirs:
+            _log(run_dir)
+        return
+    for run_dir in run_dirs[:5]:
+        _log(run_dir)
+    _log("...")
+    for run_dir in run_dirs[-5:]:
+        _log(run_dir)
+
+
 def _round_floats(value):
     if isinstance(value, float):
         return round(value, 3)
@@ -786,19 +798,14 @@ def train_with_progress(
         min(print_frequency, num_updates),
         max_compiled_updates_per_chunk=max_compiled_updates_per_chunk,
     )
-    _log("parallel_train_init starting=true", flush=True)
+    compile_start = time.time()
     states = jax.block_until_ready(trainer.init_sweep_states(hypers, seeds))
-    _log(
-        "parallel_train_compile "
-        f"updates_per_chunk={compiled_updates_per_chunk}",
-        flush=True,
-    )
     trainer.compile_train_sweep_chunk(
         states,
         hypers,
         schedule[:, :compiled_updates_per_chunk],
     )
-    _log("parallel_train_compile done=true", flush=True)
+    _log(f"parallel_train_compile_seconds={time.time() - compile_start:.3f}")
     if has_run_dirs:
         _init_per_run_training_logs(run_dirs)
         if emit_single_run_progress_to_stdout:
@@ -1141,6 +1148,7 @@ def simulate_results(
     if num_trials <= 0:
         raise ValueError("num_trials must be positive")
 
+    _log(f"parallel_simulate_start num_trials={int(num_trials)}")
     start = time.time()
     env = _env_from_args(combos[0])
     simulator = ParallelJaxSimulator(env, batch_size=batch_size)
@@ -1173,18 +1181,6 @@ def simulate_results(
             trials_in_batch=trials_in_batch,
         )
 
-        elapsed_seconds = time.time() - start
-        batches_done = batch_idx + 1
-        batches_per_second = batches_done / elapsed_seconds
-        eta_seconds = (num_batches - batches_done) / batches_per_second
-        _log(
-            "parallel_simulate_progress "
-            f"batches={batches_done}/{num_batches} "
-            f"elapsed={_format_duration(elapsed_seconds)} "
-            f"eta={_format_duration(eta_seconds)}",
-            flush=True,
-        )
-
     run_dirs_by_index = np.asarray(run_dirs, dtype=object).reshape((len(combos), len(seeds)))
     for hyper_index, _ in enumerate(combos):
         for seed_index, _ in enumerate(seeds):
@@ -1193,9 +1189,9 @@ def simulate_results(
             with open(output_path, "w") as file:
                 json.dump(_round_floats(data_by_run[hyper_index][seed_index]), file)
                 file.write("\n")
-            _log(f"simulation_json={output_path}")
-
-    return time.time() - start
+    elapsed_seconds = time.time() - start
+    _log(f"parallel_simulate_done elapsed_seconds={elapsed_seconds:.3f}")
+    return elapsed_seconds
 
 
 def save_results(
@@ -1392,8 +1388,6 @@ def main() -> None:
         f"varied_keys={','.join(varied_keys)}"
     )
     single_run_mode = len(combos) == 1 and len(seeds) == 1 and len(varied_keys) == 0
-    if single_run_mode:
-        _log("single_run_mode=true")
     run_dirs = prepare_run_dirs(
         combos,
         seeds,
@@ -1402,7 +1396,7 @@ def main() -> None:
         config_path=config_path,
         varied_keys=varied_keys,
     )
-    _log(f"prepared_runs={len(run_dirs)}")
+    _log_run_dirs_preview(run_dirs)
 
     result, elapsed_seconds, gpu_summary_line = train_with_progress(
         trainer,
@@ -1427,14 +1421,11 @@ def main() -> None:
         run_dirs,
         elapsed_seconds=elapsed_seconds,
     )
-    _log(f"saved_runs={len(run_dirs)}")
-    for run_dir in run_dirs:
-        _log(f"run_dir={run_dir}")
 
     if args.skip_simulate:
         _log("parallel_simulate_skipped=true")
     else:
-        simulate_elapsed_seconds = simulate_results(
+        simulate_results(
             result,
             combos,
             seeds,
@@ -1442,7 +1433,6 @@ def main() -> None:
             num_trials=int(args.simulate_num_trials),
             greedy=bool(args.simulate_greedy),
         )
-        _log(f"parallel_simulate_elapsed_seconds={simulate_elapsed_seconds:.3f}")
 
 
 if __name__ == "__main__":
