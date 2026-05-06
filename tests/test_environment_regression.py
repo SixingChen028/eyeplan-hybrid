@@ -33,6 +33,23 @@ ENV_CONFIGS = [
         "q_decay": "auto",
         "wm_backup": True,
     },
+    {
+        "num_nodes": 15,
+        "t_max": 30,
+        "shuffle_nodes": True,
+        "beta_move": 0.4,
+        "eps_move": 0.03,
+        "learning_rate": 0.7,
+        "lamda_backup": 0.4,
+        "backup_steps": 2,
+        "wm_decay": 0.8,
+        "q_drop_rate": 0.2,
+        "q_drift": 0.02,
+        "q_decay": 0.8,
+        "recency_decay": 0.7,
+        "cost": 0.02,
+        "wm_backup": True,
+    },
 ]
 
 
