@@ -22,18 +22,12 @@ from modules.a2c import A2CTrainParams, JaxBatchMaskA2C, JaxTrainState, StepMetr
 from modules.argument import DEFAULT_PARAMS as ARG_DEFAULT_PARAMS
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from modules.run_dirs import create_timestamped_run_dir, write_run_metadata
-from modules.network import actor_critic_forward, apply_action_mask, sample_actions
-from modules.simulation import (
-    JaxSimulator,
-    append_simulation_trial,
-    empty_simulation_data,
-)
+from modules.simulation import JaxSimulator
 
 jax.config.update('jax_compiler_enable_remat_pass', False)
 
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 TRAINING_DATA_NAME = "data_training_jax.p"
-SIMULATION_DATA_NAME = "data_simulation.json"
 
 DEFAULT_META = {
     "result_path": "./results",
@@ -629,16 +623,6 @@ def _log_run_dirs_preview(run_dirs: list[str]) -> None:
         _log(run_dir)
 
 
-def _round_floats(value):
-    if isinstance(value, float):
-        return round(value, 3)
-    if isinstance(value, list):
-        return [_round_floats(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _round_floats(item) for key, item in value.items()}
-    return value
-
-
 def _entropy_schedule(hypers: A2CHyperParams, num_updates: int) -> jax.Array:
     progress = jnp.linspace(0.0, 1.0, num_updates, dtype=jnp.float32)
     return (
@@ -933,267 +917,6 @@ def train_with_progress(
     return output
 
 
-class ParallelJaxSimulator:
-    def __init__(self, env: JaxDecisionTreeEnv, batch_size: int = 512):
-        self.env = env
-        self.batch_size = int(batch_size)
-        self._simulate_sweep_batch_jit = jax.jit(
-            self._simulate_sweep_batch,
-            static_argnames=("greedy",),
-        )
-
-    def _run_trial(
-        self,
-        params,
-        env_params: JaxDecisionTreeParams,
-        rng_key: jax.Array,
-        greedy: bool = False,
-    ):
-        state, obs, info = self.env.reset_with_params(rng_key, env_params)
-        action_mask = info["mask"]
-
-        action_seq = -jnp.ones((self.env.t_max,), dtype=jnp.int32)
-
-        carry = (
-            state,
-            obs,
-            action_mask,
-            action_seq,
-            jnp.array(0, dtype=jnp.int32),
-            jnp.array(False),
-            rng_key,
-        )
-
-        def cond_fn(carry):
-            _, _, _, _, step_count, done, _ = carry
-            return (~done) & (step_count < self.env.t_max)
-
-        def body_fn(carry):
-            state, obs, action_mask, action_seq, step_count, _, rng_key = carry
-
-            logits, _ = actor_critic_forward(params, obs[None, :], action_mask[None, :])
-            logits = logits[0]
-
-            def greedy_action(_):
-                masked_logits = apply_action_mask(logits, action_mask)
-                return jnp.argmax(masked_logits), rng_key
-
-            def sampled_action(key):
-                key, action_key = jax.random.split(key)
-                action, _, _ = sample_actions(action_key, logits[None, :], action_mask[None, :])
-                return action[0], key
-
-            action, rng_key = jax.lax.cond(
-                greedy,
-                greedy_action,
-                sampled_action,
-                rng_key,
-            )
-
-            state, obs, _, done, _, info = self.env.step_with_params(state, action, env_params)
-            action_mask = info["mask"]
-            action_seq = action_seq.at[step_count].set(action)
-            step_count = step_count + 1
-
-            return state, obs, action_mask, action_seq, step_count, done, rng_key
-
-        state, _, _, action_seq, action_len, _, rng_key = jax.lax.while_loop(
-            cond_fn,
-            body_fn,
-            carry,
-        )
-        final_action_index = jnp.maximum(action_len - 1, 0)
-        final_action = action_seq[final_action_index]
-
-        def sample_choice_path(payload):
-            state, rng_key = payload
-            sample_state = state._replace(rng_key=rng_key)
-            _, path, path_len, rng_key = self.env._sample_move_path(sample_state, env_params)
-            return path, path_len, rng_key
-
-        def empty_choice_path(payload):
-            _, rng_key = payload
-            return self.env.empty_path, jnp.int32(0), rng_key
-
-        choice_path, choice_path_len, rng_key = jax.lax.cond(
-            final_action == self.env.num_nodes,
-            sample_choice_path,
-            empty_choice_path,
-            (state, rng_key),
-        )
-
-        return state, action_seq, choice_path, action_len, choice_path_len, rng_key
-
-    def _run_trial_batch(
-        self,
-        params,
-        env_params: JaxDecisionTreeParams,
-        trial_keys: jax.Array,
-        greedy: bool = False,
-    ):
-        states, action_seqs, choice_paths, action_lens, choice_path_lens, _ = jax.vmap(
-            lambda key: self._run_trial(params, env_params, key, greedy=greedy)
-        )(trial_keys)
-        return states, action_seqs, choice_paths, action_lens, choice_path_lens
-
-    def _simulate_sweep_batch(
-        self,
-        params,
-        env_params: JaxDecisionTreeParams,
-        trial_keys: jax.Array,
-        greedy: bool = False,
-    ):
-        simulate_seeds = jax.vmap(
-            self._run_trial_batch,
-            in_axes=(0, None, 0, None),
-        )
-        simulate_hypers = jax.vmap(
-            simulate_seeds,
-            in_axes=(0, 0, 0, None),
-        )
-        return simulate_hypers(params, env_params, trial_keys, greedy)
-
-    def simulate_batch(
-        self,
-        params,
-        env_params: JaxDecisionTreeParams,
-        trial_keys: jax.Array,
-        greedy: bool = False,
-    ):
-        return self._simulate_sweep_batch_jit(params, env_params, trial_keys, greedy=greedy)
-
-
-def _initial_simulation_rng_keys(seeds: list[int], num_hypers: int) -> jax.Array:
-    seed_keys = jax.vmap(jax.random.PRNGKey)(jnp.asarray(seeds, dtype=jnp.int32))
-    return jnp.broadcast_to(seed_keys[None, :, :], (num_hypers, len(seeds), 2))
-
-
-def _split_simulation_rng_keys(rng_keys: jax.Array, batch_size: int) -> tuple[jax.Array, jax.Array]:
-    split_keys = jax.vmap(jax.vmap(jax.random.split))(rng_keys)
-    rng_keys = split_keys[:, :, 0]
-    batch_keys = split_keys[:, :, 1]
-    trial_keys = jax.vmap(jax.vmap(lambda key: jax.random.split(key, batch_size)))(batch_keys)
-    return rng_keys, trial_keys
-
-
-def _empty_simulation_data() -> dict[str, list]:
-    return empty_simulation_data(detailed=False)
-
-
-def _append_simulation_batch(
-    data_by_run: list[list[dict[str, list]]],
-    states,
-    action_seqs,
-    choice_paths,
-    action_lens,
-    choice_path_lens,
-    *,
-    trials_in_batch: int,
-) -> None:
-    states = jax.device_get(states)
-    action_seqs = np.asarray(action_seqs)
-    choice_paths = np.asarray(choice_paths)
-    action_lens = np.asarray(action_lens)
-    choice_path_lens = np.asarray(choice_path_lens)
-
-    child_nodes_batch = np.asarray(states.child_nodes)
-    points_batch = np.asarray(states.points)
-    root_nodes_batch = np.asarray(states.root_node)
-
-    num_hypers = len(data_by_run)
-    num_seeds = len(data_by_run[0]) if num_hypers else 0
-    for hyper_index in range(num_hypers):
-        for seed_index in range(num_seeds):
-            data = data_by_run[hyper_index][seed_index]
-            for trial_idx in range(trials_in_batch):
-                child_nodes = child_nodes_batch[hyper_index, seed_index, trial_idx]
-                points = points_batch[hyper_index, seed_index, trial_idx]
-                root_node = int(root_nodes_batch[hyper_index, seed_index, trial_idx])
-
-                action_len = int(action_lens[hyper_index, seed_index, trial_idx])
-                action_seq = np.asarray(
-                    action_seqs[hyper_index, seed_index, trial_idx, :action_len],
-                    dtype=np.int32,
-                ).tolist()
-
-                choice_len = int(choice_path_lens[hyper_index, seed_index, trial_idx])
-                choice_seq = np.asarray(
-                    choice_paths[hyper_index, seed_index, trial_idx, :choice_len],
-                    dtype=np.int32,
-                ).tolist()
-
-                append_simulation_trial(
-                    data,
-                    child_nodes=child_nodes,
-                    root_node=root_node,
-                    points=points,
-                    action_seq=action_seq,
-                    choice_seq=choice_seq,
-                    num_nodes=child_nodes.shape[0],
-                    t_max=action_seqs.shape[-1],
-                    skip_timeout_trials=False,
-                )
-
-
-def simulate_results(
-    result,
-    combos: list[dict],
-    seeds: list[int],
-    run_dirs: list[str],
-    *,
-    num_trials: int,
-    greedy: bool,
-    batch_size: int = 512,
-) -> float:
-    if num_trials <= 0:
-        raise ValueError("num_trials must be positive")
-
-    _log(f"parallel_simulate_start num_trials={int(num_trials)}")
-    start = time.time()
-    env = _env_from_args(combos[0])
-    simulator = ParallelJaxSimulator(env, batch_size=batch_size)
-    hypers = build_hypers(combos)
-
-    data_by_run = [
-        [_empty_simulation_data() for _ in seeds]
-        for _ in combos
-    ]
-    rng_keys = _initial_simulation_rng_keys(seeds, len(combos))
-    num_batches = int(np.ceil(num_trials / batch_size))
-
-    for batch_idx in range(num_batches):
-        rng_keys, trial_keys = _split_simulation_rng_keys(rng_keys, batch_size)
-        states, action_seqs, choice_paths, action_lens, choice_path_lens = simulator.simulate_batch(
-            result.states.params,
-            hypers.env,
-            trial_keys,
-            greedy=greedy,
-        )
-        trials_remaining = num_trials - (batch_idx * batch_size)
-        trials_in_batch = min(batch_size, trials_remaining)
-        _append_simulation_batch(
-            data_by_run,
-            states,
-            action_seqs,
-            choice_paths,
-            action_lens,
-            choice_path_lens,
-            trials_in_batch=trials_in_batch,
-        )
-
-    run_dirs_by_index = np.asarray(run_dirs, dtype=object).reshape((len(combos), len(seeds)))
-    for hyper_index, _ in enumerate(combos):
-        for seed_index, _ in enumerate(seeds):
-            run_dir = str(run_dirs_by_index[hyper_index, seed_index])
-            output_path = os.path.join(run_dir, SIMULATION_DATA_NAME)
-            with open(output_path, "w") as file:
-                json.dump(_round_floats(data_by_run[hyper_index][seed_index]), file)
-                file.write("\n")
-    elapsed_seconds = time.time() - start
-    _log(f"parallel_simulate_done elapsed_seconds={elapsed_seconds:.3f}")
-    return elapsed_seconds
-
-
 def save_results(
     result,
     combos: list[dict],
@@ -1323,22 +1046,6 @@ def main() -> None:
     parser.add_argument("config", help="TOML config path or config stem under ./config.")
     parser.add_argument("--path", help="Override output path from [meta].result_path.")
     parser.add_argument("--experiment", help="Override experiment name. Defaults to [meta].experiment or config stem.")
-    parser.add_argument(
-        "--simulate-num-trials",
-        type=int,
-        default=10_240,
-        help="Number of simulation trials per run.",
-    )
-    parser.add_argument(
-        "--simulate-greedy",
-        action="store_true",
-        help="Use greedy actions during simulation, matching simulate.py --greedy.",
-    )
-    parser.add_argument(
-        "--skip-simulate",
-        action="store_true",
-        help="Skip post-training simulation.",
-    )
     args, override_tokens = parser.parse_known_args()
 
     config_path, config = _load_config(args.config)
@@ -1421,18 +1128,6 @@ def main() -> None:
         run_dirs,
         elapsed_seconds=elapsed_seconds,
     )
-
-    if args.skip_simulate:
-        _log("parallel_simulate_skipped=true")
-    else:
-        simulate_results(
-            result,
-            combos,
-            seeds,
-            run_dirs,
-            num_trials=int(args.simulate_num_trials),
-            greedy=bool(args.simulate_greedy),
-        )
 
 
 if __name__ == "__main__":

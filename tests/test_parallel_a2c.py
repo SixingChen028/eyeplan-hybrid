@@ -1,4 +1,3 @@
-import json
 import pickle
 import subprocess
 import sys
@@ -15,7 +14,6 @@ from train_parallel import (
     build_hypers,
     expand_sweep,
     save_results,
-    simulate_results,
     train_with_progress,
 )
 
@@ -416,46 +414,3 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
     assert len(data["loss"]) == 2
 
 
-def test_simulate_results_writes_simulate_style_json(tmp_path):
-    fixed, combos, seeds, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
-    env = JaxDecisionTreeEnv(
-        num_nodes=fixed["num_nodes"],
-        t_max=fixed["t_max"],
-        shuffle_nodes=fixed["shuffle_nodes"],
-        point_set=np.array([1.0], dtype=np.float32),
-    )
-    trainer = VmappedA2CTrainer(
-        env=env,
-        feature_size=env.observation_shape[0],
-        action_size=env.action_size,
-        hidden_size=fixed["hidden_size"],
-        num_envs=fixed["batch_size"],
-        num_updates=int(fixed["num_episodes"] / fixed["batch_size"]),
-    )
-    result = trainer.train_sweep(build_hypers(combos), seeds)
-    run_dirs = save_results(
-        result,
-        combos,
-        seeds,
-        path=str(tmp_path),
-        experiment="parallel-test",
-        config_path=tmp_path / "config.toml",
-        varied_keys=varied_keys,
-        elapsed_seconds=0.25,
-    )
-
-    simulate_results(
-        result,
-        combos,
-        seeds,
-        run_dirs,
-        num_trials=3,
-        greedy=False,
-        batch_size=2,
-    )
-
-    simulation_path = Path(run_dirs[0]) / "data_simulation.json"
-    assert simulation_path.exists()
-    data = json.loads(simulation_path.read_text())
-    assert set(data) >= {"adj_lists", "starts", "rewards", "actions", "chosen_paths"}
-    assert len(data["actions"]) == 3
