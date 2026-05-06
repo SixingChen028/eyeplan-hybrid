@@ -66,7 +66,7 @@ def test_arg_parser_parses_seed_and_bool_flags(monkeypatch):
             "false",
             "--mask_fixation",
             "0",
-            "--ppo_normalize_advantages",
+            "--resume",
             "true",
             "--lamda_backup",
             "0.6",
@@ -89,7 +89,7 @@ def test_arg_parser_parses_seed_and_bool_flags(monkeypatch):
     assert args.seed == 123
     assert args.shuffle_nodes is False
     assert args.mask_fixation is False
-    assert args.ppo_normalize_advantages is True
+    assert args.resume is True
     assert args.lamda_backup == 0.6
     assert args.backup_steps == 12
     assert args.recency_decay == "auto"

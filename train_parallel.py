@@ -20,7 +20,6 @@ import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C, JaxTrainState, StepMetrics, save_jax_params
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
-from modules.ppo import JaxBatchMaskPPO, PPOStepMetrics, PPOTrainParams
 from modules.run_dirs import create_timestamped_run_dir, write_run_metadata
 from modules.network import actor_critic_forward, apply_action_mask, sample_actions
 from modules.simulation import (
@@ -51,25 +50,9 @@ class A2CHyperParams(NamedTuple):
     max_grad_norm: jax.Array
 
 
-class PPOHyperParams(NamedTuple):
-    env: JaxDecisionTreeParams
-    lr: jax.Array
-    gamma: jax.Array
-    lamda: jax.Array
-    beta_v: jax.Array
-    beta_e_init: jax.Array
-    beta_e_final: jax.Array
-    max_grad_norm: jax.Array
-
-
 class A2CSweepResult(NamedTuple):
     states: JaxTrainState
     metrics: StepMetrics
-
-
-class PPOSweepResult(NamedTuple):
-    states: JaxTrainState
-    metrics: PPOStepMetrics
 
 
 DEFAULT_PARAMS = {
@@ -107,9 +90,6 @@ DEFAULT_PARAMS = {
     "beta_e": 0.05,
     "beta_e_init": 0.05,
     "beta_e_final": 0.001,
-    "ppo_clip_eps": 0.2,
-    "ppo_epochs": 4,
-    "ppo_normalize_advantages": True,
     "print_frequency": 100,
     "checkpoint_frequency": -1,
     "log_full_metrics": True,
@@ -138,9 +118,6 @@ TRAIN_SWEEP_KEYS = {
     "beta_e_init",
     "beta_e_final",
     "max_grad_norm",
-    "ppo_clip_eps",
-    "ppo_epochs",
-    "ppo_normalize_advantages",
 }
 SWEEP_KEYS = ENV_SWEEP_KEYS | TRAIN_SWEEP_KEYS | {"seed"}
 SHAPE_KEYS = {
@@ -424,7 +401,7 @@ def _apply_cli_param_overrides(params: dict, override_tokens: list[str]) -> dict
     return updated
 
 
-def build_hypers(combos: list[dict]) -> A2CHyperParams | PPOHyperParams:
+def build_hypers(combos: list[dict]) -> A2CHyperParams:
     def array(key: str, dtype=jnp.float32):
         return jnp.asarray([combo[key] for combo in combos], dtype=dtype)
 
@@ -454,18 +431,6 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams | PPOHyperParams:
         ),
         cost=array("cost"),
     )
-    algo = str(combos[0].get("algo", "a2c"))
-    if algo == "ppo":
-        return PPOHyperParams(
-            env=env,
-            lr=array("lr"),
-            gamma=array("gamma"),
-            lamda=array("lamda"),
-            beta_v=array("beta_v"),
-            beta_e_init=array("beta_e_init"),
-            beta_e_final=array("beta_e_final"),
-            max_grad_norm=array("max_grad_norm"),
-        )
     return A2CHyperParams(
         env=env,
         lr=array("lr"),
@@ -586,120 +551,6 @@ class VmappedA2CTrainer:
         self._train_sweep_chunk_jit.lower(states, hypers, schedule).compile()
 
 
-class VmappedPPOTrainer:
-    def __init__(
-        self,
-        env: JaxDecisionTreeEnv,
-        feature_size: int,
-        action_size: int,
-        hidden_size: int,
-        num_envs: int,
-        num_updates: int,
-        rollout_length: int | None = None,
-        clip_eps: float = 0.2,
-        ppo_epochs: int = 4,
-        normalize_advantages: bool = True,
-        network_type: str = "mlp",
-    ):
-        self.num_updates = int(num_updates)
-        self.trainer = JaxBatchMaskPPO(
-            env=env,
-            feature_size=feature_size,
-            action_size=action_size,
-            hidden_size=hidden_size,
-            num_envs=num_envs,
-            rollout_length=rollout_length,
-            lr=1.0,
-            gamma=1.0,
-            lamda=1.0,
-            beta_v=1.0,
-            beta_e=0.0,
-            clip_eps=clip_eps,
-            ppo_epochs=ppo_epochs,
-            normalize_advantages=normalize_advantages,
-            network_type=network_type,
-        )
-        self._train_one_jit = jax.jit(self._train_one)
-        self._train_sweep_jit = jax.jit(self._train_sweep)
-        self._init_sweep_states_jit = jax.jit(self._init_sweep_states)
-        self._train_sweep_chunk_jit = jax.jit(self._train_sweep_chunk)
-
-    @staticmethod
-    def _train_params(hyper: PPOHyperParams) -> PPOTrainParams:
-        return PPOTrainParams(
-            env=hyper.env,
-            lr=hyper.lr,
-            gamma=hyper.gamma,
-            lamda=hyper.lamda,
-            beta_v=hyper.beta_v,
-            max_grad_norm=hyper.max_grad_norm,
-        )
-
-    def _train_one(self, hyper: PPOHyperParams, seed: jax.Array):
-        state = self.trainer.init_state_with_params(seed, hyper.env)
-        entropy_schedule = jnp.linspace(
-            hyper.beta_e_init,
-            hyper.beta_e_final,
-            self.num_updates,
-            dtype=jnp.float32,
-        )
-        return self.trainer._train_many(state, entropy_schedule, self._train_params(hyper))
-
-    def _train_one_from_state(
-        self,
-        state: JaxTrainState,
-        hyper: PPOHyperParams,
-        entropy_schedule: jax.Array,
-    ):
-        return self.trainer._train_many(state, entropy_schedule, self._train_params(hyper))
-
-    def _train_sweep(self, hypers: PPOHyperParams, seeds: jax.Array):
-        train_seeds = jax.vmap(self._train_one, in_axes=(None, 0))
-        train_hypers = jax.vmap(train_seeds, in_axes=(0, None))
-        states, metrics = train_hypers(hypers, seeds)
-        return PPOSweepResult(states=states, metrics=metrics)
-
-    def _init_sweep_states(self, hypers: PPOHyperParams, seeds: jax.Array):
-        def init_hyper(hyper):
-            return jax.vmap(lambda seed: self.trainer.init_state_with_params(seed, hyper.env))(seeds)
-
-        return jax.vmap(init_hyper)(hypers)
-
-    def _train_sweep_chunk(
-        self,
-        states: JaxTrainState,
-        hypers: PPOHyperParams,
-        entropy_schedule: jax.Array,
-    ):
-        train_seeds = jax.vmap(self._train_one_from_state, in_axes=(0, None, None))
-        train_hypers = jax.vmap(train_seeds, in_axes=(0, 0, 0))
-        states, metrics = train_hypers(states, hypers, entropy_schedule)
-        return PPOSweepResult(states=states, metrics=metrics)
-
-    def train_sweep(self, hypers: PPOHyperParams, seeds):
-        return self._train_sweep_jit(hypers, jnp.asarray(seeds, dtype=jnp.int32))
-
-    def init_sweep_states(self, hypers: PPOHyperParams, seeds):
-        return self._init_sweep_states_jit(hypers, jnp.asarray(seeds, dtype=jnp.int32))
-
-    def train_sweep_chunk(
-        self,
-        states: JaxTrainState,
-        hypers: PPOHyperParams,
-        entropy_schedule,
-    ):
-        return self._train_sweep_chunk_jit(states, hypers, jnp.asarray(entropy_schedule, dtype=jnp.float32))
-
-    def compile_train_sweep_chunk(
-        self,
-        states: JaxTrainState,
-        hypers: PPOHyperParams,
-        entropy_schedule,
-    ) -> None:
-        schedule = jnp.asarray(entropy_schedule, dtype=jnp.float32)
-        self._train_sweep_chunk_jit.lower(states, hypers, schedule).compile()
-
-
 def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
     return JaxDecisionTreeEnv(
         num_nodes=args["num_nodes"],
@@ -748,8 +599,6 @@ def _metric_data(
     hyper_index: int,
     seed_index: int,
     elapsed_seconds: float,
-    *,
-    algo: str,
 ) -> dict[str, list[float]]:
     metric_slice = jax.tree_util.tree_map(
         lambda x: np.asarray(jax.device_get(x[hyper_index, seed_index])),
@@ -768,12 +617,8 @@ def _metric_data(
         "step_time_s": [float(step_time)] * num_updates,
         "cumulative_time_s": cumulative.tolist(),
     }
-    if algo == "a2c":
-        data["grad_norm"] = metric_slice.grad_norm.astype(float).tolist()
-        data["param_norm"] = metric_slice.param_norm.astype(float).tolist()
-    else:
-        data["clip_fraction"] = metric_slice.clip_fraction.astype(float).tolist()
-        data["approx_kl"] = metric_slice.approx_kl.astype(float).tolist()
+    data["grad_norm"] = metric_slice.grad_norm.astype(float).tolist()
+    data["param_norm"] = metric_slice.param_norm.astype(float).tolist()
     return data
 
 
@@ -817,7 +662,7 @@ def _round_floats(value):
     return value
 
 
-def _entropy_schedule(hypers: A2CHyperParams | PPOHyperParams, num_updates: int) -> jax.Array:
+def _entropy_schedule(hypers: A2CHyperParams, num_updates: int) -> jax.Array:
     progress = jnp.linspace(0.0, 1.0, num_updates, dtype=jnp.float32)
     return (
         hypers.beta_e_init[:, None]
@@ -846,38 +691,22 @@ def _resolve_compiled_updates_per_chunk(
     return min(requested_updates, max_compiled_updates_per_chunk)
 
 
-def _init_per_run_training_logs(run_dirs: list[str], *, algo: str) -> None:
+def _init_per_run_training_logs(run_dirs: list[str]) -> None:
     col_sep = "   "
-    if algo == "a2c":
-        header = col_sep.join(
-            [
-                f"{'update':>8}",
-                f"{'ep_num':>10}",
-                f"{'ep_rew':>8}",
-                f"{'ep_len':>8}",
-                f"{'loss':>8}",
-                f"{'policy':>8}",
-                f"{'value':>8}",
-                f"{'entropy':>8}",
-                f"{'grad_n':>8}",
-                f"{'param_n':>8}",
-            ]
-        )
-    else:
-        header = col_sep.join(
-            [
-                f"{'update':>8}",
-                f"{'ep_num':>10}",
-                f"{'ep_rew':>8}",
-                f"{'ep_len':>8}",
-                f"{'loss':>8}",
-                f"{'policy':>8}",
-                f"{'value':>8}",
-                f"{'entropy':>8}",
-                f"{'clip_f':>8}",
-                f"{'kl':>8}",
-            ]
-        )
+    header = col_sep.join(
+        [
+            f"{'update':>8}",
+            f"{'ep_num':>10}",
+            f"{'ep_rew':>8}",
+            f"{'ep_len':>8}",
+            f"{'loss':>8}",
+            f"{'policy':>8}",
+            f"{'value':>8}",
+            f"{'entropy':>8}",
+            f"{'grad_n':>8}",
+            f"{'param_n':>8}",
+        ]
+    )
     for run_dir in run_dirs:
         log_path = os.path.join(run_dir, "training.log")
         with open(log_path, "w") as file:
@@ -894,7 +723,6 @@ def _append_per_run_progress_logs(
     num_seeds: int,
     update_end: int,
     env_steps_per_update: int = 1,
-    algo: str,
     cumulative_episode_counts: np.ndarray | None = None,
 ) -> None:
     metrics = jax.tree_util.tree_map(lambda x: np.asarray(jax.device_get(x)), chunk_metrics)
@@ -918,12 +746,8 @@ def _append_per_run_progress_logs(
                 ep_num = int(round(cumulative_episode_counts[hyper_index, seed_index]))
             else:
                 ep_num = update_end * env_steps_per_update
-            if algo == "a2c":
-                tail_a = _fmt_num(float(np.mean(metrics.grad_norm[hyper_index, seed_index])))
-                tail_b = _fmt_num(float(np.mean(metrics.param_norm[hyper_index, seed_index])))
-            else:
-                tail_a = _fmt_num(float(np.mean(metrics.clip_fraction[hyper_index, seed_index])))
-                tail_b = _fmt_num(float(np.mean(metrics.approx_kl[hyper_index, seed_index])))
+            tail_a = _fmt_num(float(np.mean(metrics.grad_norm[hyper_index, seed_index])))
+            tail_b = _fmt_num(float(np.mean(metrics.param_norm[hyper_index, seed_index])))
             line = col_sep.join(
                 [
                     f"{update_end:>8d}",
@@ -943,8 +767,8 @@ def _append_per_run_progress_logs(
 
 
 def train_with_progress(
-    trainer: VmappedA2CTrainer | VmappedPPOTrainer,
-    hypers: A2CHyperParams | PPOHyperParams,
+    trainer: VmappedA2CTrainer,
+    hypers: A2CHyperParams,
     seeds: list[int],
     *,
     run_dirs: list[str] | None = None,
@@ -953,13 +777,8 @@ def train_with_progress(
     env_steps_per_update: int = 1,
     print_frequency: int,
     max_compiled_updates_per_chunk: int = -1,
-    algo: str | None = None,
     include_gpu_summary: bool = False,
 ):
-    if algo is None:
-        algo = str(getattr(hypers, "algo", None) or "a2c")
-        if hasattr(hypers, "env") and hasattr(hypers.env, "beta_move"):
-            algo = "ppo" if isinstance(hypers, PPOHyperParams) else "a2c"
     has_run_dirs = run_dirs is not None
     if run_dirs is None:
         run_dirs = []
@@ -986,11 +805,7 @@ def train_with_progress(
             )
             states = result.states
             metrics_chunks.append(result.metrics)
-        result = (
-            A2CSweepResult(states=states, metrics=_concat_metric_chunks(metrics_chunks))
-            if algo == "a2c"
-            else PPOSweepResult(states=states, metrics=_concat_metric_chunks(metrics_chunks))
-        )
+        result = A2CSweepResult(states=states, metrics=_concat_metric_chunks(metrics_chunks))
         gpu_stats = _query_gpu_stats()
         samples = [gpu_stats] if gpu_stats is not None else []
         if include_gpu_summary:
@@ -1016,7 +831,7 @@ def train_with_progress(
     )
     _log("parallel_train_compile done=true", flush=True)
     if has_run_dirs:
-        _init_per_run_training_logs(run_dirs, algo=algo)
+        _init_per_run_training_logs(run_dirs)
 
     start = time.time()
     metrics_chunks = []
@@ -1065,7 +880,6 @@ def train_with_progress(
                     num_seeds=len(seeds),
                     update_end=update_end,
                     env_steps_per_update=env_steps_per_update,
-                    algo=algo,
                     cumulative_episode_counts=cumulative_episode_counts,
                 )
 
@@ -1115,12 +929,7 @@ def train_with_progress(
         gpu_sampler.stop()
 
     metrics = _concat_metric_chunks(metrics_chunks)
-    output = (
-        A2CSweepResult(states=states, metrics=metrics)
-        if algo == "a2c"
-        else PPOSweepResult(states=states, metrics=metrics),
-        time.time() - start,
-    )
+    output = (A2CSweepResult(states=states, metrics=metrics), time.time() - start)
     if include_gpu_summary:
         return output[0], output[1], _summarize_gpu_samples(gpu_samples)
     return output
@@ -1409,10 +1218,7 @@ def save_results(
     config_path: Path | None = None,
     varied_keys: list[str] | None = None,
     elapsed_seconds: float,
-    algo: str | None = None,
 ) -> list[str]:
-    if algo is None:
-        algo = str(combos[0].get("algo", "a2c")).lower()
     if run_dirs is None:
         if path is None or experiment is None or config_path is None:
             raise ValueError("When run_dirs is not provided, path/experiment/config_path are required.")
@@ -1443,11 +1249,9 @@ def save_results(
                 hyper_index,
                 seed_index,
                 elapsed_seconds,
-                algo=algo,
             )
 
-            training_data_name = TRAINING_DATA_NAME if algo == "a2c" else "data_training_jax_ppo.p"
-            with open(os.path.join(run_dir, training_data_name), "wb") as file:
+            with open(os.path.join(run_dir, TRAINING_DATA_NAME), "wb") as file:
                 pickle.dump(data, file)
             save_jax_params(state.params, os.path.join(run_dir, "net_jax.p"))
 
@@ -1528,7 +1332,7 @@ def prepare_run_dirs(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a parallelized RL TOML sweep (A2C/PPO).")
+    parser = argparse.ArgumentParser(description="Run a parallelized RL TOML sweep (A2C).")
     parser.add_argument("config", help="TOML config path or config stem under ./config.")
     parser.add_argument("--path", help="Override output path from [meta].result_path.")
     parser.add_argument("--experiment", help="Override experiment name. Defaults to [meta].experiment or config stem.")
@@ -1557,8 +1361,8 @@ def main() -> None:
 
     fixed, combos, seeds, varied_keys = expand_sweep(params)
     algo = str(fixed.get("algo", "a2c")).lower()
-    if algo not in {"a2c", "ppo"}:
-        raise ValueError(f"Unsupported algo {algo!r}; expected 'a2c' or 'ppo'.")
+    if algo != "a2c":
+        raise ValueError(f"Unsupported algo {algo!r}; expected 'a2c'.")
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or str(meta.get("experiment", config_path.stem))
     results_dir_display = os.path.join(output_path, "runs", experiment, "")
@@ -1568,31 +1372,16 @@ def main() -> None:
 
     num_updates, num_envs, rollout_length = _resolve_training_geometry(fixed)
     env = _env_from_args(combos[0])
-    if algo == "a2c":
-        trainer = VmappedA2CTrainer(
-            env=env,
-            feature_size=env.observation_shape[0],
-            action_size=env.action_size,
-            hidden_size=fixed["hidden_size"],
-            num_envs=num_envs,
-            num_updates=num_updates,
-            rollout_length=rollout_length,
-            network_type=fixed["network_type"],
-        )
-    else:
-        trainer = VmappedPPOTrainer(
-            env=env,
-            feature_size=env.observation_shape[0],
-            action_size=env.action_size,
-            hidden_size=fixed["hidden_size"],
-            num_envs=num_envs,
-            num_updates=num_updates,
-            rollout_length=rollout_length,
-            clip_eps=float(fixed["ppo_clip_eps"]),
-            ppo_epochs=int(fixed["ppo_epochs"]),
-            normalize_advantages=bool(fixed["ppo_normalize_advantages"]),
-            network_type=fixed["network_type"],
-        )
+    trainer = VmappedA2CTrainer(
+        env=env,
+        feature_size=env.observation_shape[0],
+        action_size=env.action_size,
+        hidden_size=fixed["hidden_size"],
+        num_envs=num_envs,
+        num_updates=num_updates,
+        rollout_length=rollout_length,
+        network_type=fixed["network_type"],
+    )
     hypers = build_hypers(combos)
 
     devices = ", ".join(
@@ -1631,7 +1420,6 @@ def main() -> None:
         env_steps_per_update=num_envs * rollout_length,
         print_frequency=int(fixed["print_frequency"]),
         max_compiled_updates_per_chunk=int(fixed["max_compiled_updates_per_chunk"]),
-        algo=algo,
         include_gpu_summary=True,
     )
     _log(f"parallel_train_elapsed_seconds={elapsed_seconds:.3f}")
@@ -1643,7 +1431,6 @@ def main() -> None:
         seeds,
         run_dirs,
         elapsed_seconds=elapsed_seconds,
-        algo=algo,
     )
     _log(f"saved_runs={len(run_dirs)}")
     for run_dir in run_dirs:

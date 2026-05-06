@@ -119,7 +119,7 @@ class ArgParser:
         self.parser.add_argument('--mask_fixation', type = parse_bool, default = True, help = 'if mask fixations')
 
         # training parameters
-        self.parser.add_argument('--algo', type = str, choices = ['a2c', 'ppo'], default = 'a2c', help = 'training algorithm')
+        self.parser.add_argument('--algo', type = str, choices = ['a2c'], default = 'a2c', help = 'training algorithm')
         self.parser.add_argument('--num_updates', type = int, default = 50_000, help = 'number of training updates')
         self.parser.add_argument('--eval_episodes', type = int, default = 102_400, help = 'evaluation episodes')
         self.parser.add_argument('--lr', type = float, default = 1e-3, help = 'learning rate')
@@ -135,9 +135,6 @@ class ArgParser:
         self.parser.add_argument('--print_frequency', type = int, default = 100, help = 'print training logs every n updates (0 to disable)')
         self.parser.add_argument('--checkpoint_frequency', type = int, default = 0, help = 'checkpoint cadence: <0 disable, 0 save at each update chunk end, >0 save every n updates')
         self.parser.add_argument('--log_full_metrics', type = parse_bool, default = True, help = 'if collect per-update metrics on host (set false to reduce host sync overhead)')
-        self.parser.add_argument('--ppo_epochs', type = int, default = 2, help = 'number of PPO epochs per rollout update')
-        self.parser.add_argument('--ppo_clip_eps', type = float, default = 0.2, help = 'PPO clipping epsilon')
-        self.parser.add_argument('--ppo_normalize_advantages', type = parse_bool, default = True, help = 'if normalize PPO advantages')
 
         # parse arguments
         self.args = self.parser.parse_args()
