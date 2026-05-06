@@ -19,6 +19,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C, JaxTrainState, StepMetrics, save_jax_params
+from modules.argument import DEFAULT_PARAMS as ARG_DEFAULT_PARAMS
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from modules.run_dirs import create_timestamped_run_dir, write_run_metadata
 from modules.network import actor_critic_forward, apply_action_mask, sample_actions
@@ -56,43 +57,7 @@ class A2CSweepResult(NamedTuple):
 
 
 DEFAULT_PARAMS = {
-    "algo": "a2c",
-    "jobid": "",
-    "seed": 15,
-    "network_type": "mlp",
-    "hidden_size": 128,
-    "num_nodes": 15,
-    "beta_move": 40.0,
-    "eps_move": 0.0,
-    "learning_rate": 1.0,
-    "lamda_backup": 1.0,
-    "backup_steps": 100,
-    "wm_decay": 1.0,
-    "wm_backup": False,
-    "q_drop_rate": 0.0,
-    "q_drift": 0.0,
-    "q_decay": 0.0,
-    "t_max": 100,
-    "cost": 0.01,
-    "scale_factor": 1 / 8,
-    "shuffle_nodes": True,
-    "recency_decay": "off",
-    "mask_fixation": True,
-    "num_updates": 31_250,
-    "num_envs": 64,
-    "rollout_length": 100,
-    "eval_episodes": 102_400,
-    "lr": 5e-4,
-    "max_grad_norm": 1.0,
-    "gamma": 1.0,
-    "lamda": 0.9,
-    "beta_v": 0.05,
-    "beta_e": 0.05,
-    "beta_e_init": 0.05,
-    "beta_e_final": 0.001,
-    "print_frequency": 100,
-    "checkpoint_frequency": -1,
-    "log_full_metrics": True,
+    **ARG_DEFAULT_PARAMS,
     "max_compiled_updates_per_chunk": -1,
 }
 

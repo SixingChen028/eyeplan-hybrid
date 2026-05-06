@@ -1,0 +1,11 @@
+[meta]
+parallel = true
+
+[sbatch]
+time = "00:05:00"
+mem_per_cpu = "1G"
+
+[params]
+seed = [1]
+num_updates = 500
+num_envs = 5
