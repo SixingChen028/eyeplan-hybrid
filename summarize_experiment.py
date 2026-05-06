@@ -62,7 +62,6 @@ def _run_args_from_metadata(run_dir: str) -> dict:
 def _varying_param_values_from_metadata(run_dirs: list[str]) -> dict[str, list]:
     ignored_params = {
         "experiment",
-        "jobid",
         "parallel_config",
         "parallel_hyper_index",
         "parallel_seed_index",

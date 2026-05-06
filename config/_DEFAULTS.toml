@@ -2,8 +2,6 @@
 result_path = "./results"
 
 [params]
-algo = "a2c"
-jobid = ""
 seed = 15
 network_type = "mlp"
 hidden_size = 256
@@ -34,10 +32,7 @@ max_grad_norm = 2.0
 gamma = 1.0
 lamda = 0.8
 beta_v = 0.05
-beta_e = 0.05
 beta_e_init = 0.05
 beta_e_final = 0.001
 print_frequency = 100
-checkpoint_frequency = -1
-log_full_metrics = true
 max_compiled_updates_per_chunk = -1

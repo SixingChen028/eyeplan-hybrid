@@ -8,11 +8,11 @@ from modules.run_dirs import (
 )
 
 
-def test_build_timestamped_run_dir_without_jobid():
+def test_build_timestamped_run_dir_without_prefix():
     run_dir = build_timestamped_run_dir(
         path="/tmp/results",
         experiment="default",
-        jobid="",
+        prefix="",
         timestamp="20260422_101500",
         suffix="a1b2",
     )
@@ -20,11 +20,11 @@ def test_build_timestamped_run_dir_without_jobid():
     assert run_dir == "/tmp/results/runs/default/20260422_101500_a1b2"
 
 
-def test_build_timestamped_run_dir_with_jobid():
+def test_build_timestamped_run_dir_with_prefix():
     run_dir = build_timestamped_run_dir(
         path="/tmp/results",
         experiment="default",
-        jobid="42",
+        prefix="42",
         timestamp="20260422_101500",
         suffix="z9x8",
     )
@@ -36,7 +36,7 @@ def test_build_timestamped_run_dir_generates_4_char_suffix():
     run_dir = build_timestamped_run_dir(
         path="/tmp/results",
         experiment="default",
-        jobid="",
+        prefix="",
         timestamp="20260422_101500",
     )
     run_name = Path(run_dir).name
@@ -45,11 +45,11 @@ def test_build_timestamped_run_dir_generates_4_char_suffix():
     assert len(suffix) == 4
 
 
-def test_build_timestamped_run_dir_with_zero_jobid():
+def test_build_timestamped_run_dir_with_zero_prefix():
     run_dir = build_timestamped_run_dir(
         path="/tmp/results",
         experiment="default",
-        jobid="0",
+        prefix="0",
         timestamp="20260422_101500",
         suffix="m3n4",
     )
@@ -71,7 +71,7 @@ def test_resolve_timestamped_run_dir_picks_latest(tmp_path: Path):
     assert resolved == str(latest)
 
 
-def test_resolve_timestamped_run_dir_filters_by_jobid(tmp_path: Path):
+def test_resolve_timestamped_run_dir_filters_by_prefix(tmp_path: Path):
     results_dir = tmp_path / "results"
     runs_dir = results_dir / "runs" / "default"
     runs_dir.mkdir(parents=True)
@@ -80,7 +80,7 @@ def test_resolve_timestamped_run_dir_filters_by_jobid(tmp_path: Path):
     latest.mkdir()
     (runs_dir / "2_20260422_091000_ef56").mkdir()
 
-    resolved = resolve_timestamped_run_dir(path=str(results_dir), experiment="default", jobid="2")
+    resolved = resolve_timestamped_run_dir(path=str(results_dir), experiment="default", prefix="2")
 
     assert resolved == str(latest)
 
@@ -93,7 +93,7 @@ def test_resolve_timestamped_run_dir_supports_legacy_without_suffix(tmp_path: Pa
     latest.mkdir()
     (legacy_dir / "3_20260422_091000").mkdir()
 
-    resolved = resolve_timestamped_run_dir(path=str(results_dir), experiment="default", jobid="3")
+    resolved = resolve_timestamped_run_dir(path=str(results_dir), experiment="default", prefix="3")
 
     assert resolved == str(latest)
 
@@ -105,7 +105,7 @@ def test_resolve_timestamped_run_dir_with_custom_experiment(tmp_path: Path):
     latest = runs_dir / "9_20260422_101500_a1b2"
     latest.mkdir()
 
-    resolved = resolve_timestamped_run_dir(path=str(results_dir), experiment="exp-x", jobid="9")
+    resolved = resolve_timestamped_run_dir(path=str(results_dir), experiment="exp-x", prefix="9")
 
     assert resolved == str(latest)
 
@@ -113,12 +113,11 @@ def test_resolve_timestamped_run_dir_with_custom_experiment(tmp_path: Path):
 def test_write_run_metadata_writes_args_and_git_sha_field(tmp_path: Path):
     run_dir = tmp_path / "results" / "20260422_101500"
     run_dir.mkdir(parents=True)
-    args = Namespace(jobid="7", learning_rate=0.2, seed=15)
+    args = Namespace(learning_rate=0.2, seed=15)
 
     metadata_path = write_run_metadata(run_dir=str(run_dir), args=args, cwd=str(tmp_path))
 
     assert metadata_path == str(run_dir / "metadata.json")
     content = (run_dir / "metadata.json").read_text()
     assert '"args"' in content
-    assert '"jobid": "7"' in content
     assert '"git_sha": null' in content

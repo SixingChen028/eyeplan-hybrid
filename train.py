@@ -41,9 +41,6 @@ def main() -> None:
     params = apply_cli_param_overrides(config.get("params", {}), override_tokens)
 
     fixed, runs, varied_keys = expand_sweep(params)
-    algo = str(fixed.get("algo", "a2c")).lower()
-    if algo != "a2c":
-        raise ValueError(f"Unsupported algo {algo!r}; expected 'a2c'.")
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or str(meta.get("experiment", config_path.stem))
     results_dir_display = os.path.join(output_path, "runs", experiment, "")
@@ -72,7 +69,6 @@ def main() -> None:
     _log(f"jax_backend={jax.default_backend()} jax_devices=[{devices}]")
     _log(
         "parallel_run_config "
-        f"algo={algo} "
         f"runs={len(runs)} "
         f"num_updates={num_updates} "
         f"num_envs={num_envs} "

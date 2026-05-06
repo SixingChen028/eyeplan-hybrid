@@ -16,7 +16,6 @@ backup_steps = [0, 1, 2, 8]
 network_type = 'node_shared'
 hidden_size = 64
 # training
-algo = 'a2c'
 seed = [1, 2, 3]
 num_updates = 30_000
 num_envs = 256

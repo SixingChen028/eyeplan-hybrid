@@ -14,8 +14,6 @@ wm_decay = 1.0
 lamda_backup = 1.0
 # network
 # training
-algo = 'a2c'
-
 seed = [1, 2]
 num_updates = 50_000
 num_envs = 256

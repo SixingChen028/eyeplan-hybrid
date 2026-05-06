@@ -16,10 +16,10 @@ _TIMESTAMP_PATTERN = re.compile(
 )
 
 
-def _normalize_prefix(jobid: str | None) -> str | None:
-    if jobid is None:
+def _normalize_prefix(prefix: str | None) -> str | None:
+    if prefix is None:
         return None
-    value = str(jobid).strip()
+    value = str(prefix).strip()
     if value == "":
         return None
     return value
@@ -33,7 +33,7 @@ def _random_suffix(length: int = 4) -> str:
 def build_timestamped_run_dir(
     path: str,
     experiment: str = "default",
-    jobid: str | None = None,
+    prefix: str | None = None,
     timestamp: str | None = None,
     suffix: str | None = None,
 ) -> str:
@@ -42,8 +42,8 @@ def build_timestamped_run_dir(
     if suffix is None:
         suffix = _random_suffix()
 
-    prefix = _normalize_prefix(jobid)
-    stem = timestamp if prefix is None else f"{prefix}_{timestamp}"
+    normalized_prefix = _normalize_prefix(prefix)
+    stem = timestamp if normalized_prefix is None else f"{normalized_prefix}_{timestamp}"
     run_name = f"{stem}_{suffix}"
     experiment_runs_dir = get_experiment_runs_dir(path, experiment)
     return os.path.join(experiment_runs_dir, run_name)
@@ -52,7 +52,7 @@ def build_timestamped_run_dir(
 def create_timestamped_run_dir(
     path: str,
     experiment: str = "default",
-    jobid: str | None = None,
+    prefix: str | None = None,
     timestamp: str | None = None,
 ) -> str:
     experiment_runs_dir = get_experiment_runs_dir(path, experiment)
@@ -61,7 +61,7 @@ def create_timestamped_run_dir(
         run_dir = build_timestamped_run_dir(
             path=path,
             experiment=experiment,
-            jobid=jobid,
+            prefix=prefix,
             timestamp=timestamp,
         )
         try:
@@ -77,12 +77,12 @@ def resolve_timestamped_run_dir(
     path: str,
     experiment: str = "default",
     run_dir: str | None = None,
-    jobid: str | None = None,
+    prefix: str | None = None,
 ) -> str:
     if run_dir is not None:
         return run_dir
 
-    prefix = _normalize_prefix(jobid)
+    prefix = _normalize_prefix(prefix)
     candidates: list[tuple[str, str]] = []
     for full_path in list_experiment_candidate_dirs(path, experiment):
         name = os.path.basename(full_path)
@@ -103,7 +103,7 @@ def resolve_timestamped_run_dir(
             )
         raise FileNotFoundError(
             f"No timestamped run directories found under {get_experiment_runs_dir(path, experiment)} "
-            f"for jobid={prefix}"
+            f"for prefix={prefix}"
         )
 
     candidates.sort(key=lambda item: (item[0], item[1]))

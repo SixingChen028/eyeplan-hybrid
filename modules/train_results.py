@@ -80,14 +80,9 @@ def slug_value(value) -> str:
     return "".join(char if char.isalnum() or char in {".", "-"} else "-" for char in text)
 
 
-def run_jobid(base_jobid: str, run: dict, varied_keys: list[str]) -> str:
+def run_prefix(run: dict, varied_keys: list[str]) -> str:
     param_parts = [f"{key}{slug_value(run[key])}" for key in varied_keys]
-    suffix = "_".join(param_parts)
-    if str(base_jobid).strip():
-        if not suffix:
-            return str(base_jobid)
-        return f"{base_jobid}_{suffix}"
-    return suffix
+    return "_".join(param_parts)
 
 
 def log_run_dirs_preview(run_dirs: list[str]) -> None:
@@ -119,7 +114,7 @@ def prepare_run_dirs(
         run_dir = create_timestamped_run_dir(
             path=path,
             experiment=experiment,
-            jobid=run_jobid(str(run.get("jobid", "")), run, varied_keys),
+            prefix=run_prefix(run, varied_keys),
         )
         write_run_metadata(run_dir=run_dir, args=Namespace(**run_args), cwd=os.getcwd())
         run_dirs.append(run_dir)

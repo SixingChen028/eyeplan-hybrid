@@ -50,14 +50,9 @@ MODEL_SHAPE_PARAM_KEYS = (
 )
 
 RUN_PARAM_KEYS = (
-    "algo",
-    "jobid",
     "seed",
     "mask_fixation",
-    "beta_e",
     "print_frequency",
-    "checkpoint_frequency",
-    "log_full_metrics",
 )
 
 REQUIRED_PARAM_KEYS = (
