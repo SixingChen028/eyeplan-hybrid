@@ -8,15 +8,12 @@ import jax.numpy as jnp
 import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
-from modules.config_defaults import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
+from modules.a2c_sweep import VmappedA2CTrainer, build_hypers
+from modules.config import expand_sweep
+from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
-from train import (
-    VmappedA2CTrainer,
-    build_hypers,
-    expand_sweep,
-    save_results,
-    train_with_progress,
-)
+from modules.train_progress import train_with_progress
+from modules.train_results import save_results
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
 
@@ -125,10 +122,10 @@ def test_dynamic_env_params_match_default_env_for_same_values():
 
 
 def test_parallel_sweep_compiles_and_returns_expected_shapes():
-    fixed, combos, seeds, varied_keys = expand_sweep(_small_params())
-    assert varied_keys == ["wm_decay"]
-    assert len(combos) == 2
-    assert seeds == [0, 1]
+    fixed, runs, varied_keys = expand_sweep(_small_params())
+    assert varied_keys == ["seed", "wm_decay"]
+    assert len(runs) == 4
+    assert [run["seed"] for run in runs] == [0, 0, 1, 1]
 
     env = _env(
         num_nodes=fixed["num_nodes"],
@@ -145,16 +142,16 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
         num_updates=fixed["num_updates"],
     )
 
-    result = trainer.train_sweep(build_hypers(combos), seeds)
+    result = trainer.train_sweep(build_hypers(runs))
 
-    assert result.metrics.loss.shape == (2, 2, 2)
-    assert result.metrics.episode_reward.shape == (2, 2, 2)
-    assert result.states.optimizer.step.shape == (2, 2)
-    np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((2, 2), 2))
+    assert result.metrics.loss.shape == (4, 2)
+    assert result.metrics.episode_reward.shape == (4, 2)
+    assert result.states.optimizer.step.shape == (4,)
+    np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((4,), 2))
 
 
 def test_parallel_sweep_compiles_node_shared_network():
-    fixed, combos, seeds, _ = expand_sweep(
+    fixed, runs, _ = expand_sweep(
         _small_params(seed=[0], wm_decay=[1.0], network_type="node_shared")
     )
     env = _env(
@@ -173,22 +170,21 @@ def test_parallel_sweep_compiles_node_shared_network():
         network_type=fixed["network_type"],
     )
 
-    result = trainer.train_sweep(build_hypers(combos), seeds)
+    result = trainer.train_sweep(build_hypers(runs))
 
-    assert result.metrics.loss.shape == (1, 1, 2)
-    np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((1, 1), 2))
+    assert result.metrics.loss.shape == (1, 2)
+    np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((1,), 2))
 
 
 def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
-    fixed, combos, seeds, varied_keys = expand_sweep(
+    fixed, runs, varied_keys = expand_sweep(
         _small_params(seed=0, wm_decay=0.5, recency_decay=[0, 0.5])
     )
 
     assert varied_keys == ["recency_decay"]
-    assert len(combos) == 2
-    assert seeds == [0]
+    assert len(runs) == 2
 
-    hypers = build_hypers(combos)
+    hypers = build_hypers(runs)
     np.testing.assert_allclose(np.asarray(hypers.env.recency_decay), np.array([0.0, 0.5], dtype=np.float32))
 
     env = _env(
@@ -202,42 +198,39 @@ def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
 
 
 def test_parallel_sweep_allows_q_drop_rate_arrays():
-    fixed, combos, seeds, varied_keys = expand_sweep(
+    fixed, runs, varied_keys = expand_sweep(
         _small_params(seed=0, wm_decay=0.5, q_drop_rate=[0.0, 0.25])
     )
 
     assert varied_keys == ["q_drop_rate"]
-    assert len(combos) == 2
-    assert seeds == [0]
+    assert len(runs) == 2
 
-    hypers = build_hypers(combos)
+    hypers = build_hypers(runs)
     np.testing.assert_allclose(np.asarray(hypers.env.q_drop_rate), np.array([0.0, 0.25], dtype=np.float32))
 
 
 def test_parallel_sweep_allows_q_drift_arrays():
-    fixed, combos, seeds, varied_keys = expand_sweep(
+    fixed, runs, varied_keys = expand_sweep(
         _small_params(seed=0, wm_decay=1.0, q_drift=[0.0, 0.25])
     )
 
     assert varied_keys == ["q_drift"]
-    assert len(combos) == 2
-    assert seeds == [0]
+    assert len(runs) == 2
 
-    hypers = build_hypers(combos)
+    hypers = build_hypers(runs)
     np.testing.assert_allclose(np.asarray(hypers.env.q_drift), np.array([0.0, 0.25], dtype=np.float32))
 
 
 def test_parallel_sweep_keeps_q_decay_float():
-    fixed, combos, seeds, varied_keys = expand_sweep(
+    fixed, runs, varied_keys = expand_sweep(
         _small_params(seed=0, wm_decay=1.0, q_drift=[0.0, 0.5], q_decay=0.75, scale_factor=0.25)
     )
 
     assert varied_keys == ["q_drift"]
-    assert len(combos) == 2
-    assert seeds == [0]
+    assert len(runs) == 2
 
     expected = np.array([0.75, 0.75], dtype=np.float32)
-    hypers = build_hypers(combos)
+    hypers = build_hypers(runs)
     np.testing.assert_allclose(np.asarray(hypers.env.q_decay), expected, atol=1e-6)
 
 
@@ -247,7 +240,7 @@ def test_parallel_sweep_rejects_non_numeric_recency_decay_arrays():
 
 
 def test_train_with_progress_reports_numeric_rate(capsys):
-    fixed, combos, seeds, _ = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
+    fixed, runs, _ = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
     env = _env(
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
@@ -266,13 +259,12 @@ def test_train_with_progress_reports_numeric_rate(capsys):
 
     result, elapsed_seconds = train_with_progress(
         trainer,
-        build_hypers(combos),
-        seeds,
+        build_hypers(runs),
         num_updates=num_updates,
         print_frequency=1,
     )
 
-    assert result.metrics.loss.shape == (1, 1, 2)
+    assert result.metrics.loss.shape == (1, 2)
     assert elapsed_seconds >= 0.0
     progress_lines = [
         line
@@ -288,9 +280,9 @@ def test_train_with_progress_reports_numeric_rate(capsys):
 
 def test_parallel_single_combo_matches_existing_a2c():
     params = _small_params(seed=0, wm_decay=1.0)
-    fixed, combos, seeds, _ = expand_sweep(params)
-    assert len(combos) == 1
-    assert seeds == [0]
+    fixed, runs, _ = expand_sweep(params)
+    assert len(runs) == 1
+    assert runs[0]["seed"] == 0
 
     env = _env(
         num_nodes=fixed["num_nodes"],
@@ -320,7 +312,7 @@ def test_parallel_single_combo_matches_existing_a2c():
         beta_v=fixed["beta_v"],
         beta_e=fixed["beta_e_init"],
     )
-    train_params = _a2c_train_params(env, combos[0])
+    train_params = _a2c_train_params(env, runs[0])
     reference_state = reference_trainer.init_state(seed=0, env_params=train_params.env)
     reference_state, reference_metrics = reference_trainer.train_compiled(
         reference_state,
@@ -336,14 +328,14 @@ def test_parallel_single_combo_matches_existing_a2c():
         num_envs=fixed["num_envs"],
         num_updates=num_updates,
     )
-    result = parallel_trainer.train_sweep(build_hypers(combos), seeds)
+    result = parallel_trainer.train_sweep(build_hypers(runs))
 
-    parallel_loss = np.asarray(result.metrics.loss[0, 0])
+    parallel_loss = np.asarray(result.metrics.loss[0])
     reference_loss = np.asarray(reference_metrics.loss)
     assert parallel_loss.shape == reference_loss.shape
     assert np.all(np.isfinite(parallel_loss))
     assert np.all(np.isfinite(reference_loss))
-    assert np.all(np.isfinite(np.asarray(result.metrics.episode_reward[0, 0])))
+    assert np.all(np.isfinite(np.asarray(result.metrics.episode_reward[0])))
 
 
 def test_default_shape_compiled_a2c_materializes_metrics():
@@ -431,7 +423,7 @@ def test_expand_sweep_rejects_unknown_params():
 
 
 def test_save_results_writes_existing_style_run_dirs(tmp_path):
-    fixed, combos, seeds, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
+    fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
     env = _env(
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
@@ -446,12 +438,11 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
         num_envs=fixed["num_envs"],
         num_updates=fixed["num_updates"],
     )
-    result = trainer.train_sweep(build_hypers(combos), seeds)
+    result = trainer.train_sweep(build_hypers(runs))
 
     run_dirs = save_results(
         result,
-        combos,
-        seeds,
+        runs,
         path=str(tmp_path),
         experiment="parallel-test",
         config_path=tmp_path / "config.toml",

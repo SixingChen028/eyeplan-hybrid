@@ -163,7 +163,7 @@ def _entropy_schedule(hypers: A2CHyperParams, num_updates: int) -> jax.Array:
 
 def _concat_metric_chunks(chunks: list):
     return jax.tree_util.tree_map(
-        lambda *values: jnp.concatenate(values, axis=2),
+        lambda *values: jnp.concatenate(values, axis=1),
         *chunks,
     )
 
@@ -205,44 +205,39 @@ def _append_per_run_progress_logs(
     run_dirs: list[str],
     chunk_metrics,
     *,
-    num_hypers: int,
-    num_seeds: int,
     update_end: int,
     env_steps_per_update: int = 1,
     cumulative_episode_counts: np.ndarray | None = None,
     emit_stdout: bool = False,
 ) -> None:
     metrics = jax.tree_util.tree_map(lambda x: np.asarray(jax.device_get(x)), chunk_metrics)
-    run_dirs_by_index = np.asarray(run_dirs, dtype=object).reshape((num_hypers, num_seeds))
 
-    for hyper_index in range(num_hypers):
-        for seed_index in range(num_seeds):
-            run_dir = str(run_dirs_by_index[hyper_index, seed_index])
-            log_path = os.path.join(run_dir, "training.log")
-            chunk_episode_count = float(np.sum(metrics.episode_count[hyper_index, seed_index]))
-            if cumulative_episode_counts is not None:
-                cumulative_episode_counts[hyper_index, seed_index] += chunk_episode_count
-                ep_num = int(round(cumulative_episode_counts[hyper_index, seed_index]))
-            else:
-                ep_num = update_end * env_steps_per_update
-            line = "   ".join(
-                [
-                    f"{update_end:>8d}",
-                    _fmt_ep_num(ep_num),
-                    _fmt_num(float(np.mean(metrics.episode_reward[hyper_index, seed_index]))),
-                    _fmt_num(float(np.mean(metrics.episode_length[hyper_index, seed_index]))),
-                    _fmt_num(float(np.mean(metrics.loss[hyper_index, seed_index]))),
-                    _fmt_num(float(np.mean(metrics.policy_loss[hyper_index, seed_index]))),
-                    _fmt_num(float(np.mean(metrics.value_loss[hyper_index, seed_index]))),
-                    _fmt_num(float(np.mean(metrics.entropy_loss[hyper_index, seed_index]))),
-                    _fmt_num(float(np.mean(metrics.grad_norm[hyper_index, seed_index]))),
-                    _fmt_num(float(np.mean(metrics.param_norm[hyper_index, seed_index]))),
-                ]
-            )
-            with open(log_path, "a") as file:
-                file.write(line + "\n")
-            if emit_stdout:
-                _log(line)
+    for run_index, run_dir in enumerate(run_dirs):
+        log_path = os.path.join(run_dir, "training.log")
+        chunk_episode_count = float(np.sum(metrics.episode_count[run_index]))
+        if cumulative_episode_counts is not None:
+            cumulative_episode_counts[run_index] += chunk_episode_count
+            ep_num = int(round(cumulative_episode_counts[run_index]))
+        else:
+            ep_num = update_end * env_steps_per_update
+        line = "   ".join(
+            [
+                f"{update_end:>8d}",
+                _fmt_ep_num(ep_num),
+                _fmt_num(float(np.mean(metrics.episode_reward[run_index]))),
+                _fmt_num(float(np.mean(metrics.episode_length[run_index]))),
+                _fmt_num(float(np.mean(metrics.loss[run_index]))),
+                _fmt_num(float(np.mean(metrics.policy_loss[run_index]))),
+                _fmt_num(float(np.mean(metrics.value_loss[run_index]))),
+                _fmt_num(float(np.mean(metrics.entropy_loss[run_index]))),
+                _fmt_num(float(np.mean(metrics.grad_norm[run_index]))),
+                _fmt_num(float(np.mean(metrics.param_norm[run_index]))),
+            ]
+        )
+        with open(log_path, "a") as file:
+            file.write(line + "\n")
+        if emit_stdout:
+            _log(line)
 
 
 def _summarize_chunk_gpu(samples: list[dict[str, float]]) -> dict[str, float] | None:
@@ -259,10 +254,8 @@ def _summarize_chunk_gpu(samples: list[dict[str, float]]) -> dict[str, float] | 
 def train_with_progress(
     trainer: VmappedA2CTrainer,
     hypers: A2CHyperParams,
-    seeds: list[int],
     *,
     run_dirs: list[str] | None = None,
-    num_hypers: int | None = None,
     num_updates: int,
     env_steps_per_update: int = 1,
     print_frequency: int,
@@ -273,8 +266,7 @@ def train_with_progress(
     has_run_dirs = run_dirs is not None
     if run_dirs is None:
         run_dirs = []
-    if num_hypers is None:
-        num_hypers = int(getattr(hypers.lr, "shape", [1])[0])
+    num_runs = int(getattr(hypers.lr, "shape", [1])[0])
 
     emit_progress = print_frequency > 0
     progress_frequency = int(print_frequency) if emit_progress else int(num_updates)
@@ -285,7 +277,7 @@ def train_with_progress(
     )
 
     compile_start = time.time()
-    states = jax.block_until_ready(trainer.init_sweep_states(hypers, seeds))
+    states = jax.block_until_ready(trainer.init_sweep_states(hypers))
     trainer.compile_train_sweep_chunk(
         states,
         hypers,
@@ -304,7 +296,7 @@ def train_with_progress(
     start = time.time()
     metrics_chunks = []
     gpu_samples: list[dict[str, float]] = []
-    cumulative_episode_counts = np.zeros((num_hypers, len(seeds)), dtype=np.float64)
+    cumulative_episode_counts = np.zeros((num_runs,), dtype=np.float64)
     cumulative_episode_count_total = 0.0
     gpu_sampler = _GpuSampler(interval_seconds=0.5)
     if emit_progress or include_gpu_summary:
@@ -337,8 +329,6 @@ def train_with_progress(
                 _append_per_run_progress_logs(
                     run_dirs,
                     window_metrics,
-                    num_hypers=num_hypers,
-                    num_seeds=len(seeds),
                     update_end=update_end,
                     env_steps_per_update=env_steps_per_update,
                     cumulative_episode_counts=cumulative_episode_counts,

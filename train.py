@@ -6,53 +6,21 @@ import jax
 
 jax.config.update("jax_compiler_enable_remat_pass", False)
 
-from modules.a2c_sweep import A2CHyperParams, A2CSweepResult, VmappedA2CTrainer, build_hypers
+from modules.a2c_sweep import VmappedA2CTrainer, build_hypers
 from modules.config import (
     DEFAULT_META,
-    DEFAULT_PARAMS,
-    ENV_SWEEP_KEYS,
-    SHAPE_KEYS,
-    SWEEP_KEYS,
-    TRAIN_SWEEP_KEYS,
     apply_cli_param_overrides,
     expand_sweep,
     load_config,
-    parse_cli_value,
-    parse_unit_interval,
     resolve_training_geometry,
-    validate_params,
 )
 from modules.train_progress import train_with_progress
 from modules.train_results import (
-    EVAL_SUMMARY_NAME,
-    TRAINING_DATA_NAME,
-    env_cache_key,
     env_from_args,
-    env_params_from_args,
     log_run_dirs_preview,
-    metric_data,
     prepare_run_dirs,
-    run_jobid,
     save_results,
-    slug_value,
-    state_slice,
 )
-
-_apply_cli_param_overrides = apply_cli_param_overrides
-_env_cache_key = env_cache_key
-_env_from_args = env_from_args
-_env_params_from_args = env_params_from_args
-_is_list = lambda value: isinstance(value, list)
-_load_config = load_config
-_log_run_dirs_preview = log_run_dirs_preview
-_metric_data = metric_data
-_parse_cli_value = parse_cli_value
-_parse_unit_interval = parse_unit_interval
-_resolve_training_geometry = resolve_training_geometry
-_run_jobid = run_jobid
-_slug_value = slug_value
-_state_slice = state_slice
-_validate_params = validate_params
 
 
 def _log(*args, **kwargs) -> None:
@@ -72,7 +40,7 @@ def main() -> None:
     meta.update(config.get("meta", {}))
     params = apply_cli_param_overrides(config.get("params", {}), override_tokens)
 
-    fixed, combos, seeds, varied_keys = expand_sweep(params)
+    fixed, runs, varied_keys = expand_sweep(params)
     algo = str(fixed.get("algo", "a2c")).lower()
     if algo != "a2c":
         raise ValueError(f"Unsupported algo {algo!r}; expected 'a2c'.")
@@ -84,7 +52,7 @@ def main() -> None:
     _log(f"writing results to {results_dir_display}")
 
     num_updates, num_envs, rollout_length = resolve_training_geometry(fixed)
-    env = env_from_args(combos[0])
+    env = env_from_args(runs[0])
     trainer = VmappedA2CTrainer(
         env=env,
         feature_size=env.observation_shape[0],
@@ -95,7 +63,7 @@ def main() -> None:
         rollout_length=rollout_length,
         network_type=fixed["network_type"],
     )
-    hypers = build_hypers(combos)
+    hypers = build_hypers(runs)
 
     devices = ", ".join(
         f"{device.platform}:{device.device_kind}"
@@ -105,18 +73,16 @@ def main() -> None:
     _log(
         "parallel_run_config "
         f"algo={algo} "
-        f"hyper_combos={len(combos)} "
-        f"seeds={len(seeds)} "
+        f"runs={len(runs)} "
         f"num_updates={num_updates} "
         f"num_envs={num_envs} "
         f"rollout_length={rollout_length} "
         f"t_max={fixed['t_max']} "
         f"varied_keys={','.join(varied_keys)}"
     )
-    single_run_mode = len(combos) == 1 and len(seeds) == 1 and len(varied_keys) == 0
+    single_run_mode = len(runs) == 1 and len(varied_keys) == 0
     run_dirs = prepare_run_dirs(
-        combos,
-        seeds,
+        runs,
         path=output_path,
         experiment=experiment,
         config_path=config_path,
@@ -127,9 +93,7 @@ def main() -> None:
     result, elapsed_seconds, gpu_summary_line = train_with_progress(
         trainer,
         hypers,
-        seeds,
         run_dirs=run_dirs,
-        num_hypers=len(combos),
         num_updates=num_updates,
         env_steps_per_update=num_envs * rollout_length,
         print_frequency=int(fixed["print_frequency"]),
@@ -142,8 +106,7 @@ def main() -> None:
 
     save_results(
         result,
-        combos,
-        seeds,
+        runs,
         run_dirs,
         elapsed_seconds=elapsed_seconds,
     )

@@ -1,7 +1,7 @@
 import jax
 import numpy as np
 
-from modules.config_defaults import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
+from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 from modules.network import (
     NETWORK_NODE_SHARED,

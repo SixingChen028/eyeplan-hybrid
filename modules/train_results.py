@@ -43,12 +43,11 @@ def env_cache_key(args: dict) -> tuple:
 
 def metric_data(
     metrics,
-    hyper_index: int,
-    seed_index: int,
+    run_index: int,
     elapsed_seconds: float,
 ) -> dict[str, list[float]]:
     metric_slice = jax.tree_util.tree_map(
-        lambda x: np.asarray(jax.device_get(x[hyper_index, seed_index])),
+        lambda x: np.asarray(jax.device_get(x[run_index])),
         metrics,
     )
     num_updates = int(metric_slice.loss.shape[0])
@@ -69,9 +68,9 @@ def metric_data(
     return data
 
 
-def state_slice(states, hyper_index: int, seed_index: int):
+def state_slice(states, run_index: int):
     return jax.tree_util.tree_map(
-        lambda x: jax.device_get(x[hyper_index, seed_index]),
+        lambda x: jax.device_get(x[run_index]),
         states,
     )
 
@@ -81,11 +80,12 @@ def slug_value(value) -> str:
     return "".join(char if char.isalnum() or char in {".", "-"} else "-" for char in text)
 
 
-def run_jobid(base_jobid: str, combo: dict, varied_keys: list[str], seed: int) -> str:
-    param_parts = [f"{key}{slug_value(combo[key])}" for key in varied_keys]
-    param_parts.append(f"seed{int(seed)}")
+def run_jobid(base_jobid: str, run: dict, varied_keys: list[str]) -> str:
+    param_parts = [f"{key}{slug_value(run[key])}" for key in varied_keys]
     suffix = "_".join(param_parts)
     if str(base_jobid).strip():
+        if not suffix:
+            return str(base_jobid)
         return f"{base_jobid}_{suffix}"
     return suffix
 
@@ -103,8 +103,7 @@ def log_run_dirs_preview(run_dirs: list[str]) -> None:
 
 
 def prepare_run_dirs(
-    combos: list[dict],
-    seeds: list[int],
+    runs: list[dict],
     *,
     path: str,
     experiment: str,
@@ -112,27 +111,24 @@ def prepare_run_dirs(
     varied_keys: list[str],
 ) -> list[str]:
     run_dirs: list[str] = []
-    for combo in combos:
-        for seed in seeds:
-            run_args = dict(combo)
-            run_args["seed"] = int(seed)
-            run_args["parallel_config"] = str(config_path)
-            run_args["parallel_varied_keys"] = list(varied_keys)
+    for run in runs:
+        run_args = dict(run)
+        run_args["parallel_config"] = str(config_path)
+        run_args["parallel_varied_keys"] = list(varied_keys)
 
-            run_dir = create_timestamped_run_dir(
-                path=path,
-                experiment=experiment,
-                jobid=run_jobid(str(combo.get("jobid", "")), combo, varied_keys, seed),
-            )
-            write_run_metadata(run_dir=run_dir, args=Namespace(**run_args), cwd=os.getcwd())
-            run_dirs.append(run_dir)
+        run_dir = create_timestamped_run_dir(
+            path=path,
+            experiment=experiment,
+            jobid=run_jobid(str(run.get("jobid", "")), run, varied_keys),
+        )
+        write_run_metadata(run_dir=run_dir, args=Namespace(**run_args), cwd=os.getcwd())
+        run_dirs.append(run_dir)
     return run_dirs
 
 
 def save_results(
     result,
-    combos: list[dict],
-    seeds: list[int],
+    runs: list[dict],
     run_dirs: list[str] | None = None,
     *,
     path: str | None = None,
@@ -145,83 +141,76 @@ def save_results(
         if path is None or experiment is None or config_path is None:
             raise ValueError("When run_dirs is not provided, path/experiment/config_path are required.")
         run_dirs = prepare_run_dirs(
-            combos,
-            seeds,
+            runs,
             path=path,
             experiment=experiment,
             config_path=config_path,
             varied_keys=[] if varied_keys is None else varied_keys,
         )
     simulators: dict[tuple, JaxSimulator] = {}
-    run_dirs_by_index = np.asarray(run_dirs, dtype=object).reshape((len(combos), len(seeds)))
-    for hyper_index, combo in enumerate(combos):
-        env_key = env_cache_key(combo)
+    for run_index, run in enumerate(runs):
+        env_key = env_cache_key(run)
         if env_key not in simulators:
-            env = env_from_args(combo)
-            simulators[env_key] = JaxSimulator(env, env_params=env_params_from_args(env, combo))
+            env = env_from_args(run)
+            simulators[env_key] = JaxSimulator(env, env_params=env_params_from_args(env, run))
         simulator = simulators[env_key]
+        run_dir = run_dirs[run_index]
 
-        for seed_index, seed in enumerate(seeds):
-            run_args = dict(combo)
-            run_args["seed"] = int(seed)
-            run_dir = str(run_dirs_by_index[hyper_index, seed_index])
+        state = state_slice(result.states, run_index)
+        data = metric_data(
+            result.metrics,
+            run_index,
+            elapsed_seconds,
+        )
 
-            state = state_slice(result.states, hyper_index, seed_index)
-            data = metric_data(
-                result.metrics,
-                hyper_index,
-                seed_index,
-                elapsed_seconds,
+        with open(os.path.join(run_dir, TRAINING_DATA_NAME), "wb") as file:
+            pickle.dump(data, file)
+        save_jax_params(state.params, os.path.join(run_dir, "net_jax.p"))
+
+        eval_start = time.time()
+        eval_episodes = int(run["eval_episodes"])
+        eval_stats = simulator.evaluate_policy(
+            params=state.params,
+            seed=int(run["seed"]),
+            num_trials=eval_episodes,
+            greedy=True,
+            batch_size=eval_episodes,
+        )
+        eval_elapsed_seconds = time.time() - eval_start
+        eval_summary = {
+            "num_trials": int(eval_stats["num_trials"]),
+            "reward_mean": float(eval_stats["reward_mean"]),
+            "reward_sd": float(eval_stats["reward_sd"]),
+            "reward_no_cost_mean": float(eval_stats["reward_no_cost_mean"]),
+            "reward_no_cost_sd": float(eval_stats["reward_no_cost_sd"]),
+            "n_steps_mean": float(eval_stats["n_steps_mean"]),
+            "n_steps_sd": float(eval_stats["n_steps_sd"]),
+            "train_elapsed_seconds": float(elapsed_seconds),
+            "eval_elapsed_seconds": float(eval_elapsed_seconds),
+            "num_updates": int(run["num_updates"]),
+        }
+        with open(os.path.join(run_dir, EVAL_SUMMARY_NAME), "w") as file:
+            json.dump(eval_summary, file, indent=2, sort_keys=True)
+
+        log_path = os.path.join(run_dir, "training.log")
+        with open(log_path, "a") as file:
+            file.write("\n")
+            file.write(
+                "run_summary "
+                f"run_index={run_index} "
+                f"seed={int(run['seed'])} "
+                f"train_elapsed_seconds={elapsed_seconds:.3f} "
+                f"eval_elapsed_seconds={eval_elapsed_seconds:.3f}\n"
             )
-
-            with open(os.path.join(run_dir, TRAINING_DATA_NAME), "wb") as file:
-                pickle.dump(data, file)
-            save_jax_params(state.params, os.path.join(run_dir, "net_jax.p"))
-
-            eval_start = time.time()
-            eval_episodes = int(run_args["eval_episodes"])
-            eval_stats = simulator.evaluate_policy(
-                params=state.params,
-                seed=int(seed),
-                num_trials=eval_episodes,
-                greedy=True,
-                batch_size=eval_episodes,
+            file.write(
+                "eval_summary "
+                f"episodes={eval_summary['num_trials']} "
+                f"reward_mean={eval_summary['reward_mean']:.6f} "
+                f"reward_sd={eval_summary['reward_sd']:.6f} "
+                f"reward_no_cost_mean={eval_summary['reward_no_cost_mean']:.6f} "
+                f"reward_no_cost_sd={eval_summary['reward_no_cost_sd']:.6f} "
+                f"n_steps_mean={eval_summary['n_steps_mean']:.3f} "
+                f"n_steps_sd={eval_summary['n_steps_sd']:.3f}\n"
             )
-            eval_elapsed_seconds = time.time() - eval_start
-            eval_summary = {
-                "num_trials": int(eval_stats["num_trials"]),
-                "reward_mean": float(eval_stats["reward_mean"]),
-                "reward_sd": float(eval_stats["reward_sd"]),
-                "reward_no_cost_mean": float(eval_stats["reward_no_cost_mean"]),
-                "reward_no_cost_sd": float(eval_stats["reward_no_cost_sd"]),
-                "n_steps_mean": float(eval_stats["n_steps_mean"]),
-                "n_steps_sd": float(eval_stats["n_steps_sd"]),
-                "train_elapsed_seconds": float(elapsed_seconds),
-                "eval_elapsed_seconds": float(eval_elapsed_seconds),
-                "num_updates": int(run_args["num_updates"]),
-            }
-            with open(os.path.join(run_dir, EVAL_SUMMARY_NAME), "w") as file:
-                json.dump(eval_summary, file, indent=2, sort_keys=True)
-
-            log_path = os.path.join(run_dir, "training.log")
-            with open(log_path, "a") as file:
-                file.write("\n")
-                file.write(
-                    "run_summary "
-                    f"hyper_index={hyper_index} "
-                    f"seed={int(seed)} "
-                    f"train_elapsed_seconds={elapsed_seconds:.3f} "
-                    f"eval_elapsed_seconds={eval_elapsed_seconds:.3f}\n"
-                )
-                file.write(
-                    "eval_summary "
-                    f"episodes={eval_summary['num_trials']} "
-                    f"reward_mean={eval_summary['reward_mean']:.6f} "
-                    f"reward_sd={eval_summary['reward_sd']:.6f} "
-                    f"reward_no_cost_mean={eval_summary['reward_no_cost_mean']:.6f} "
-                    f"reward_no_cost_sd={eval_summary['reward_no_cost_sd']:.6f} "
-                    f"n_steps_mean={eval_summary['n_steps_mean']:.3f} "
-                    f"n_steps_sd={eval_summary['n_steps_sd']:.3f}\n"
-                )
-                file.write(f"training_log={log_path}\n")
+            file.write(f"training_log={log_path}\n")
     return run_dirs

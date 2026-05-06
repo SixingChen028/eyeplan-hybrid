@@ -7,7 +7,7 @@ import traceback
 
 from modules.a2c import load_jax_params
 from modules.analysis_targets import resolve_analysis_target
-from modules.config_defaults import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
+from modules.config import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 from modules.simulation import JaxSimulator
 

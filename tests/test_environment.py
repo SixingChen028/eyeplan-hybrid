@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from modules.config_defaults import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
+from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()

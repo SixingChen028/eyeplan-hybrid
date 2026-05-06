@@ -3,29 +3,26 @@ from pathlib import Path
 import pytest
 
 import simulate
-import train
-from modules import config_defaults
+from modules import config
 
 
 def test_train_uses_canonical_defaults():
-    meta, params = config_defaults.load_canonical_defaults()
-    assert train.DEFAULT_META == meta
-    assert train.DEFAULT_PARAMS == params
+    meta, params = config.load_canonical_defaults()
+    assert config.DEFAULT_META == meta
+    assert config.DEFAULT_PARAMS == params
 
 
-def test_load_canonical_defaults_missing_file(monkeypatch):
+def test_load_canonical_defaults_missing_file():
     missing_path = Path("/tmp/does-not-exist-defaults.toml")
-    monkeypatch.setattr(config_defaults, "DEFAULTS_PATH", missing_path)
     with pytest.raises(FileNotFoundError):
-        config_defaults.load_canonical_defaults()
+        config.load_canonical_defaults(missing_path)
 
 
-def test_load_canonical_defaults_missing_required_key(tmp_path, monkeypatch):
+def test_load_canonical_defaults_missing_required_key(tmp_path):
     bad_defaults_path = tmp_path / "_DEFAULTS.toml"
     bad_defaults_path.write_text("[meta]\nresult_path = \"./results\"\n\n[params]\nseed=1\n", encoding="utf-8")
-    monkeypatch.setattr(config_defaults, "DEFAULTS_PATH", bad_defaults_path)
     with pytest.raises(ValueError, match="missing required \\[params\\] keys"):
-        config_defaults.load_canonical_defaults()
+        config.load_canonical_defaults(bad_defaults_path)
 
 
 def test_simulate_requires_scale_factor_in_metadata():

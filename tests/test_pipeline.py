@@ -1,7 +1,7 @@
 import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
-from modules.config_defaults import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
+from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
 from modules.simulation import JaxSimulator, append_simulation_trial, empty_simulation_data
 

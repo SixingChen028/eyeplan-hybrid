@@ -152,7 +152,7 @@ def validate_params(params: dict) -> None:
             parse_unit_interval(item, name=key)
 
 
-def expand_sweep(params: dict) -> tuple[dict, list[dict], list[int], list[str]]:
+def expand_sweep(params: dict) -> tuple[dict, list[dict], list[str]]:
     unknown_keys = sorted(set(params) - set(DEFAULT_PARAMS))
     if unknown_keys:
         raise ValueError("Unknown [params] keys: " + ", ".join(unknown_keys))
@@ -160,10 +160,6 @@ def expand_sweep(params: dict) -> tuple[dict, list[dict], list[int], list[str]]:
     merged = dict(DEFAULT_PARAMS)
     merged.update(params)
     validate_params(merged)
-
-    seeds_raw = merged.pop("seed")
-    seeds = seeds_raw if is_list(seeds_raw) else [seeds_raw]
-    seeds = [int(seed) for seed in seeds]
 
     sweep_items = [
         (key, value)
@@ -178,15 +174,17 @@ def expand_sweep(params: dict) -> tuple[dict, list[dict], list[int], list[str]]:
 
     if not sweep_items:
         combos = [dict(fixed)]
-        return fixed, combos, seeds, []
+        combos[0]["seed"] = int(combos[0]["seed"])
+        return fixed, combos, []
 
     varied_keys = [key for key, _ in sweep_items]
     combos: list[dict] = []
     for values in itertools.product(*(value for _, value in sweep_items)):
         combo = dict(fixed)
         combo.update(dict(zip(varied_keys, values)))
+        combo["seed"] = int(combo["seed"])
         combos.append(combo)
-    return fixed, combos, seeds, varied_keys
+    return fixed, combos, varied_keys
 
 
 def resolve_training_geometry(params: dict) -> tuple[int, int, int]:

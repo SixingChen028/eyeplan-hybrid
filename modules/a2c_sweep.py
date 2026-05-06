@@ -13,6 +13,7 @@ from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 
 class A2CHyperParams(NamedTuple):
     env: JaxDecisionTreeParams
+    seed: jax.Array
     lr: jax.Array
     gamma: jax.Array
     lamda: jax.Array
@@ -40,6 +41,7 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
     env = JaxDecisionTreeParams(**env_values)
 
     train_values = {key: array(key) for key in TRAIN_SWEEP_KEYS}
+    train_values["seed"] = array("seed", dtype=jnp.int32)
     return A2CHyperParams(env=env, **train_values)
 
 
@@ -86,8 +88,8 @@ class VmappedA2CTrainer:
             max_grad_norm=hyper.max_grad_norm,
         )
 
-    def _train_one(self, hyper: A2CHyperParams, seed: jax.Array):
-        state = self.trainer.init_state_with_params(seed, hyper.env)
+    def _train_one(self, hyper: A2CHyperParams):
+        state = self.trainer.init_state_with_params(hyper.seed, hyper.env)
         entropy_schedule = jnp.linspace(
             hyper.beta_e_init,
             hyper.beta_e_final,
@@ -104,17 +106,12 @@ class VmappedA2CTrainer:
     ):
         return self.trainer._train_many(state, entropy_schedule, self._train_params(hyper))
 
-    def _train_sweep(self, hypers: A2CHyperParams, seeds: jax.Array):
-        train_seeds = jax.vmap(self._train_one, in_axes=(None, 0))
-        train_hypers = jax.vmap(train_seeds, in_axes=(0, None))
-        states, metrics = train_hypers(hypers, seeds)
+    def _train_sweep(self, hypers: A2CHyperParams):
+        states, metrics = jax.vmap(self._train_one)(hypers)
         return A2CSweepResult(states=states, metrics=metrics)
 
-    def _init_sweep_states(self, hypers: A2CHyperParams, seeds: jax.Array):
-        def init_hyper(hyper):
-            return jax.vmap(lambda seed: self.trainer.init_state_with_params(seed, hyper.env))(seeds)
-
-        return jax.vmap(init_hyper)(hypers)
+    def _init_sweep_states(self, hypers: A2CHyperParams):
+        return jax.vmap(lambda hyper: self.trainer.init_state_with_params(hyper.seed, hyper.env))(hypers)
 
     def _train_sweep_chunk(
         self,
@@ -122,16 +119,18 @@ class VmappedA2CTrainer:
         hypers: A2CHyperParams,
         entropy_schedule: jax.Array,
     ):
-        train_seeds = jax.vmap(self._train_one_from_state, in_axes=(0, None, None))
-        train_hypers = jax.vmap(train_seeds, in_axes=(0, 0, 0))
-        states, metrics = train_hypers(states, hypers, entropy_schedule)
+        states, metrics = jax.vmap(self._train_one_from_state, in_axes=(0, 0, 0))(
+            states,
+            hypers,
+            entropy_schedule,
+        )
         return A2CSweepResult(states=states, metrics=metrics)
 
-    def train_sweep(self, hypers: A2CHyperParams, seeds):
-        return self._train_sweep_jit(hypers, jnp.asarray(seeds, dtype=jnp.int32))
+    def train_sweep(self, hypers: A2CHyperParams):
+        return self._train_sweep_jit(hypers)
 
-    def init_sweep_states(self, hypers: A2CHyperParams, seeds):
-        return self._init_sweep_states_jit(hypers, jnp.asarray(seeds, dtype=jnp.int32))
+    def init_sweep_states(self, hypers: A2CHyperParams):
+        return self._init_sweep_states_jit(hypers)
 
     def train_sweep_chunk(
         self,
