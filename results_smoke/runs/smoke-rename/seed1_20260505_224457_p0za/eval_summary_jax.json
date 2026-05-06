@@ -1,0 +1,12 @@
+{
+  "eval_elapsed_seconds": 5.48691201210022,
+  "n_steps_mean": 95.76165771484375,
+  "n_steps_sd": 17.943363189697266,
+  "num_trials": 102400,
+  "num_updates": 1,
+  "reward_mean": -0.6323551535606384,
+  "reward_no_cost_mean": 0.3152608275413513,
+  "reward_no_cost_sd": 0.7187032103538513,
+  "reward_sd": 0.7373613715171814,
+  "train_elapsed_seconds": 0.0024111270904541016
+}

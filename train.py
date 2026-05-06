@@ -253,12 +253,12 @@ def _validate_params(params: dict) -> None:
                 enabled, _, _ = JaxDecisionTreeEnv._parse_recency_decay(item)
                 if not enabled:
                     raise ValueError(
-                        "params.recency_decay cannot include 'off' in train_parallel.py because it changes compiled shapes."
+                        "params.recency_decay cannot include 'off' in train.py because it changes compiled shapes."
                     )
             continue
         if key in SHAPE_KEYS:
             raise ValueError(
-                f"params.{key} cannot be an array in train_parallel.py because it changes compiled shapes."
+                f"params.{key} cannot be an array in train.py because it changes compiled shapes."
             )
         if key not in SWEEP_KEYS:
             raise ValueError(f"params.{key} is not a supported parallel sweep parameter.")

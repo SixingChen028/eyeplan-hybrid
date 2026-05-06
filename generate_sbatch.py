@@ -10,7 +10,7 @@ from pathlib import Path
 
 DEFAULT_META = {
     "python": "python -u",
-    "entrypoint": "train_parallel.py",
+    "entrypoint": "train.py",
     "result_path": "./results",
     "resume": True,
     "jobid_from_task_id": True,
@@ -176,7 +176,7 @@ def _render_script(config: dict, config_path: Path) -> str:
 
     entrypoint = str(meta["entrypoint"])
     if parallel_mode and entrypoint == DEFAULT_META["entrypoint"]:
-        entrypoint = "train_parallel.py"
+        entrypoint = "train.py"
     if meta.get("post_simulate") is None:
         post_simulate = not parallel_mode
     else:
