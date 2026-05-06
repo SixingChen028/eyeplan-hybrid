@@ -8,12 +8,7 @@ from modules.environment import JaxDecisionTreeEnv
 def test_baseline_policy_evaluation_runs():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
-        beta_move=4.0,
-        eps_move=0.02,
-        learning_rate=1.0,
-        wm_decay=1.0,
         t_max=10,
-        cost=0.01,
         scale_factor=1.0,
         shuffle_nodes=False,
         point_set=np.array([1.0], dtype=np.float32),
@@ -44,12 +39,7 @@ def test_baseline_policy_evaluation_runs():
 def test_visit_all_policy_has_bounded_length_after_fix():
     env = JaxDecisionTreeEnv(
         num_nodes=7,
-        beta_move=100.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        wm_decay=1.0,
         t_max=100,
-        cost=0.01,
         scale_factor=1 / 8,
         shuffle_nodes=True,
     )

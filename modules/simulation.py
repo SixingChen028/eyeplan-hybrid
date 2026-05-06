@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .environment import JaxDecisionTreeEnv
+from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from .network import actor_critic_forward, apply_action_mask, sample_actions
 
 
@@ -64,14 +64,15 @@ def append_simulation_trial(
 
 
 class JaxSimulator:
-    def __init__(self, env: JaxDecisionTreeEnv):
+    def __init__(self, env: JaxDecisionTreeEnv, env_params: JaxDecisionTreeParams | None = None):
         self.env = env
+        self.env_params = env.params() if env_params is None else env_params
         self._trial_jit = jax.jit(self._run_trial, static_argnames=("greedy",))
         self._trial_batch_jit = jax.jit(self._run_trial_batch, static_argnames=("greedy",))
         self._eval_batch_jit = jax.jit(self._run_eval_batch, static_argnames=("greedy",))
 
     def _run_trial(self, params: Any, rng_key: jax.Array, greedy: bool = False):
-        env_params = self.env.params()
+        env_params = self.env_params
         state, obs, info = self.env.reset_with_params(rng_key, env_params)
         action_mask = info["mask"]
 
@@ -209,7 +210,7 @@ class JaxSimulator:
         )
 
     def _run_trial_metrics(self, params: Any, rng_key: jax.Array, greedy: bool = False):
-        env_params = self.env.params()
+        env_params = self.env_params
         state, obs, info = self.env.reset_with_params(rng_key, env_params)
         action_mask = info["mask"]
 

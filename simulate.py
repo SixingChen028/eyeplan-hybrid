@@ -35,6 +35,19 @@ def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
 
     return JaxDecisionTreeEnv(
         num_nodes=int(metadata_args.get("num_nodes", 15)),
+        t_max=int(metadata_args.get("t_max", 100)),
+        scale_factor=float(metadata_args.get("scale_factor", 1 / 8)),
+        shuffle_nodes=bool(metadata_args.get("shuffle_nodes", True)),
+        use_recency_obs=JaxDecisionTreeEnv._parse_recency_decay(recency_decay)[0],
+    )
+
+
+def _build_env_params_from_metadata_args(env: JaxDecisionTreeEnv, metadata_args: dict):
+    recency_decay = metadata_args.get("recency_decay")
+    if recency_decay is None:
+        recency_decay = "auto" if bool(metadata_args.get("use_recency_obs", False)) else "off"
+
+    return env.params(
         beta_move=float(metadata_args.get("beta_move", 40.0)),
         eps_move=float(metadata_args.get("eps_move", 0.0)),
         learning_rate=float(metadata_args.get("learning_rate", 1.0)),
@@ -45,10 +58,7 @@ def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
         q_drop_rate=float(metadata_args.get("q_drop_rate", 0.0)),
         q_drift=float(metadata_args.get("q_drift", 0.0)),
         q_decay=metadata_args.get("q_decay", 0.0),
-        t_max=int(metadata_args.get("t_max", 100)),
         cost=float(metadata_args.get("cost", 0.01)),
-        scale_factor=float(metadata_args.get("scale_factor", 1 / 8)),
-        shuffle_nodes=bool(metadata_args.get("shuffle_nodes", True)),
         recency_decay=recency_decay,
     )
 
@@ -192,12 +202,13 @@ def _simulate_run(
     metadata = _read_metadata(run_dir)
     metadata_args = _read_metadata_args(run_dir)
     env = _build_env_from_metadata_args(metadata_args)
+    env_params = _build_env_params_from_metadata_args(env, metadata_args)
 
     params_path = _resolve_params_path_from_metadata(run_dir, metadata)
     params = load_jax_params(params_path)
 
     seed = int(metadata_args.get("seed", 15))
-    simulator = JaxSimulator(env)
+    simulator = JaxSimulator(env, env_params=env_params)
     data = simulator.simulate(
         params=params,
         seed=seed,

@@ -8,12 +8,7 @@ from modules.simulation import JaxSimulator, append_simulation_trial, empty_simu
 def test_jax_train_step_compiles_and_runs():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
-        beta_move=4.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        wm_decay=1.0,
         t_max=5,
-        cost=0.01,
         scale_factor=1.0,
         shuffle_nodes=False,
         point_set=np.array([1.0], dtype=np.float32),
@@ -45,12 +40,7 @@ def test_jax_train_step_compiles_and_runs():
 def test_jax_train_step_runs_node_shared_network():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
-        beta_move=4.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        wm_decay=1.0,
         t_max=5,
-        cost=0.01,
         scale_factor=1.0,
         shuffle_nodes=False,
         point_set=np.array([1.0], dtype=np.float32),
@@ -81,12 +71,7 @@ def test_jax_train_step_runs_node_shared_network():
 def test_jax_simulator_runs_trials():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
-        beta_move=4.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        wm_decay=1.0,
         t_max=5,
-        cost=0.01,
         scale_factor=1.0,
         shuffle_nodes=False,
         point_set=np.array([1.0], dtype=np.float32),
@@ -124,12 +109,7 @@ def test_jax_simulator_runs_trials():
 def test_jax_simulator_runs_node_shared_trials():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
-        beta_move=4.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        wm_decay=1.0,
         t_max=5,
-        cost=0.01,
         scale_factor=1.0,
         shuffle_nodes=False,
         point_set=np.array([1.0], dtype=np.float32),
@@ -167,12 +147,7 @@ def test_jax_simulator_runs_node_shared_trials():
 def test_jax_simulator_runs_detailed_trials():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
-        beta_move=4.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        wm_decay=1.0,
         t_max=5,
-        cost=0.01,
         scale_factor=1.0,
         shuffle_nodes=False,
         point_set=np.array([1.0], dtype=np.float32),
@@ -217,12 +192,7 @@ def test_jax_simulator_runs_detailed_trials():
 def test_jax_simulator_records_forced_terminal_action():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
-        beta_move=4.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        wm_decay=1.0,
         t_max=1,
-        cost=0.01,
         scale_factor=1.0,
         shuffle_nodes=False,
         point_set=np.array([1.0], dtype=np.float32),
@@ -259,12 +229,7 @@ def test_jax_simulator_records_forced_terminal_action():
 def test_jax_simulator_evaluate_policy_returns_summary_stats():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
-        beta_move=4.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        wm_decay=1.0,
         t_max=5,
-        cost=0.01,
         scale_factor=1.0,
         shuffle_nodes=False,
         point_set=np.array([1.0], dtype=np.float32),

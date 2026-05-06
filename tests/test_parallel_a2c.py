@@ -9,7 +9,7 @@ import numpy as np
 
 from modules.a2c import JaxBatchMaskA2C
 from modules.environment import JaxDecisionTreeEnv
-from train_parallel import (
+from train import (
     VmappedA2CTrainer,
     build_hypers,
     expand_sweep,
@@ -50,19 +50,20 @@ def _small_params(**overrides):
 def test_dynamic_env_params_match_default_env_for_same_values():
     env = JaxDecisionTreeEnv(
         num_nodes=3,
-        beta_move=4.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        lamda_backup=0.5,
-        wm_decay=1.0,
         t_max=4,
-        cost=0.01,
         scale_factor=1.0,
         shuffle_nodes=False,
         point_set=np.array([1.0], dtype=np.float32),
     )
     key = jax.random.PRNGKey(2)
-    params = env.params()
+    params = env.params(
+        beta_move=4.0,
+        eps_move=0.0,
+        learning_rate=1.0,
+        lamda_backup=0.5,
+        wm_decay=1.0,
+        cost=0.01,
+    )
 
     state_default, obs_default, info_default = env.reset_with_params(key, params)
     state_dynamic, obs_dynamic, info_dynamic = env.reset_with_params(key, params)
@@ -155,7 +156,7 @@ def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
         shuffle_nodes=fixed["shuffle_nodes"],
-        recency_decay=combos[0]["recency_decay"],
+        use_recency_obs=True,
         point_set=np.array([1.0], dtype=np.float32),
     )
     assert env.observation_shape[0] == JaxDecisionTreeEnv(num_nodes=fixed["num_nodes"]).observation_shape[0] + fixed["num_nodes"]
@@ -260,13 +261,7 @@ def test_parallel_single_combo_matches_existing_a2c():
 
     env = JaxDecisionTreeEnv(
         num_nodes=fixed["num_nodes"],
-        beta_move=fixed["beta_move"],
-        eps_move=fixed["eps_move"],
-        learning_rate=fixed["learning_rate"],
-        lamda_backup=fixed["lamda_backup"],
-        wm_decay=fixed["wm_decay"],
         t_max=fixed["t_max"],
-        cost=fixed["cost"],
         scale_factor=fixed["scale_factor"],
         shuffle_nodes=fixed["shuffle_nodes"],
         point_set=np.array([1.0], dtype=np.float32),
@@ -326,13 +321,7 @@ from modules.environment import JaxDecisionTreeEnv
 
 env = JaxDecisionTreeEnv(
     num_nodes=15,
-    beta_move=40.0,
-    eps_move=0.0,
-    learning_rate=1.0,
-    lamda_backup=1.0,
-    wm_decay=1.0,
     t_max=100,
-    cost=0.01,
     scale_factor=1 / 8,
     shuffle_nodes=True,
 )

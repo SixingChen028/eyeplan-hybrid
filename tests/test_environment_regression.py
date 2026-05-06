@@ -53,6 +53,36 @@ ENV_CONFIGS = [
 ]
 
 
+ENV_INIT_KEYS = {"num_nodes", "t_max", "scale_factor", "shuffle_nodes", "point_set"}
+PARAM_KEYS = {
+    "beta_move",
+    "eps_move",
+    "learning_rate",
+    "lamda_backup",
+    "backup_steps",
+    "wm_decay",
+    "q_drop_rate",
+    "q_drift",
+    "q_decay",
+    "recency_decay",
+    "cost",
+    "wm_backup",
+}
+
+
+def _live_env_from_config(config):
+    env_kwargs = {key: value for key, value in config.items() if key in ENV_INIT_KEYS}
+    # The frozen reference currently ignores shuffle_nodes=False at init time.
+    env_kwargs["shuffle_nodes"] = True
+    recency_decay = config.get("recency_decay", "off")
+    env_kwargs["use_recency_obs"] = JaxDecisionTreeEnv._parse_recency_decay(recency_decay)[0]
+    return JaxDecisionTreeEnv(**env_kwargs)
+
+
+def _live_params_from_config(env, config):
+    return env.params(**{key: value for key, value in config.items() if key in PARAM_KEYS})
+
+
 def _assert_public_outputs_match(live, reference):
     live_obs, live_reward, live_done, live_truncated, live_mask = live
     reference_obs, reference_reward, reference_done, reference_truncated, reference_mask = reference
@@ -82,8 +112,8 @@ def test_live_environment_matches_frozen_reference_for_random_policy_rollouts():
     sample_policy_action_jit = jax.jit(_sample_policy_action)
 
     for config_index, config in enumerate(ENV_CONFIGS):
-        live_env = JaxDecisionTreeEnv(**config)
-        live_params = live_env.params()
+        live_env = _live_env_from_config(config)
+        live_params = _live_params_from_config(live_env, config)
         reference_env = ReferenceJaxDecisionTreeEnv(**config)
         live_reset_jit = jax.jit(live_env.reset_with_params)
         reference_reset_jit = jax.jit(reference_env.reset)

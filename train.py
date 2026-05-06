@@ -511,8 +511,18 @@ class VmappedA2CTrainer:
 
 
 def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
+    use_recency_obs, _, _ = JaxDecisionTreeEnv._parse_recency_decay(args["recency_decay"])
     return JaxDecisionTreeEnv(
         num_nodes=args["num_nodes"],
+        t_max=args["t_max"],
+        scale_factor=args["scale_factor"],
+        shuffle_nodes=args["shuffle_nodes"],
+        use_recency_obs=use_recency_obs,
+    )
+
+
+def _env_params_from_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecisionTreeParams:
+    return env.params(
         beta_move=args["beta_move"],
         eps_move=args["eps_move"],
         learning_rate=args["learning_rate"],
@@ -523,11 +533,8 @@ def _env_from_args(args: dict) -> JaxDecisionTreeEnv:
         q_drop_rate=args["q_drop_rate"],
         q_drift=args["q_drift"],
         q_decay=args["q_decay"],
-        t_max=args["t_max"],
-        cost=args["cost"],
-        scale_factor=args["scale_factor"],
-        shuffle_nodes=args["shuffle_nodes"],
         recency_decay=args["recency_decay"],
+        cost=args["cost"],
     )
 
 
@@ -945,7 +952,8 @@ def save_results(
     for hyper_index, combo in enumerate(combos):
         env_key = _env_cache_key(combo)
         if env_key not in simulators:
-            simulators[env_key] = JaxSimulator(_env_from_args(combo))
+            env = _env_from_args(combo)
+            simulators[env_key] = JaxSimulator(env, env_params=_env_params_from_args(env, combo))
         simulator = simulators[env_key]
 
         for seed_index, seed in enumerate(seeds):

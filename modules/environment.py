@@ -73,61 +73,22 @@ class JaxDecisionTreeEnv:
     def __init__(
         self,
         num_nodes: int = 15,
-        beta_move: float = 4.0,
-        eps_move: float = 0.02,
-        learning_rate: float = 0.2,
-        lamda_backup: float = 0.0,
-        backup_steps: int = 100,
-        wm_decay: float = 0.8,
-        q_drop_rate: float = 0.0,
-        q_drift: float = 0.0,
-        q_decay=0.0,
         t_max: int = 100,
-        cost: float = 0.01,
         scale_factor: float = 1 / 8,
         shuffle_nodes: bool = True,
-        recency_decay="off",
-        wm_backup: bool = False,
+        use_recency_obs: bool = False,
         point_set=None,
     ):
         self.num_nodes = int(num_nodes)
-        q_drift = float(q_drift)
-        if q_drift < 0.0:
-            raise ValueError("q_drift must be non-negative.")
         self.t_max = int(t_max)
         self.scale_factor = float(scale_factor)
-        self.shuffle_nodes = True
-        q_decay_auto, q_decay_value = self._parse_q_decay(q_decay)
-        self.use_recency_obs, recency_decay_auto, recency_decay_value = self._parse_recency_decay(recency_decay)
+        self.shuffle_nodes = bool(shuffle_nodes)
+        self.use_recency_obs = bool(use_recency_obs)
 
         if point_set is None:
             point_set = [-8, -4, -2, -1, 1, 2, 4, 8]
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
         self.empty_path = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
-        resolved_q_decay = (
-            self._q_decay_value(q_drift, self.scale_factor)
-            if q_decay_auto
-            else jnp.asarray(q_decay_value, dtype=jnp.float32)
-        )
-        resolved_recency_decay = (
-            jnp.where(float(wm_decay) == 1.0, 0.5, float(wm_decay))
-            if recency_decay_auto
-            else jnp.asarray(recency_decay_value, dtype=jnp.float32)
-        )
-        self._params = JaxDecisionTreeParams(
-            beta_move=jnp.asarray(beta_move, dtype=jnp.float32),
-            eps_move=jnp.asarray(eps_move, dtype=jnp.float32),
-            learning_rate=jnp.asarray(learning_rate, dtype=jnp.float32),
-            lamda_backup=jnp.asarray(lamda_backup, dtype=jnp.float32),
-            backup_steps=jnp.asarray(backup_steps, dtype=jnp.int32),
-            wm_decay=jnp.asarray(wm_decay, dtype=jnp.float32),
-            q_drop_rate=jnp.asarray(q_drop_rate, dtype=jnp.float32),
-            q_drift=jnp.asarray(q_drift, dtype=jnp.float32),
-            q_decay=jnp.asarray(resolved_q_decay, dtype=jnp.float32),
-            recency_decay=jnp.asarray(resolved_recency_decay, dtype=jnp.float32),
-            cost=jnp.asarray(cost, dtype=jnp.float32),
-            wm_backup=jnp.asarray(wm_backup, dtype=jnp.bool_),
-        )
 
         observation_size = (
             self.num_nodes
@@ -145,8 +106,50 @@ class JaxDecisionTreeEnv:
         self.observation_shape = (observation_size,)
         self.action_size = self.num_nodes + 1
 
-    def params(self) -> JaxDecisionTreeParams:
-        return self._params
+    def params(
+        self,
+        beta_move: float = 4.0,
+        eps_move: float = 0.02,
+        learning_rate: float = 0.2,
+        lamda_backup: float = 0.0,
+        backup_steps: int = 100,
+        wm_decay: float = 0.8,
+        q_drop_rate: float = 0.0,
+        q_drift: float = 0.0,
+        q_decay=0.0,
+        recency_decay="off",
+        cost: float = 0.01,
+        wm_backup: bool = False,
+    ) -> JaxDecisionTreeParams:
+        q_drift = float(q_drift)
+        if q_drift < 0.0:
+            raise ValueError("q_drift must be non-negative.")
+        q_decay_auto, q_decay_value = self._parse_q_decay(q_decay)
+        _, recency_decay_auto, recency_decay_value = self._parse_recency_decay(recency_decay)
+        resolved_q_decay = (
+            self._q_decay_value(q_drift, self.scale_factor)
+            if q_decay_auto
+            else jnp.asarray(q_decay_value, dtype=jnp.float32)
+        )
+        resolved_recency_decay = (
+            jnp.where(float(wm_decay) == 1.0, 0.5, float(wm_decay))
+            if recency_decay_auto
+            else jnp.asarray(recency_decay_value, dtype=jnp.float32)
+        )
+        return JaxDecisionTreeParams(
+            beta_move=jnp.asarray(beta_move, dtype=jnp.float32),
+            eps_move=jnp.asarray(eps_move, dtype=jnp.float32),
+            learning_rate=jnp.asarray(learning_rate, dtype=jnp.float32),
+            lamda_backup=jnp.asarray(lamda_backup, dtype=jnp.float32),
+            backup_steps=jnp.asarray(backup_steps, dtype=jnp.int32),
+            wm_decay=jnp.asarray(wm_decay, dtype=jnp.float32),
+            q_drop_rate=jnp.asarray(q_drop_rate, dtype=jnp.float32),
+            q_drift=jnp.asarray(q_drift, dtype=jnp.float32),
+            q_decay=jnp.asarray(resolved_q_decay, dtype=jnp.float32),
+            recency_decay=jnp.asarray(resolved_recency_decay, dtype=jnp.float32),
+            cost=jnp.asarray(cost, dtype=jnp.float32),
+            wm_backup=jnp.asarray(wm_backup, dtype=jnp.bool_),
+        )
 
     def _q_prior_var(self, scale_factor: jax.Array) -> jax.Array:
         scale = jnp.asarray(scale_factor, dtype=jnp.float32)
@@ -173,7 +176,7 @@ class JaxDecisionTreeEnv:
 
         return p
 
-    def _build_tree(self, key: jax.Array, params: JaxDecisionTreeParams):
+    def _build_tree(self, key: jax.Array):
         nodes = jnp.arange(self.num_nodes, dtype=jnp.int32)
 
         def shuffled_fn(k):
@@ -493,7 +496,7 @@ class JaxDecisionTreeEnv:
         return cum_reward, path, path_len, key
 
     def reset_with_params(self, key: jax.Array, params: JaxDecisionTreeParams):
-        key, root, child_nodes, parent_nodes = self._build_tree(key, params)
+        key, root, child_nodes, parent_nodes = self._build_tree(key)
 
         key, points_key = jax.random.split(key)
         point_idx = jax.random.randint(
