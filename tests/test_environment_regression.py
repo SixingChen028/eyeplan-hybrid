@@ -62,10 +62,16 @@ def _sample_policy_action(params, obs, mask, key):
 
 
 def test_live_environment_matches_frozen_reference_for_random_policy_rollouts():
+    sample_policy_action_jit = jax.jit(_sample_policy_action)
+
     for config_index, config in enumerate(ENV_CONFIGS):
         live_env = JaxDecisionTreeEnv(**config)
         live_params = live_env.params()
         reference_env = ReferenceJaxDecisionTreeEnv(**config)
+        live_reset_jit = jax.jit(live_env.reset_with_params)
+        reference_reset_jit = jax.jit(reference_env.reset)
+        live_step_jit = jax.jit(live_env.step_with_params)
+        reference_step_jit = jax.jit(reference_env.step)
 
         for policy_index in range(10):
             base_key = jax.random.PRNGKey(10_000 * config_index + policy_index)
@@ -76,8 +82,8 @@ def test_live_environment_matches_frozen_reference_for_random_policy_rollouts():
                 action_size=live_env.action_size,
             )
 
-            live_state, live_obs, live_info = live_env.reset_with_params(reset_key, live_params)
-            reference_state, reference_obs, reference_info = reference_env.reset(reset_key)
+            live_state, live_obs, live_info = live_reset_jit(reset_key, live_params)
+            reference_state, reference_obs, reference_info = reference_reset_jit(reset_key)
 
             np.testing.assert_allclose(np.asarray(live_obs), np.asarray(reference_obs), atol=1e-6)
             np.testing.assert_array_equal(np.asarray(live_info["mask"]), np.asarray(reference_info["mask"]))
@@ -87,8 +93,8 @@ def test_live_environment_matches_frozen_reference_for_random_policy_rollouts():
             max_steps = live_env.t_max
             while not done and step < max_steps:
                 rollout_key, action_key = jax.random.split(rollout_key)
-                live_action = _sample_policy_action(policy_params, live_obs, live_info["mask"], action_key)
-                reference_action = _sample_policy_action(
+                live_action = sample_policy_action_jit(policy_params, live_obs, live_info["mask"], action_key)
+                reference_action = sample_policy_action_jit(
                     policy_params,
                     reference_obs,
                     reference_info["mask"],
@@ -96,7 +102,7 @@ def test_live_environment_matches_frozen_reference_for_random_policy_rollouts():
                 )
                 np.testing.assert_array_equal(np.asarray(live_action), np.asarray(reference_action))
 
-                live_state, live_obs, live_reward, live_done, live_truncated, live_info = live_env.step_with_params(
+                live_state, live_obs, live_reward, live_done, live_truncated, live_info = live_step_jit(
                     live_state,
                     live_action,
                     live_params,
@@ -108,7 +114,7 @@ def test_live_environment_matches_frozen_reference_for_random_policy_rollouts():
                     reference_done,
                     reference_truncated,
                     reference_info,
-                ) = reference_env.step(reference_state, reference_action)
+                ) = reference_step_jit(reference_state, reference_action)
 
                 _assert_public_outputs_match(
                     (live_obs, live_reward, live_done, live_truncated, live_info["mask"]),
