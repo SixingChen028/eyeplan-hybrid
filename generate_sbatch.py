@@ -29,12 +29,6 @@ DEFAULT_SBATCH = {
     "log": "./log/%A_%a",
 }
 
-DEFAULT_RUNTIME = {
-    "set_euo_pipefail": True,
-    "force_jax_cpu": True,
-    "threads_from_slurm": True,
-}
-
 
 def _as_dict(value, name: str, default: dict | None = None) -> dict:
     if value is None:
@@ -138,9 +132,8 @@ def _split_params(params: dict) -> tuple[list[tuple[str, object]], list[tuple[st
 def _render_script(config: dict, config_path: Path) -> str:
     meta = _as_dict(config.get("meta"), "meta", default=DEFAULT_META)
     sbatch = _as_dict(config.get("sbatch"), "sbatch", default=DEFAULT_SBATCH)
-    runtime = _as_dict(config.get("runtime"), "runtime", default=DEFAULT_RUNTIME)
-    runtime_config = config.get("runtime")
     params = _as_dict(config.get("params"), "params")
+    gpu_enabled = bool(sbatch.get("gpu", False))
 
     experiment = str(meta.get("experiment", config_path.stem))
     job_name = str(sbatch.get("job_name", experiment))
@@ -170,10 +163,6 @@ def _render_script(config: dict, config_path: Path) -> str:
         selected_vary = list(vary)
         remaining_vary = []
 
-    gpu_enabled = bool(sbatch.get("gpu", False))
-    if gpu_enabled and (not isinstance(runtime_config, dict) or "force_jax_cpu" not in runtime_config):
-        runtime["force_jax_cpu"] = False
-
     entrypoint = str(meta["entrypoint"])
     if parallel_mode and entrypoint == DEFAULT_META["entrypoint"]:
         entrypoint = "train.py"
@@ -201,9 +190,8 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append(f"#SBATCH --array=0-{array_size - 1}")
     lines.append("")
 
-    if bool(runtime["set_euo_pipefail"]):
-        lines.append("set -euo pipefail")
-        lines.append("")
+    lines.append("set -euo pipefail")
+    lines.append("")
 
     lines.append(f"PYTHON_BIN={shlex.quote(python_exec)}")
     lines.append('if [[ -x ".venv/bin/python" ]]; then')
@@ -214,17 +202,16 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append("fi")
     lines.append("")
 
-    if bool(runtime["force_jax_cpu"]):
+    if not gpu_enabled:
         lines.append("# Force CPU execution for JAX.")
         lines.append("export JAX_PLATFORMS=cpu")
-    if bool(runtime["threads_from_slurm"]):
-        lines.append("THREADS=${SLURM_CPUS_PER_TASK:-1}")
-        lines.append("export OMP_NUM_THREADS=${THREADS}")
-        lines.append("export MKL_NUM_THREADS=${THREADS}")
-        lines.append("export OPENBLAS_NUM_THREADS=${THREADS}")
-        lines.append("export VECLIB_MAXIMUM_THREADS=${THREADS}")
-        lines.append("export NUMEXPR_NUM_THREADS=${THREADS}")
-        lines.append('export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=${THREADS}"')
+    lines.append("THREADS=${SLURM_CPUS_PER_TASK:-1}")
+    lines.append("export OMP_NUM_THREADS=${THREADS}")
+    lines.append("export MKL_NUM_THREADS=${THREADS}")
+    lines.append("export OPENBLAS_NUM_THREADS=${THREADS}")
+    lines.append("export VECLIB_MAXIMUM_THREADS=${THREADS}")
+    lines.append("export NUMEXPR_NUM_THREADS=${THREADS}")
+    lines.append('export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=${THREADS}"')
     lines.append("")
 
     lines.append(f"RESULT_PATH={shlex.quote(str(meta['result_path']))}")
