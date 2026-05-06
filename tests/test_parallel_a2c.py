@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from modules.a2c import JaxBatchMaskA2C
+from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
 from modules.environment import JaxDecisionTreeEnv
 from train import (
     VmappedA2CTrainer,
@@ -45,6 +45,24 @@ def _small_params(**overrides):
     }
     params.update(overrides)
     return params
+
+
+def _a2c_train_params(env, config):
+    return A2CTrainParams(
+        env=env.params(
+            beta_move=config["beta_move"],
+            eps_move=config["eps_move"],
+            learning_rate=config["learning_rate"],
+            lamda_backup=config["lamda_backup"],
+            wm_decay=config["wm_decay"],
+            cost=config["cost"],
+        ),
+        lr=config["lr"],
+        gamma=config["gamma"],
+        lamda=config["lamda"],
+        beta_v=config["beta_v"],
+        max_grad_norm=config["max_grad_norm"],
+    )
 
 
 def test_dynamic_env_params_match_default_env_for_same_values():
@@ -287,10 +305,12 @@ def test_parallel_single_combo_matches_existing_a2c():
         beta_v=fixed["beta_v"],
         beta_e=fixed["beta_e_init"],
     )
-    reference_state = reference_trainer.init_state(seed=0)
+    train_params = _a2c_train_params(env, combos[0])
+    reference_state = reference_trainer.init_state(seed=0, env_params=train_params.env)
     reference_state, reference_metrics = reference_trainer.train_compiled(
         reference_state,
         entropy_schedule,
+        train_params,
     )
 
     parallel_trainer = VmappedA2CTrainer(
@@ -316,7 +336,7 @@ def test_default_shape_compiled_a2c_materializes_metrics():
 import numpy as np
 import jax
 
-from modules.a2c import JaxBatchMaskA2C
+from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
 from modules.environment import JaxDecisionTreeEnv
 
 env = JaxDecisionTreeEnv(
@@ -337,8 +357,24 @@ trainer = JaxBatchMaskA2C(
     beta_v=0.05,
     beta_e=0.05,
 )
-state = trainer.init_state(seed=15)
-_, metrics = trainer.train_compiled(state, np.array([0.05], dtype=np.float32))
+env_params = env.params(
+    beta_move=40.0,
+    eps_move=0.0,
+    learning_rate=1.0,
+    lamda_backup=1.0,
+    wm_decay=1.0,
+    cost=0.01,
+)
+train_params = A2CTrainParams(
+    env=env_params,
+    lr=5e-4,
+    gamma=1.0,
+    lamda=0.9,
+    beta_v=0.05,
+    max_grad_norm=1.0,
+)
+state = trainer.init_state(seed=15, env_params=env_params)
+_, metrics = trainer.train_compiled(state, np.array([0.05], dtype=np.float32), train_params)
 jax.device_get(metrics.episode_reward)
 """
     try:

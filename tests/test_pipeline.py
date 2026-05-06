@@ -1,8 +1,23 @@
 import numpy as np
 
-from modules.a2c import JaxBatchMaskA2C
+from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
 from modules.environment import JaxDecisionTreeEnv
 from modules.simulation import JaxSimulator, append_simulation_trial, empty_simulation_data
+
+
+def _env_params(env):
+    return env.params(beta_move=4.0, eps_move=0.0, learning_rate=1.0, wm_decay=1.0, cost=0.01)
+
+
+def _train_params(env_params):
+    return A2CTrainParams(
+        env=env_params,
+        lr=1e-3,
+        gamma=1.0,
+        lamda=1.0,
+        beta_v=0.05,
+        max_grad_norm=1.0,
+    )
 
 
 def test_jax_train_step_compiles_and_runs():
@@ -28,8 +43,10 @@ def test_jax_train_step_compiles_and_runs():
         beta_e=0.05,
     )
 
-    state = trainer.init_state(seed=0)
-    state, metrics = trainer.train_step(state, beta_e=0.05)
+    env_params = _env_params(env)
+    train_params = _train_params(env_params)
+    state = trainer.init_state(seed=0, env_params=env_params)
+    state, metrics = trainer.train_step(state, train_params, beta_e=0.05)
 
     assert int(state.optimizer.step) == 1
     assert np.isfinite(float(metrics.loss))
@@ -61,8 +78,10 @@ def test_jax_train_step_runs_node_shared_network():
         network_type="node_shared",
     )
 
-    state = trainer.init_state(seed=0)
-    state, metrics = trainer.train_step(state, beta_e=0.05)
+    env_params = _env_params(env)
+    train_params = _train_params(env_params)
+    state = trainer.init_state(seed=0, env_params=env_params)
+    state, metrics = trainer.train_step(state, train_params, beta_e=0.05)
 
     assert int(state.optimizer.step) == 1
     assert np.isfinite(float(metrics.loss))
@@ -91,8 +110,9 @@ def test_jax_simulator_runs_trials():
         beta_e=0.05,
     )
 
-    state = trainer.init_state(seed=1)
-    simulator = JaxSimulator(env)
+    env_params = _env_params(env)
+    state = trainer.init_state(seed=1, env_params=env_params)
+    simulator = JaxSimulator(env, env_params)
     data = simulator.simulate(
         params=state.params,
         seed=1,
@@ -130,8 +150,9 @@ def test_jax_simulator_runs_node_shared_trials():
         network_type="node_shared",
     )
 
-    state = trainer.init_state(seed=1)
-    simulator = JaxSimulator(env)
+    env_params = _env_params(env)
+    state = trainer.init_state(seed=1, env_params=env_params)
+    simulator = JaxSimulator(env, env_params)
     data = simulator.simulate(
         params=state.params,
         seed=1,
@@ -167,8 +188,9 @@ def test_jax_simulator_runs_detailed_trials():
         beta_e=0.05,
     )
 
-    state = trainer.init_state(seed=1)
-    simulator = JaxSimulator(env)
+    env_params = _env_params(env)
+    state = trainer.init_state(seed=1, env_params=env_params)
+    simulator = JaxSimulator(env, env_params)
     data = simulator.simulate(
         params=state.params,
         seed=1,
@@ -212,8 +234,9 @@ def test_jax_simulator_records_forced_terminal_action():
         beta_e=0.05,
     )
 
-    state = trainer.init_state(seed=3)
-    simulator = JaxSimulator(env)
+    env_params = _env_params(env)
+    state = trainer.init_state(seed=3, env_params=env_params)
+    simulator = JaxSimulator(env, env_params)
     data = simulator.simulate(
         params=state.params,
         seed=3,
@@ -249,8 +272,9 @@ def test_jax_simulator_evaluate_policy_returns_summary_stats():
         beta_e=0.05,
     )
 
-    state = trainer.init_state(seed=2)
-    simulator = JaxSimulator(env)
+    env_params = _env_params(env)
+    state = trainer.init_state(seed=2, env_params=env_params)
+    simulator = JaxSimulator(env, env_params)
     summary = simulator.evaluate_policy(
         params=state.params,
         seed=2,

@@ -395,10 +395,10 @@ def _get_policy_action(
 
 def evaluate_baseline_policies(
     env: JaxDecisionTreeEnv,
+    env_params: JaxDecisionTreeParams,
     policy_names: List[str],
     reset_keys: jax.Array,
 ) -> Tuple[List[PolicyStats], float, float]:
-    env_params = env.params()
     layout = ObsLayout(env.num_nodes, use_recency_obs=getattr(env, "use_recency_obs", False))
     reset_fn = jax.jit(lambda key: env.reset_with_params(key, env_params))
     step_fn = jax.jit(lambda state, action: env.step_with_params(state, action, env_params))
@@ -480,10 +480,10 @@ def evaluate_baseline_policies(
 
 def evaluate_network_greedy(
     env: JaxDecisionTreeEnv,
+    env_params: JaxDecisionTreeParams,
     params: Any,
     reset_keys: jax.Array,
 ) -> PolicyStats:
-    env_params = env.params()
     reset_fn = jax.jit(lambda key: env.reset_with_params(key, env_params))
     step_fn = jax.jit(lambda state, action: env.step_with_params(state, action, env_params))
     forward_fn = jax.jit(actor_critic_forward)

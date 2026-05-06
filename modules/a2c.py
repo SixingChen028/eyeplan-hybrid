@@ -169,18 +169,8 @@ class JaxBatchMaskA2C:
         self._train_many_jit = jax.jit(self._train_many)
         self._train_many_mean_metrics_jit = jax.jit(self._train_many_mean_metrics)
 
-    def _default_train_params(self) -> A2CTrainParams:
-        return A2CTrainParams(
-            env=self.env.params(),
-            lr=jnp.asarray(self.lr, dtype=jnp.float32),
-            gamma=jnp.asarray(self.gamma, dtype=jnp.float32),
-            lamda=jnp.asarray(self.lamda, dtype=jnp.float32),
-            beta_v=jnp.asarray(self.beta_v, dtype=jnp.float32),
-            max_grad_norm=jnp.asarray(self.max_grad_norm, dtype=jnp.float32),
-        )
-
-    def init_state(self, seed: int = 0) -> JaxTrainState:
-        return self.init_state_with_params(seed, self.env.params())
+    def init_state(self, seed: int, env_params: JaxDecisionTreeParams) -> JaxTrainState:
+        return self.init_state_with_params(seed, env_params)
 
     def init_state_with_params(self, seed: int, env_params: JaxDecisionTreeParams) -> JaxTrainState:
         key = jax.random.PRNGKey(seed)
@@ -550,14 +540,25 @@ class JaxBatchMaskA2C:
         )
         return state, mean_metrics
 
-    def train_step(self, state: JaxTrainState, beta_e: float | None = None):
+    def train_step(
+        self,
+        state: JaxTrainState,
+        train_params: A2CTrainParams,
+        beta_e: float | None = None,
+    ):
         if beta_e is None:
             beta_e = self.beta_e
         beta_e_array = jnp.asarray(beta_e, dtype=jnp.float32)
 
-        return self._train_step_jit(state, beta_e_array, self._default_train_params())
+        return self._train_step_jit(state, beta_e_array, train_params)
 
-    def train(self, state: JaxTrainState, num_updates: int, entropy_schedule=None):
+    def train(
+        self,
+        state: JaxTrainState,
+        num_updates: int,
+        train_params: A2CTrainParams,
+        entropy_schedule=None,
+    ):
         if entropy_schedule is None:
             entropy_schedule = np.full((num_updates,), self.beta_e, dtype=np.float32)
         else:
@@ -584,7 +585,11 @@ class JaxBatchMaskA2C:
         start_time = time.perf_counter()
         for index in range(num_updates):
             step_start = time.perf_counter()
-            state, metrics = self.train_step(state, beta_e=float(entropy_schedule[index]))
+            state, metrics = self.train_step(
+                state,
+                train_params,
+                beta_e=float(entropy_schedule[index]),
+            )
             step_time = time.perf_counter() - step_start
 
             data["loss"].append(float(metrics.loss))
@@ -603,10 +608,20 @@ class JaxBatchMaskA2C:
 
         return state, data
 
-    def train_compiled(self, state: JaxTrainState, entropy_schedule):
+    def train_compiled(
+        self,
+        state: JaxTrainState,
+        entropy_schedule,
+        train_params: A2CTrainParams,
+    ):
         entropy_schedule = jnp.asarray(entropy_schedule, dtype=jnp.float32)
-        return self._train_many_jit(state, entropy_schedule, self._default_train_params())
+        return self._train_many_jit(state, entropy_schedule, train_params)
 
-    def train_compiled_mean_metrics(self, state: JaxTrainState, entropy_schedule):
+    def train_compiled_mean_metrics(
+        self,
+        state: JaxTrainState,
+        entropy_schedule,
+        train_params: A2CTrainParams,
+    ):
         entropy_schedule = jnp.asarray(entropy_schedule, dtype=jnp.float32)
-        return self._train_many_mean_metrics_jit(state, entropy_schedule, self._default_train_params())
+        return self._train_many_mean_metrics_jit(state, entropy_schedule, train_params)

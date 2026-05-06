@@ -173,7 +173,7 @@ def test_reset_matches_reference_environment():
 def test_reset_uses_raw_node_ids_by_default():
     env = JaxDecisionTreeEnv(num_nodes=15, shuffle_nodes=True)
 
-    state, obs, info = env.reset(jax.random.PRNGKey(23))
+    state, obs, info = env.reset_with_params(jax.random.PRNGKey(23), env.params())
     root = int(state.root_node)
 
     fixation_slice = slice(0, env.num_nodes)

@@ -531,9 +531,6 @@ class JaxDecisionTreeEnv:
         info = {"mask": self.get_action_mask(state)}
         return state, obs, info
 
-    def reset(self, key: jax.Array):
-        return self.reset_with_params(key, self.params())
-
     def step_with_params(
         self,
         state: JaxDecisionTreeState,
@@ -571,6 +568,3 @@ class JaxDecisionTreeEnv:
         info = {"mask": self.get_action_mask(state)}
 
         return state, obs, reward, done, jnp.array(False), info
-
-    def step(self, state: JaxDecisionTreeState, action: jax.Array):
-        return self.step_with_params(state, action, self.params())

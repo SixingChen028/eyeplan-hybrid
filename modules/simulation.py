@@ -64,9 +64,9 @@ def append_simulation_trial(
 
 
 class JaxSimulator:
-    def __init__(self, env: JaxDecisionTreeEnv, env_params: JaxDecisionTreeParams | None = None):
+    def __init__(self, env: JaxDecisionTreeEnv, env_params: JaxDecisionTreeParams):
         self.env = env
-        self.env_params = env.params() if env_params is None else env_params
+        self.env_params = env_params
         self._trial_jit = jax.jit(self._run_trial, static_argnames=("greedy",))
         self._trial_batch_jit = jax.jit(self._run_trial_batch, static_argnames=("greedy",))
         self._eval_batch_jit = jax.jit(self._run_eval_batch, static_argnames=("greedy",))
