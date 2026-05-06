@@ -44,9 +44,10 @@ def _small_params(**overrides):
     params = {
         "num_nodes": 3,
         "hidden_size": 16,
-        "batch_size": 4,
         "t_max": 4,
-        "num_episodes": 8,
+        "num_updates": 2,
+        "num_envs": 4,
+        "rollout_length": 4,
         "eval_episodes": 3,
         "seed": [0, 1],
         "beta_move": 4.0,
@@ -140,8 +141,8 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        num_envs=fixed["batch_size"],
-        num_updates=int(fixed["num_episodes"] / fixed["batch_size"]),
+        num_envs=fixed["num_envs"],
+        num_updates=fixed["num_updates"],
     )
 
     result = trainer.train_sweep(build_hypers(combos), seeds)
@@ -167,8 +168,8 @@ def test_parallel_sweep_compiles_node_shared_network():
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        num_envs=fixed["batch_size"],
-        num_updates=int(fixed["num_episodes"] / fixed["batch_size"]),
+        num_envs=fixed["num_envs"],
+        num_updates=fixed["num_updates"],
         network_type=fixed["network_type"],
     )
 
@@ -253,13 +254,13 @@ def test_train_with_progress_reports_numeric_rate(capsys):
         shuffle_nodes=fixed["shuffle_nodes"],
         point_set=np.array([1.0], dtype=np.float32),
     )
-    num_updates = int(fixed["num_episodes"] / fixed["batch_size"])
+    num_updates = fixed["num_updates"]
     trainer = VmappedA2CTrainer(
         env=env,
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        num_envs=fixed["batch_size"],
+        num_envs=fixed["num_envs"],
         num_updates=num_updates,
     )
 
@@ -298,7 +299,7 @@ def test_parallel_single_combo_matches_existing_a2c():
         shuffle_nodes=fixed["shuffle_nodes"],
         point_set=np.array([1.0], dtype=np.float32),
     )
-    num_updates = int(fixed["num_episodes"] / fixed["batch_size"])
+    num_updates = fixed["num_updates"]
     entropy_schedule = np.linspace(
         fixed["beta_e_init"],
         fixed["beta_e_final"],
@@ -311,7 +312,7 @@ def test_parallel_single_combo_matches_existing_a2c():
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        num_envs=fixed["batch_size"],
+        num_envs=fixed["num_envs"],
         lr=fixed["lr"],
         max_grad_norm=fixed["max_grad_norm"],
         gamma=fixed["gamma"],
@@ -332,7 +333,7 @@ def test_parallel_single_combo_matches_existing_a2c():
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        num_envs=fixed["batch_size"],
+        num_envs=fixed["num_envs"],
         num_updates=num_updates,
     )
     result = parallel_trainer.train_sweep(build_hypers(combos), seeds)
@@ -420,6 +421,15 @@ def test_expand_sweep_rejects_shape_changing_arrays():
     assert False, "shape-changing arrays should be rejected"
 
 
+def test_expand_sweep_rejects_unknown_params():
+    try:
+        expand_sweep(_small_params(num_episodes=8))
+    except ValueError as error:
+        assert "Unknown [params] keys: num_episodes" in str(error)
+        return
+    assert False, "unknown params should be rejected"
+
+
 def test_save_results_writes_existing_style_run_dirs(tmp_path):
     fixed, combos, seeds, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
     env = _env(
@@ -433,8 +443,8 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
         feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
-        num_envs=fixed["batch_size"],
-        num_updates=int(fixed["num_episodes"] / fixed["batch_size"]),
+        num_envs=fixed["num_envs"],
+        num_updates=fixed["num_updates"],
     )
     result = trainer.train_sweep(build_hypers(combos), seeds)
 

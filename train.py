@@ -222,6 +222,13 @@ def _parse_unit_interval(value, *, name: str) -> float:
 
 
 def _validate_params(params: dict) -> None:
+    unknown_keys = sorted(set(params) - set(DEFAULT_PARAMS))
+    if unknown_keys:
+        raise ValueError(
+            "Unknown [params] keys: "
+            + ", ".join(unknown_keys)
+        )
+
     for key, value in params.items():
         if not _is_list(value):
             continue
