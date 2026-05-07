@@ -1,6 +1,6 @@
 [meta]
 array_vars = []
-experiment = ["pareto_shared_v2"]
+experiment = "pareto_shared_v2"
 
 [sbatch]
 time = "1:30:00"
