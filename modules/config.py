@@ -2,43 +2,259 @@ from __future__ import annotations
 
 import itertools
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Literal
 
 DEFAULTS_PATH = Path(__file__).resolve().parents[1] / "config" / "_DEFAULTS.toml"
 
-ENV_STATIC_PARAM_KEYS = (
-    "num_nodes",
-    "t_max",
-    "scale_factor",
-    "shuffle_nodes",
-    "use_recency_obs",
-    "wm_backup",
-)
+ParameterClass = Literal["environment", "training", "network", "meta"]
 
-ENV_DYNAMIC_PARAM_KEYS = (
-    "beta_move",
-    "eps_move",
-    "learning_rate",
-    "lamda_backup",
-    "backup_steps",
-    "wm_decay",
-    "q_drop_rate",
-    "q_drift",
-    "q_decay",
-    "recency_decay",
-    "cost",
-)
 
-TRAIN_SWEEP_KEYS = (
-    "lr",
-    "gamma",
-    "lamda",
-    "beta_v",
-    "beta_e_init",
-    "beta_e_final",
-    "max_grad_norm",
-)
+@dataclass(frozen=True)
+class ParameterDefinition:
+    parameter_class: ParameterClass
+    default: Any
+    sweepable: bool
+    description: str
 
+
+PARAMETER_DEFINITIONS: dict[str, ParameterDefinition] = {
+    "num_nodes": ParameterDefinition(
+        "environment",
+        15,
+        False,
+        "Number of nodes in each generated decision tree.",
+    ),
+    "t_max": ParameterDefinition(
+        "environment",
+        50,
+        False,
+        "Maximum number of environment steps per episode.",
+    ),
+    "scale_factor": ParameterDefinition(
+        "environment",
+        0.125,
+        False,
+        "Multiplier applied to raw point rewards before returning environment rewards.",
+    ),
+    "shuffle_nodes": ParameterDefinition(
+        "environment",
+        True,
+        False,
+        "Whether to randomly permute node labels for each generated tree.",
+    ),
+    "use_recency_obs": ParameterDefinition(
+        "environment",
+        True,
+        False,
+        "Whether observations include per-node fixation recency values.",
+    ),
+    "wm_backup": ParameterDefinition(
+        "environment",
+        True,
+        False,
+        "Whether value backups use only active working-memory nodes.",
+    ),
+    "beta_move": ParameterDefinition(
+        "environment",
+        40.0,
+        True,
+        "Inverse temperature for softmax move probabilities in environment dynamics.",
+    ),
+    "eps_move": ParameterDefinition(
+        "environment",
+        0.0,
+        True,
+        "Uniform random-move mixture rate in environment dynamics.",
+    ),
+    "learning_rate": ParameterDefinition(
+        "environment",
+        1.0,
+        True,
+        "Environment Q-value update step size.",
+    ),
+    "lamda_backup": ParameterDefinition(
+        "environment",
+        1.0,
+        True,
+        "Decay factor for ancestor value backups.",
+    ),
+    "backup_steps": ParameterDefinition(
+        "environment",
+        100,
+        True,
+        "Maximum number of ancestor levels updated during value backup.",
+    ),
+    "wm_decay": ParameterDefinition(
+        "environment",
+        1.0,
+        True,
+        "Per-step decay applied to working-memory activation.",
+    ),
+    "q_drop_rate": ParameterDefinition(
+        "environment",
+        0.0,
+        True,
+        "Probability of clearing inactive Q-values after each step.",
+    ),
+    "q_drift": ParameterDefinition(
+        "environment",
+        0.0,
+        True,
+        "Standard deviation of Gaussian drift added to inactive Q-values.",
+    ),
+    "q_decay": ParameterDefinition(
+        "environment",
+        1.0,
+        True,
+        "Per-step decay applied to inactive Q-values.",
+    ),
+    "recency_decay": ParameterDefinition(
+        "environment",
+        0.5,
+        True,
+        "Per-step decay applied to fixation recency observations.",
+    ),
+    "cost": ParameterDefinition(
+        "environment",
+        0.01,
+        True,
+        "Per-step movement cost subtracted from environment reward.",
+    ),
+    "lr": ParameterDefinition(
+        "training",
+        0.0005,
+        True,
+        "Optimizer learning rate for A2C training.",
+    ),
+    "gamma": ParameterDefinition(
+        "training",
+        1.0,
+        True,
+        "Discount factor used for return estimation.",
+    ),
+    "lamda": ParameterDefinition(
+        "training",
+        0.8,
+        True,
+        "GAE lambda used for advantage estimation.",
+    ),
+    "beta_v": ParameterDefinition(
+        "training",
+        0.05,
+        True,
+        "Coefficient for the value loss term.",
+    ),
+    "beta_e_init": ParameterDefinition(
+        "training",
+        0.02,
+        True,
+        "Initial entropy coefficient at the start of training.",
+    ),
+    "beta_e_final": ParameterDefinition(
+        "training",
+        0.001,
+        True,
+        "Final entropy coefficient at the end of training.",
+    ),
+    "max_grad_norm": ParameterDefinition(
+        "training",
+        2.0,
+        True,
+        "Global gradient norm clipping threshold.",
+    ),
+    "num_updates": ParameterDefinition(
+        "training",
+        50000,
+        False,
+        "Number of A2C optimization updates to run.",
+    ),
+    "num_envs": ParameterDefinition(
+        "training",
+        256,
+        False,
+        "Number of parallel training environments.",
+    ),
+    "rollout_length": ParameterDefinition(
+        "training",
+        50,
+        False,
+        "Number of environment steps collected per update.",
+    ),
+    "eval_episodes": ParameterDefinition(
+        "training",
+        102400,
+        False,
+        "Number of evaluation episodes run after training.",
+    ),
+    "print_frequency": ParameterDefinition(
+        "training",
+        100,
+        False,
+        "Number of updates between progress prints.",
+    ),
+    "max_compiled_updates_per_chunk": ParameterDefinition(
+        "training",
+        -1,
+        False,
+        "Maximum update chunk size to compile; non-positive uses the requested chunk size.",
+    ),
+    "network_type": ParameterDefinition(
+        "network",
+        "mlp",
+        False,
+        "Policy/value network architecture identifier.",
+    ),
+    "hidden_size": ParameterDefinition(
+        "network",
+        256,
+        False,
+        "Hidden layer width for network architectures that use dense hidden layers.",
+    ),
+    "seed": ParameterDefinition(
+        "meta",
+        15,
+        True,
+        "Random seed for a training run.",
+    ),
+    "result_path": ParameterDefinition(
+        "meta",
+        "./results",
+        False,
+        "Directory where run outputs are written.",
+    ),
+    "experiment": ParameterDefinition(
+        "meta",
+        None,
+        False,
+        "Experiment name; defaults to the config file stem when omitted.",
+    ),
+    "array_vars": ParameterDefinition(
+        "meta",
+        None,
+        False,
+        "Optional sbatch array axes selected from sweep parameters.",
+    ),
+}
+
+
+def _parameter_keys(
+    parameter_class: ParameterClass,
+    *,
+    sweepable: bool | None = None,
+) -> tuple[str, ...]:
+    return tuple(
+        key
+        for key, definition in PARAMETER_DEFINITIONS.items()
+        if definition.parameter_class == parameter_class
+        and (sweepable is None or definition.sweepable == sweepable)
+    )
+
+
+ENV_STATIC_PARAM_KEYS = _parameter_keys("environment", sweepable=False)
+ENV_DYNAMIC_PARAM_KEYS = _parameter_keys("environment", sweepable=True)
+TRAIN_SWEEP_KEYS = _parameter_keys("training", sweepable=True)
 MODEL_SHAPE_PARAM_KEYS = (
     "network_type",
     "hidden_size",
@@ -48,10 +264,8 @@ MODEL_SHAPE_PARAM_KEYS = (
     "eval_episodes",
     "max_compiled_updates_per_chunk",
 )
-
 RUN_PARAM_KEYS = (
     "seed",
-    "mask_fixation",
     "print_frequency",
 )
 
