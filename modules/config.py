@@ -4,7 +4,8 @@ import itertools
 import tomllib
 from pathlib import Path
 
-DEFAULTS_PATH = Path(__file__).resolve().parents[1] / "config" / "_DEFAULTS.toml"
+PARAM_CLASSES = ("environment", "training", "network", "meta")
+PARAM_RUNTIME_CLASSES = ("environment", "training", "network")
 
 PARAM_DEFAULTS = {
     "environment": {
@@ -121,11 +122,9 @@ MODEL_SHAPE_PARAM_KEYS = (
     "num_envs",
     "rollout_length",
     "eval_episodes",
-    "max_compiled_updates_per_chunk",
 )
 RUN_PARAM_KEYS = (
     "seed",
-    "print_frequency",
 )
 
 REQUIRED_PARAM_KEYS = (
@@ -138,33 +137,92 @@ REQUIRED_PARAM_KEYS = (
 
 ENV_SWEEP_KEYS = set(ENV_DYNAMIC_PARAM_KEYS)
 SWEEP_KEYS = ENV_SWEEP_KEYS | set(TRAIN_SWEEP_KEYS) | {"seed"}
+SWEEP_KEY_ORDER = ("seed", *ENV_DYNAMIC_PARAM_KEYS, *TRAIN_SWEEP_KEYS)
 SHAPE_KEYS = set(ENV_STATIC_PARAM_KEYS) | set(MODEL_SHAPE_PARAM_KEYS)
 
 
-def load_canonical_defaults(defaults_path: Path = DEFAULTS_PATH) -> tuple[dict, dict]:
-    if not defaults_path.exists():
-        raise FileNotFoundError(f"Canonical defaults file not found: {defaults_path}")
-    with defaults_path.open("rb") as file:
-        defaults = tomllib.load(file)
-
-    meta = defaults.get("meta")
-    params = defaults.get("params")
-    if not isinstance(meta, dict):
-        raise ValueError("config/_DEFAULTS.toml must include a [meta] table.")
-    if not isinstance(params, dict):
-        raise ValueError("config/_DEFAULTS.toml must include a [params] table.")
-
-    missing_keys = [key for key in REQUIRED_PARAM_KEYS if key not in params]
-    if missing_keys:
-        raise ValueError(
-            "config/_DEFAULTS.toml is missing required [params] keys: "
-            + ", ".join(sorted(missing_keys))
-        )
-
-    return dict(meta), dict(params)
+def _flatten_defaults(param_classes: tuple[str, ...]) -> dict:
+    return {
+        key: value
+        for param_class in param_classes
+        for key, value in PARAM_DEFAULTS[param_class].items()
+    }
 
 
-DEFAULT_META, DEFAULT_PARAMS = load_canonical_defaults()
+DEFAULT_META = dict(PARAM_DEFAULTS["meta"])
+DEFAULT_PARAMS = _flatten_defaults(PARAM_RUNTIME_CLASSES)
+
+
+PARAM_CLASS_BY_KEY = {
+    key: param_class
+    for param_class in PARAM_CLASSES
+    for key in PARAM_DEFAULTS[param_class]
+}
+
+
+def load_canonical_defaults() -> tuple[dict, dict]:
+    return dict(DEFAULT_META), dict(DEFAULT_PARAMS)
+
+
+def _ensure_table(config: dict, table_name: str) -> dict:
+    value = config.get(table_name, {})
+    if not isinstance(value, dict):
+        raise ValueError(f"Expected [{table_name}] to be a table.")
+    return value
+
+
+def _validate_section_keys(config: dict, table_name: str, allowed_keys: set[str]) -> None:
+    table = _ensure_table(config, table_name)
+    unknown_keys = sorted(set(table) - allowed_keys)
+    if unknown_keys:
+        raise ValueError(f"Unknown [{table_name}] keys: " + ", ".join(unknown_keys))
+
+
+def _split_legacy_params(params: dict) -> dict[str, dict]:
+    split = {param_class: {} for param_class in PARAM_CLASSES}
+    unknown_keys = sorted(set(params) - set(PARAM_CLASS_BY_KEY))
+    if unknown_keys:
+        raise ValueError("Unknown [params] keys: " + ", ".join(unknown_keys))
+
+    for key, value in params.items():
+        split[PARAM_CLASS_BY_KEY[key]][key] = value
+    return split
+
+
+def normalize_config(config: dict) -> dict:
+    allowed_top_level = set(PARAM_CLASSES) | {"params", "sbatch"}
+    unknown_tables = sorted(set(config) - allowed_top_level)
+    if unknown_tables:
+        raise ValueError("Unknown config tables: " + ", ".join(unknown_tables))
+
+    for param_class in PARAM_CLASSES:
+        _validate_section_keys(config, param_class, set(PARAM_DEFAULTS[param_class]))
+
+    legacy_sections = {param_class: {} for param_class in PARAM_CLASSES}
+    if "params" in config:
+        params = _ensure_table(config, "params")
+        legacy_sections = _split_legacy_params(params)
+
+    normalized = {
+        param_class: dict(PARAM_DEFAULTS[param_class])
+        for param_class in PARAM_CLASSES
+    }
+    for param_class in PARAM_CLASSES:
+        normalized[param_class].update(legacy_sections[param_class])
+        normalized[param_class].update(_ensure_table(config, param_class))
+
+    meta = normalized["meta"]
+    params = {
+        key: value
+        for param_class in PARAM_RUNTIME_CLASSES
+        for key, value in normalized[param_class].items()
+    }
+
+    return {
+        **normalized,
+        "meta": meta,
+        "params": params,
+    }
 
 
 def load_config(path: str) -> tuple[Path, dict]:
@@ -177,7 +235,7 @@ def load_config(path: str) -> tuple[Path, dict]:
         raise FileNotFoundError(f"Config not found: {path}")
 
     with config_path.open("rb") as file:
-        return config_path, tomllib.load(file)
+        return config_path, normalize_config(tomllib.load(file))
 
 
 def is_list(value) -> bool:
@@ -229,11 +287,7 @@ def expand_sweep(params: dict) -> tuple[dict, list[dict], list[str]]:
     merged.update(params)
     validate_params(merged)
 
-    sweep_items = [
-        (key, value)
-        for key, value in merged.items()
-        if is_list(value)
-    ]
+    sweep_items = [(key, merged[key]) for key in SWEEP_KEY_ORDER if is_list(merged[key])]
     fixed = {
         key: value
         for key, value in merged.items()

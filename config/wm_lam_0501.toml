@@ -1,32 +1,31 @@
-[sbatch]
-time = "8:00:00"
-mem_per_cpu = "1000M"
+[meta]
 
-[params]
-# environment
+[environment]
 num_nodes = 15
 t_max = 50
-cost = 0.01
 beta_move = 100.0
 eps_move = 0.0
 learning_rate = 1.0
-wm_decay = [0.0, 0.5, 1.0]
 lamda_backup = [0.0, 0.5, 1.0]
-# network
-hidden_size = 256
-# training
-seed = [1, 2, 3]
-num_updates = 50_000
-num_envs = 128
-rollout_length = 50
-# GAE
-gamma = 1.0
+wm_decay = [0.0, 0.5, 1.0]
+cost = 0.01
+
+[training]
 lr = 0.001
+gamma = 1.0
 lamda = 0.8
-# loss
+beta_v = 0.05
 beta_e_init = 0.02
 beta_e_final = 0.0001
-beta_v = 0.05
 max_grad_norm = 2.0
+num_updates = 50000
+num_envs = 128
+rollout_length = 50
+seed = [1, 2, 3]
 
+[network]
+hidden_size = 256
 
+[sbatch]
+time = "8:00:00"
+mem_per_cpu = "1000M"

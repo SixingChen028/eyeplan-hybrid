@@ -1,11 +1,14 @@
 [meta]
-parallel = true
+
+[environment]
+
+[training]
+num_updates = 1000
+num_envs = 10
+seed = [1]
+
+[network]
 
 [sbatch]
 time = "00:05:00"
 mem_per_cpu = "1G"
-
-[params]
-seed = [1]
-num_updates = 1000
-num_envs = 10

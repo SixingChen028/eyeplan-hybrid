@@ -1,35 +1,34 @@
 [meta]
 array_vars = ["cost"]
+print_frequency = 100
+
+[environment]
+num_nodes = 7
+t_max = 8
+beta_move = 100.0
+eps_move = 0.0
+learning_rate = 1.0
+backup_steps = 1
+wm_decay = [0.0, 0.5]
+cost = [0.01, 0.02]
+
+[training]
+lr = 0.001
+gamma = 1.0
+lamda = 0.8
+beta_v = 0.05
+beta_e_init = 0.02
+beta_e_final = 0.0001
+max_grad_norm = 2.0
+num_updates = 1000
+num_envs = 4
+rollout_length = 4
+eval_episodes = 16
+seed = [1, 2]
+
+[network]
+hidden_size = 16
 
 [sbatch]
 time = "00:05:00"
 mem_per_cpu = "1G"
-
-[params]
-# environment
-num_nodes = 7
-t_max = 8
-cost = [0.01, 0.02]
-beta_move = 100.0
-eps_move = 0.0
-learning_rate = 1.0
-wm_decay = [0.0, 0.5]
-backup_steps = 1
-# network
-hidden_size = 16
-# training
-seed = [1, 2]
-num_updates = 1000
-print_frequency = 100
-num_envs = 4
-rollout_length = 4
-eval_episodes = 16
-# GAE
-gamma = 1.0
-lr = 0.001
-lamda = 0.8
-# loss
-beta_e_init = 0.02
-beta_e_final = 0.0001
-beta_v = 0.05
-max_grad_norm = 2.0

@@ -7,6 +7,7 @@ import os
 import sys
 import tomllib
 
+from modules.config import normalize_config
 from modules.results_layout import get_summary_analysis_dir, resolve_analysis_target
 
 
@@ -32,11 +33,7 @@ def _read_toml(path: str) -> dict:
 
 
 def _varying_param_values_from_config(config_path: str) -> dict[str, list]:
-    config = _read_toml(config_path)
-    if "params" not in config or not isinstance(config["params"], dict):
-        raise ValueError(f"Config file must contain a [params] table: {config_path}")
-
-    params = config["params"]
+    params = normalize_config(_read_toml(config_path))["params"]
     return {
         key: value for key, value in params.items()
         if isinstance(value, list) and len(value) > 1

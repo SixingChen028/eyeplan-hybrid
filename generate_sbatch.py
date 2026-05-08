@@ -7,7 +7,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-from modules.config import SHAPE_KEYS
+from modules.config import SHAPE_KEYS, normalize_config
 
 DEFAULT_META = {
     "python": "python -u",
@@ -143,14 +143,15 @@ def _selected_array_axes(meta: dict, array_params: dict[str, list[object]]) -> l
 
 
 def _render_script(config: dict, config_path: Path) -> str:
-    meta = _as_dict(config.get("meta"), "meta", default=DEFAULT_META)
+    normalized_config = normalize_config(config)
+    meta = _as_dict(normalized_config.get("meta"), "meta", default=DEFAULT_META)
     sbatch = _as_dict(config.get("sbatch"), "sbatch", default=DEFAULT_SBATCH)
-    params = _as_dict(config.get("params"), "params")
+    params = _as_dict(normalized_config.get("params"), "params")
 
     _, array_params = _split_params(params)
     selected_axes = _selected_array_axes(meta, array_params)
 
-    experiment = str(meta.get("experiment", config_path.stem))
+    experiment = str(meta.get("experiment") or config_path.stem)
     job_name = str(sbatch.get("job_name", experiment))
     python_exec, python_extra_args = _split_python_command(str(meta["python"]))
     entrypoint = str(meta.get("entrypoint", "train.py"))

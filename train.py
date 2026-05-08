@@ -42,7 +42,7 @@ def main() -> None:
 
     fixed, runs, varied_keys = expand_sweep(params)
     output_path = args.path or str(meta["result_path"])
-    experiment = args.experiment or str(meta.get("experiment", config_path.stem))
+    experiment = args.experiment or str(meta.get("experiment") or config_path.stem)
     results_dir_display = os.path.join(output_path, "runs", experiment, "")
     if results_dir_display.startswith("./"):
         results_dir_display = results_dir_display[2:]
@@ -92,8 +92,8 @@ def main() -> None:
         run_dirs=run_dirs,
         num_updates=num_updates,
         env_steps_per_update=num_envs * rollout_length,
-        print_frequency=int(fixed["print_frequency"]),
-        max_compiled_updates_per_chunk=int(fixed["max_compiled_updates_per_chunk"]),
+        print_frequency=int(meta["print_frequency"]),
+        max_compiled_updates_per_chunk=int(meta["max_compiled_updates_per_chunk"]),
         include_gpu_summary=True,
         emit_single_run_progress_to_stdout=single_run_mode,
     )

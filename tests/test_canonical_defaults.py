@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 import simulate
@@ -12,17 +10,16 @@ def test_train_uses_canonical_defaults():
     assert config.DEFAULT_PARAMS == params
 
 
-def test_load_canonical_defaults_missing_file():
-    missing_path = Path("/tmp/does-not-exist-defaults.toml")
-    with pytest.raises(FileNotFoundError):
-        config.load_canonical_defaults(missing_path)
+def test_canonical_defaults_come_from_param_defaults():
+    assert config.DEFAULT_META == config.PARAM_DEFAULTS["meta"]
+    assert config.DEFAULT_PARAMS["num_nodes"] == config.PARAM_DEFAULTS["environment"]["num_nodes"]
+    assert config.DEFAULT_PARAMS["lr"] == config.PARAM_DEFAULTS["training"]["lr"]
+    assert config.DEFAULT_PARAMS["network_type"] == config.PARAM_DEFAULTS["network"]["network_type"]
 
 
-def test_load_canonical_defaults_missing_required_key(tmp_path):
-    bad_defaults_path = tmp_path / "_DEFAULTS.toml"
-    bad_defaults_path.write_text("[meta]\nresult_path = \"./results\"\n\n[params]\nseed=1\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="missing required \\[params\\] keys"):
-        config.load_canonical_defaults(bad_defaults_path)
+def test_normalize_config_rejects_unknown_section_key():
+    with pytest.raises(ValueError, match=r"Unknown \[training\] keys: num_episodes"):
+        config.normalize_config({"training": {"num_episodes": 8}})
 
 
 def test_simulate_requires_scale_factor_in_metadata():
