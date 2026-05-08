@@ -490,29 +490,23 @@ class JaxDecisionTreeEnv:
         params: JaxDecisionTreeParams,
     ):
         action = jnp.asarray(action, dtype=jnp.int32)
-        raw_action = action
         state = state._replace(time_elapsed=state.time_elapsed + 1)
         state = self._decay_fixation_recency(state, params)
-        reward = -jnp.asarray(params.cost, dtype=jnp.float32)
+        def fixation_branch(state):
+            state = self._look(state, action, params)
+            state = state._replace(fixation_node=action)
+            state = self._update_activation(state, action, params)
+            return state, -params.cost
 
-        def fixation_branch(payload):
-            state, reward = payload
-            state = self._look(state, raw_action, params)
-            state = state._replace(fixation_node=raw_action)
-            state = self._update_activation(state, raw_action, params)
-            return state, reward
-
-        def move_branch(payload):
-            state, reward = payload
+        def move_branch(state):
             cum_reward = self._expected_move_reward(state, params)
-            reward = cum_reward * self.scale_factor
-            return state, reward
+            return state, cum_reward * self.scale_factor
 
         state, reward = jax.lax.cond(
             action < self.num_nodes,
             fixation_branch,
             move_branch,
-            (state, reward),
+            state,
         )
 
         done = (action == self.num_nodes) | (state.time_elapsed == self.t_max)
