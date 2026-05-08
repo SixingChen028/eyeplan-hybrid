@@ -406,7 +406,7 @@ class JaxDecisionTreeEnv:
             node_expected = jnp.sum(probs * child_returns, axis=-1)
             return jnp.where(has_children, node_expected, 0.0)
 
-        expected = jax.lax.fori_loop(0, self.num_nodes, body_fn, expected)
+        expected = jax.lax.fori_loop(0, math.ceil(self.num_nodes / 2), body_fn, expected)
         return expected[state.root_node]
 
     def _sample_move_path(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
