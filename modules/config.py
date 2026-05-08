@@ -66,10 +66,8 @@ PARAM_DEFAULTS = {
         "rollout_length": 50,
         # Number of evaluation episodes run after training.
         "eval_episodes": 102400,
-        # Number of updates between progress prints.
-        "print_frequency": 100,
-        # Maximum update chunk size to compile; non-positive uses the requested chunk size.
-        "max_compiled_updates_per_chunk": -1,
+        # Random seed for a training run.
+        "seed": 15,
     },
     "network": {
         # Policy/value network architecture identifier.
@@ -78,14 +76,16 @@ PARAM_DEFAULTS = {
         "hidden_size": 256,
     },
     "meta": {
-        # Random seed for a training run.
-        "seed": 15,
         # Directory where run outputs are written.
         "result_path": "./results",
         # Experiment name; defaults to the config file stem when omitted.
         "experiment": None,
         # Optional sbatch array axes selected from sweep parameters.
         "array_vars": None,
+        # Number of updates between progress prints.
+        "print_frequency": 100,
+        # Maximum update chunk size to compile; non-positive uses the requested chunk size.
+        "max_compiled_updates_per_chunk": -1,
     },
 }
 
