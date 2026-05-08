@@ -513,4 +513,4 @@ class JaxDecisionTreeEnv:
         obs = self.get_obs(state)
         info = {"mask": self.get_action_mask(state)}
 
-        return state, obs, reward, done, jnp.array(False), info
+        return state, obs, reward, done, info

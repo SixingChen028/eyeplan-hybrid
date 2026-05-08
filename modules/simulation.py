@@ -140,7 +140,7 @@ class JaxSimulator:
             else:
                 action, rng_key = sampled_action(rng_key)
             raw_action = action
-            state, obs, _, done, _, info = self.env.step_with_params(state, action, env_params)
+            state, obs, _, done, info = self.env.step_with_params(state, action, env_params)
             action_mask = info["mask"]
             action_seq = action_seq.at[step_count].set(raw_action)
             step_count = step_count + 1
@@ -251,7 +251,7 @@ class JaxSimulator:
                 rng_key,
             )
 
-            state, obs, reward, done, _, info = self.env.step_with_params(state, action, env_params)
+            state, obs, reward, done, info = self.env.step_with_params(state, action, env_params)
             action_mask = info["mask"]
             step_count = step_count + 1
             episode_reward = episode_reward + reward

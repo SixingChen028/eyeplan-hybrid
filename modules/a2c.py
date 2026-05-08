@@ -234,7 +234,7 @@ class JaxBatchMaskA2C:
             rng_key, action_key, reset_key = jax.random.split(rng_key, 3)
             actions, log_probs, entropies = sample_actions(action_key, logits, action_mask)
 
-            next_env_state, next_obs, rewards, dones, _, info = jax.vmap(
+            next_env_state, next_obs, rewards, dones, info = jax.vmap(
                 self.env.step_with_params,
                 in_axes=(0, 0, None),
             )(env_state, actions, train_params.env)

@@ -122,7 +122,7 @@ def test_recency_observation_tracks_direct_fixations():
     np.testing.assert_allclose(np.asarray(obs_jax)[recency_slice], reset_recency, atol=1e-6)
 
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
-    state, obs_jax, _, _, _, _ = jax_env.step_with_params(state, _jax_action(action), jax_params)
+    state, obs_jax, _, _, _ = jax_env.step_with_params(state, _jax_action(action), jax_params)
 
     expected_recency = reset_recency * 0.5
     expected_recency[action] = 1.0
@@ -146,7 +146,7 @@ def test_zero_recency_decay_keeps_only_current_fixation():
     np.testing.assert_allclose(np.asarray(obs)[recency_slice], expected_reset, atol=1e-6)
 
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
-    state, obs, _, _, _, _ = env.step_with_params(state, _jax_action(action), params)
+    state, obs, _, _, _ = env.step_with_params(state, _jax_action(action), params)
 
     expected_step = np.zeros(env.num_nodes)
     expected_step[action] = 1.0
@@ -164,7 +164,7 @@ def test_recency_decay_one_means_no_decay():
     params = _env_params(env, wm_decay=1.0, recency_decay=1.0)
     state, _, _ = env.reset_with_params(jax.random.PRNGKey(10), params)
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
-    state, obs, _, _, _, _ = env.step_with_params(state, _jax_action(action), params)
+    state, obs, _, _, _ = env.step_with_params(state, _jax_action(action), params)
 
     recency = np.asarray(obs)[-env.num_nodes - 1 : -1]
     expected = np.zeros(env.num_nodes)
@@ -283,10 +283,9 @@ def test_move_reward_marginalizes_over_possible_paths():
         q_values=jnp.zeros((3,), dtype=jnp.float32),
     )
 
-    state, _, reward, done, truncated, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
+    state, _, reward, done, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
 
     assert bool(done)
-    assert not bool(truncated)
     np.testing.assert_allclose(float(reward), 4.0, atol=1e-6)
     assert not hasattr(state, "chosen_path")
     assert not hasattr(state, "chosen_path_len")
@@ -317,12 +316,12 @@ def test_compiled_rollout_matches_eager_rollout():
 
         def body_fn(carry, action):
             state = carry
-            state, obs, reward, done, truncated, info = env.step_with_params(state, action, params)
-            output = (obs, reward, done, truncated, info["mask"])
+            state, obs, reward, done, info = env.step_with_params(state, action, params)
+            output = (obs, reward, done, info["mask"])
             return state, output
 
-        state, (obses, rewards, dones, truncateds, masks) = jax.lax.scan(body_fn, state, action_seq)
-        return state, reset_obs, reset_info["mask"], obses, rewards, dones, truncateds, masks
+        state, (obses, rewards, dones, masks) = jax.lax.scan(body_fn, state, action_seq)
+        return state, reset_obs, reset_info["mask"], obses, rewards, dones, masks
 
     eager = rollout(key, actions)
     compiled = jax.jit(rollout)(key, actions)
@@ -342,8 +341,8 @@ def test_move_path_is_not_stored_in_environment_state():
     key = jax.random.PRNGKey(7)
     state, _, _ = env.reset_with_params(key, params)
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
-    state, _, _, _, _, _ = env.step_with_params(state, _jax_action(action), params)
-    state, _, _, _, _, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
+    state, _, _, _, _ = env.step_with_params(state, _jax_action(action), params)
+    state, _, _, _, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
 
     assert not hasattr(state, "chosen_path")
     assert not hasattr(state, "chosen_path_len")
@@ -352,7 +351,7 @@ def test_move_path_is_not_stored_in_environment_state():
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
     done_jax = False
     for _ in range(env.t_max - 1):
-        state, _, _, done_jax, _, _ = env.step_with_params(state, _jax_action(action), params)
+        state, _, _, done_jax, _ = env.step_with_params(state, _jax_action(action), params)
     assert not bool(done_jax)
     assert not hasattr(state, "chosen_path")
     assert not hasattr(state, "chosen_path_len")
@@ -365,10 +364,10 @@ def test_timeout_masks_to_move_action():
 
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
     for _ in range(env.t_max - 1):
-        state, _, _, _, _, info_jax = env.step_with_params(state, _jax_action(action), params)
+        state, _, _, _, info_jax = env.step_with_params(state, _jax_action(action), params)
 
     np.testing.assert_array_equal(np.asarray(info_jax["mask"]), np.eye(env.action_size, dtype=bool)[env.num_nodes])
-    state, _, reward_jax, done_jax, _, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
+    state, _, reward_jax, done_jax, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
 
     assert bool(done_jax)
     assert not hasattr(state, "chosen_path")
@@ -401,13 +400,11 @@ def test_visit_all_once_then_terminate_is_optimal_jax():
     for raw_action in visit_order:
         action = raw_action
         assert bool(np.asarray(info["mask"])[action])
-        state, _, _, done, truncated, info = env.step_with_params(state, _jax_action(action), params)
+        state, _, _, done, info = env.step_with_params(state, _jax_action(action), params)
         assert not bool(done)
-        assert not bool(truncated)
 
-    state, _, reward, done, truncated, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
+    state, _, reward, done, _ = env.step_with_params(state, _jax_action(env.num_nodes), params)
     assert bool(done)
-    assert not bool(truncated)
 
     optimal_scaled = _optimal_path_reward_raw(child_nodes, points, root) * env.scale_factor
     np.testing.assert_allclose(float(reward), optimal_scaled, atol=1e-6)

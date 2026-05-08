@@ -441,7 +441,7 @@ def evaluate_baseline_policies(
                     env.num_nodes,
                 )
 
-                state, obs, reward, done, _, info = step_fn(state, int(action))
+                state, obs, reward, done, info = step_fn(state, int(action))
 
                 obs_np = np.asarray(obs)
                 action_mask_np = np.asarray(info["mask"])
@@ -506,7 +506,7 @@ def evaluate_network_greedy(
             masked_logits = apply_action_mask(logits[0], info["mask"])
             action = int(jnp.argmax(masked_logits))
 
-            state, obs, reward, done, _, info = step_fn(state, action)
+            state, obs, reward, done, info = step_fn(state, action)
             episode_reward += float(reward)
             moved = action == env.num_nodes
             steps += 1
