@@ -44,6 +44,7 @@ def test_simulate_reports_all_missing_env_dynamic_keys():
         "scale_factor": 0.125,
         "shuffle_nodes": True,
         "use_recency_obs": False,
+        "wm_backup": True,
     }
     with pytest.raises(ValueError) as error:
         simulate._build_env_params_from_metadata_args(

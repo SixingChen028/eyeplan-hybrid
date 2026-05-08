@@ -4,7 +4,6 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C, JaxTrainState, StepMetrics
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, TRAIN_SWEEP_KEYS
@@ -35,9 +34,7 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
     env_values = {
         key: array(key, dtype=jnp.int32 if key == "backup_steps" else jnp.float32)
         for key in ENV_DYNAMIC_PARAM_KEYS
-        if key != "wm_backup"
     }
-    env_values["wm_backup"] = array("wm_backup", dtype=np.bool_)
     env = JaxDecisionTreeParams(**env_values)
 
     train_values = {key: array(key) for key in TRAIN_SWEEP_KEYS}

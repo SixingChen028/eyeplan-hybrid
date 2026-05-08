@@ -18,6 +18,7 @@ def _env(**overrides):
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
         use_recency_obs=bool(params.get("use_recency_obs", False)),
+        wm_backup=bool(params["wm_backup"]),
         point_set=params.get("point_set"),
     )
 
@@ -456,6 +457,68 @@ def test_backup_steps_limits_ancestor_depth():
     np.testing.assert_allclose(np.asarray(updated), np.array([1.0, 3.0, 0.0, 0.0, 0.0], dtype=np.float32), atol=1e-6)
 
 
+def test_wm_backup_stops_at_inactive_ancestor():
+    child_nodes = jnp.array(
+        [
+            [1, -1],
+            [2, -1],
+            [3, -1],
+            [-1, -1],
+            [-1, -1],
+        ],
+        dtype=jnp.int32,
+    )
+    parent_nodes = jnp.array([-1, 0, 1, 2, -1], dtype=jnp.int32)
+    points = jnp.array([0.0, 1.0, 10.0, 3.0, -8.0], dtype=jnp.float32)
+    activation = jnp.array([1.0, 0.0, 1.0, 1.0, 0.0], dtype=jnp.float32)
+
+    env_no_wm_backup = _env(num_nodes=5, shuffle_nodes=False, wm_backup=False)
+    no_wm_params = _env_params(
+        env_no_wm_backup,
+        learning_rate=1.0,
+        lamda_backup=1.0,
+        backup_steps=100,
+    )
+    updated_no_wm_backup = env_no_wm_backup._update_q(
+        q_values=jnp.zeros((5,), dtype=jnp.float32),
+        child_nodes=child_nodes,
+        parent_nodes=parent_nodes,
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        points=points,
+        node=jnp.asarray(3, dtype=jnp.int32),
+        activation=activation,
+        params=no_wm_params,
+    )
+    np.testing.assert_allclose(
+        np.asarray(updated_no_wm_backup),
+        np.array([14.0, 14.0, 13.0, 3.0, 0.0], dtype=np.float32),
+        atol=1e-6,
+    )
+
+    env_wm_backup = _env(num_nodes=5, shuffle_nodes=False, wm_backup=True)
+    wm_params = _env_params(
+        env_wm_backup,
+        learning_rate=1.0,
+        lamda_backup=1.0,
+        backup_steps=100,
+    )
+    updated_wm_backup = env_wm_backup._update_q(
+        q_values=jnp.zeros((5,), dtype=jnp.float32),
+        child_nodes=child_nodes,
+        parent_nodes=parent_nodes,
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        points=points,
+        node=jnp.asarray(3, dtype=jnp.int32),
+        activation=activation,
+        params=wm_params,
+    )
+    np.testing.assert_allclose(
+        np.asarray(updated_wm_backup),
+        np.array([0.0, 0.0, 13.0, 3.0, 0.0], dtype=np.float32),
+        atol=1e-6,
+    )
+
+
 def test_wm_backup_ignores_inactive_child_q_during_ancestor_backup():
     child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
     parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
@@ -465,12 +528,12 @@ def test_wm_backup_ignores_inactive_child_q_during_ancestor_backup():
     env_no_wm_backup = _env(
         num_nodes=3,
         shuffle_nodes=False,
+        wm_backup=False,
     )
     no_wm_params = _env_params(
         env_no_wm_backup, learning_rate=1.0,
         lamda_backup=1.0,
         backup_steps=1,
-        wm_backup=False,
     )
     updated_no_wm_backup = env_no_wm_backup._update_q(
         q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),
@@ -487,12 +550,12 @@ def test_wm_backup_ignores_inactive_child_q_during_ancestor_backup():
     env_wm_backup = _env(
         num_nodes=3,
         shuffle_nodes=False,
+        wm_backup=True,
     )
     wm_params = _env_params(
         env_wm_backup, learning_rate=1.0,
         lamda_backup=1.0,
         backup_steps=1,
-        wm_backup=True,
     )
     updated_wm_backup = env_wm_backup._update_q(
         q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),

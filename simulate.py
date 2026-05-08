@@ -46,6 +46,7 @@ def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
         scale_factor=float(metadata_args["scale_factor"]),
         shuffle_nodes=bool(metadata_args["shuffle_nodes"]),
         use_recency_obs=bool(metadata_args["use_recency_obs"]),
+        wm_backup=bool(metadata_args["wm_backup"]),
     )
 
 
@@ -61,7 +62,6 @@ def _build_env_params_from_metadata_args(env: JaxDecisionTreeEnv, metadata_args:
         lamda_backup=float(metadata_args["lamda_backup"]),
         backup_steps=int(metadata_args["backup_steps"]),
         wm_decay=float(metadata_args["wm_decay"]),
-        wm_backup=bool(metadata_args["wm_backup"]),
         q_drop_rate=float(metadata_args["q_drop_rate"]),
         q_drift=float(metadata_args["q_drift"]),
         q_decay=metadata_args["q_decay"],

@@ -27,6 +27,7 @@ def env_from_args(args: dict) -> JaxDecisionTreeEnv:
         scale_factor=args["scale_factor"],
         shuffle_nodes=args["shuffle_nodes"],
         use_recency_obs=bool(args["use_recency_obs"]),
+        wm_backup=bool(args["wm_backup"]),
     )
 
 

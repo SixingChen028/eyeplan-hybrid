@@ -32,7 +32,6 @@ class JaxDecisionTreeParams(NamedTuple):
     q_decay: jax.Array
     recency_decay: jax.Array
     cost: jax.Array
-    wm_backup: jax.Array
 
 
 def _parse_unit_interval(value, *, name: str) -> float:
@@ -61,7 +60,6 @@ def make_decision_tree_params(
     q_decay,
     recency_decay,
     cost: float,
-    wm_backup: bool,
 ) -> JaxDecisionTreeParams:
     q_drift = float(q_drift)
     if q_drift < 0.0:
@@ -82,7 +80,6 @@ def make_decision_tree_params(
         q_decay=jnp.asarray(resolved_q_decay, dtype=jnp.float32),
         recency_decay=jnp.asarray(resolved_recency_decay, dtype=jnp.float32),
         cost=jnp.asarray(cost, dtype=jnp.float32),
-        wm_backup=jnp.asarray(wm_backup, dtype=jnp.bool_),
     )
 
 
@@ -96,6 +93,7 @@ class JaxDecisionTreeEnv:
         scale_factor: float,
         shuffle_nodes: bool,
         use_recency_obs: bool = False,
+        wm_backup: bool = False,
         point_set=None,
     ):
         self.num_nodes = int(num_nodes)
@@ -103,6 +101,7 @@ class JaxDecisionTreeEnv:
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
         self.use_recency_obs = bool(use_recency_obs)
+        self.wm_backup = bool(wm_backup)
 
         if point_set is None:
             point_set = [-8, -4, -2, -1, 1, 2, 4, 8]
@@ -226,17 +225,21 @@ class JaxDecisionTreeEnv:
             parent = parent_nodes[current]
             has_parent = parent >= 0
             has_budget = steps < params.backup_steps
-            return (weight > 1e-6) & (current != root_node) & has_parent & has_budget
+            parent_active = activation.at[parent].get(
+                mode="fill",
+                fill_value=0.0,
+                wrap_negative_indices=False,
+            ) > 0.0
+            wm_allows_backup = (not self.wm_backup) | parent_active
+            return (weight > 1e-6) & (current != root_node) & has_parent & has_budget & wm_allows_backup
 
         def body_fn(carry):
             current, weight, steps, q_values = carry
             ancestor = parent_nodes[current]
-            target = jax.lax.cond(
-                params.wm_backup,
-                lambda _: self._bellman_target(q_values, child_nodes, points, ancestor, activation),
-                lambda _: self._bellman_target(q_values, child_nodes, points, ancestor),
-                operand=None,
-            )
+            if self.wm_backup:
+                target = self._bellman_target(q_values, child_nodes, points, ancestor, activation)
+            else:
+                target = self._bellman_target(q_values, child_nodes, points, ancestor)
             step_size = params.learning_rate * weight
             new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
             q_values = q_values.at[ancestor].set(new_value)

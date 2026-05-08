@@ -27,6 +27,7 @@ def _env(**overrides):
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
         use_recency_obs=bool(params.get("use_recency_obs", False)),
+        wm_backup=bool(params["wm_backup"]),
         point_set=params.get("point_set"),
     )
 
@@ -194,7 +195,8 @@ def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
         use_recency_obs=True,
         point_set=np.array([1.0], dtype=np.float32),
     )
-    assert env.observation_shape[0] == _env(num_nodes=fixed["num_nodes"]).observation_shape[0] + fixed["num_nodes"]
+    no_recency_env = _env(num_nodes=fixed["num_nodes"], use_recency_obs=False)
+    assert env.observation_shape[0] == no_recency_env.observation_shape[0] + fixed["num_nodes"]
 
 
 def test_parallel_sweep_allows_q_drop_rate_arrays():
@@ -351,6 +353,7 @@ env = JaxDecisionTreeEnv(
     t_max=100,
     scale_factor=1 / 8,
     shuffle_nodes=True,
+    wm_backup=False,
 )
 trainer = JaxBatchMaskA2C(
     env=env,
@@ -372,7 +375,6 @@ env_params = make_decision_tree_params(
     lamda_backup=1.0,
     backup_steps=100,
     wm_decay=1.0,
-    wm_backup=False,
     q_drop_rate=0.0,
     q_drift=0.0,
     q_decay=0.0,
@@ -411,6 +413,15 @@ def test_expand_sweep_rejects_shape_changing_arrays():
         assert "changes compiled shapes" in str(error)
         return
     assert False, "shape-changing arrays should be rejected"
+
+
+def test_expand_sweep_rejects_wm_backup_arrays():
+    try:
+        expand_sweep(_small_params(wm_backup=[False, True]))
+    except ValueError as error:
+        assert "changes compiled shapes" in str(error)
+        return
+    assert False, "wm_backup arrays should be rejected"
 
 
 def test_expand_sweep_rejects_unknown_params():

@@ -12,6 +12,7 @@ ENV_STATIC_PARAM_KEYS = (
     "scale_factor",
     "shuffle_nodes",
     "use_recency_obs",
+    "wm_backup",
 )
 
 ENV_DYNAMIC_PARAM_KEYS = (
@@ -21,7 +22,6 @@ ENV_DYNAMIC_PARAM_KEYS = (
     "lamda_backup",
     "backup_steps",
     "wm_decay",
-    "wm_backup",
     "q_drop_rate",
     "q_drift",
     "q_decay",

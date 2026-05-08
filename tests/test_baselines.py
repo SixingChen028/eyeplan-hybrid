@@ -17,6 +17,7 @@ def _env(**overrides):
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
         use_recency_obs=bool(params.get("use_recency_obs", False)),
+        wm_backup=bool(params["wm_backup"]),
         point_set=params.get("point_set"),
     )
 
