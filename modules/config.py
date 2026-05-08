@@ -107,6 +107,7 @@ ENV_STATIC_PARAM_KEYS = tuple(
     key for key in PARAM_DEFAULTS["environment"] if key not in ENV_DYNAMIC_PARAM_KEYS
 )
 TRAIN_SWEEP_KEYS = (
+    "seed",
     "lr",
     "gamma",
     "lamda",
@@ -123,20 +124,15 @@ MODEL_SHAPE_PARAM_KEYS = (
     "rollout_length",
     "eval_episodes",
 )
-RUN_PARAM_KEYS = (
-    "seed",
-)
-
 REQUIRED_PARAM_KEYS = (
-    *RUN_PARAM_KEYS,
     *ENV_STATIC_PARAM_KEYS,
     *ENV_DYNAMIC_PARAM_KEYS,
     *MODEL_SHAPE_PARAM_KEYS,
     *TRAIN_SWEEP_KEYS,
 )
 
-SWEEP_KEYS = set(ENV_DYNAMIC_PARAM_KEYS) | set(TRAIN_SWEEP_KEYS) | {"seed"}
-SWEEP_KEY_ORDER = ("seed", *ENV_DYNAMIC_PARAM_KEYS, *TRAIN_SWEEP_KEYS)
+SWEEP_KEYS = set(ENV_DYNAMIC_PARAM_KEYS) | set(TRAIN_SWEEP_KEYS)
+SWEEP_KEY_ORDER = ("seed", *ENV_DYNAMIC_PARAM_KEYS, *(key for key in TRAIN_SWEEP_KEYS if key != "seed"))
 SHAPE_KEYS = set(ENV_STATIC_PARAM_KEYS) | set(MODEL_SHAPE_PARAM_KEYS)
 
 
@@ -294,16 +290,13 @@ def expand_sweep(params: dict) -> tuple[dict, list[dict], list[str]]:
     }
 
     if not sweep_items:
-        combos = [dict(fixed)]
-        combos[0]["seed"] = int(combos[0]["seed"])
-        return fixed, combos, []
+        return fixed, [dict(fixed)], []
 
     varied_keys = [key for key, _ in sweep_items]
     combos: list[dict] = []
     for values in itertools.product(*(value for _, value in sweep_items)):
         combo = dict(fixed)
         combo.update(dict(zip(varied_keys, values)))
-        combo["seed"] = int(combo["seed"])
         combos.append(combo)
     return fixed, combos, varied_keys
 

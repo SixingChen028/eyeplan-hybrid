@@ -31,14 +31,17 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
     def array(key: str, dtype=jnp.float32):
         return jnp.asarray([combo[key] for combo in combos], dtype=dtype)
 
+    int_keys = {"backup_steps", "seed"}
     env_values = {
-        key: array(key, dtype=jnp.int32 if key == "backup_steps" else jnp.float32)
+        key: array(key, dtype=jnp.int32 if key in int_keys else jnp.float32)
         for key in ENV_DYNAMIC_PARAM_KEYS
     }
     env = JaxDecisionTreeParams(**env_values)
 
-    train_values = {key: array(key) for key in TRAIN_SWEEP_KEYS}
-    train_values["seed"] = array("seed", dtype=jnp.int32)
+    train_values = {
+        key: array(key, dtype=jnp.int32 if key in int_keys else jnp.float32)
+        for key in TRAIN_SWEEP_KEYS
+    }
     return A2CHyperParams(env=env, **train_values)
 
 
