@@ -1,3 +1,4 @@
+import math
 import jax
 import jax.numpy as jnp
 from typing import NamedTuple
@@ -202,6 +203,8 @@ class JaxDecisionTreeEnv:
                 fill_value=0.0,
                 wrap_negative_indices=False,
             )
+            # NOTE: inactive nodes are treated as having Q=0 rather than not existing (Q=-inf)
+            # this is an assumption; maybe it should be optimized over
             child_q = jnp.where(child_active > 0.0, child_q, 0.0)
         return points[node] + jnp.max(child_q)
 
