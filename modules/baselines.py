@@ -7,8 +7,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
-from .network import actor_critic_forward, apply_action_mask, flatten_observation
+from .environment import DecisionTreeObs, JaxDecisionTreeEnv, JaxDecisionTreeParams
+from .network import actor_critic_forward, apply_action_mask
 
 
 @dataclass
@@ -29,64 +29,6 @@ class ObsView:
     g_values: np.ndarray
 
 
-class ObsLayout:
-    def __init__(
-        self,
-        num_nodes: int,
-        use_recency_obs: bool = False,
-        use_best_open_value_obs: bool = True,
-        use_best_terminal_value_obs: bool = True,
-    ):
-        self.num_nodes = num_nodes
-        self.use_recency_obs = bool(use_recency_obs)
-        self.use_best_open_value_obs = bool(use_best_open_value_obs)
-        self.use_best_terminal_value_obs = bool(use_best_terminal_value_obs)
-        index = 0
-
-        self.fixation = slice(index, index + num_nodes)
-        index += num_nodes
-
-        self.point = slice(index, index + 1)
-        index += 1
-
-        self.parent = slice(index, index + num_nodes)
-        index += num_nodes
-
-        self.children = slice(index, index + num_nodes)
-        index += num_nodes
-
-        self.root = slice(index, index + num_nodes)
-        index += num_nodes
-
-        self.g = slice(index, index + num_nodes)
-        index += num_nodes
-
-        self.q = slice(index, index + num_nodes)
-        index += num_nodes
-
-        self.visits = slice(index, index + num_nodes)
-        index += num_nodes
-
-        self.is_terminal = slice(index, index + num_nodes)
-        index += num_nodes
-
-        self.best_open_value = slice(index, index)
-        if self.use_best_open_value_obs or self.use_best_terminal_value_obs:
-            self.best_open_value = slice(index, index + 1)
-            index += 1
-
-        self.best_terminal_value = slice(index, index)
-        if self.use_best_terminal_value_obs:
-            self.best_terminal_value = slice(index, index + 1)
-            index += 1
-
-        self.recency = slice(index, index + num_nodes)
-        if self.use_recency_obs:
-            index += num_nodes
-
-        self.time = slice(index, index + 1)
-
-
 def _decode_one_hot(one_hot: np.ndarray) -> int | None:
     if np.allclose(one_hot, 0.0):
         return None
@@ -97,13 +39,13 @@ def _decode_multi_hot(multi_hot: np.ndarray) -> List[int]:
     return [int(idx) for idx in np.where(multi_hot > 0.5)[0]]
 
 
-def parse_obs(obs: np.ndarray, layout: ObsLayout) -> ObsView:
+def obs_view_from_obs(obs: DecisionTreeObs) -> ObsView:
     return ObsView(
-        fixation_node=_decode_one_hot(obs[layout.fixation]),
-        parent_node=_decode_one_hot(obs[layout.parent]),
-        child_nodes=_decode_multi_hot(obs[layout.children]),
-        root_node=_decode_one_hot(obs[layout.root]),
-        g_values=obs[layout.g],
+        fixation_node=_decode_one_hot(np.asarray(obs.fixation)),
+        parent_node=_decode_one_hot(np.asarray(obs.parent)),
+        child_nodes=_decode_multi_hot(np.asarray(obs.child)),
+        root_node=_decode_one_hot(np.asarray(obs.root)),
+        g_values=np.asarray(obs.g_values),
     )
 
 
@@ -418,12 +360,6 @@ def evaluate_baseline_policies(
     policy_names: List[str],
     reset_keys: jax.Array,
 ) -> Tuple[List[PolicyStats], float, float]:
-    layout = ObsLayout(
-        env.num_nodes,
-        use_recency_obs=getattr(env, "use_recency_obs", False),
-        use_best_open_value_obs=getattr(env, "use_best_open_value_obs", True),
-        use_best_terminal_value_obs=getattr(env, "use_best_terminal_value_obs", True),
-    )
     reset_fn = jax.jit(lambda key: env.reset(key, env_params))
     step_fn = jax.jit(lambda state, action: env.step(state, action, env_params))
 
@@ -444,10 +380,9 @@ def evaluate_baseline_policies(
 
         for policy_name in policy_names:
             state, obs, info = reset_fn(key)
-            obs_np = np.asarray(flatten_observation(obs))
             action_mask_np = np.asarray(info["mask"])
 
-            obs_view = parse_obs(obs_np, layout)
+            obs_view = obs_view_from_obs(obs)
             policy_state = _init_policy_state(policy_name, obs_view, env.num_nodes)
 
             done = False
@@ -456,7 +391,7 @@ def evaluate_baseline_policies(
             moved = False
 
             while (not done) and (steps < env.t_max):
-                obs_view = parse_obs(obs_np, layout)
+                obs_view = obs_view_from_obs(obs)
                 action, policy_state = _get_policy_action(
                     policy_name,
                     obs_view,
@@ -467,7 +402,6 @@ def evaluate_baseline_policies(
 
                 state, obs, reward, done, info = step_fn(state, int(action))
 
-                obs_np = np.asarray(flatten_observation(obs))
                 action_mask_np = np.asarray(info["mask"])
                 episode_reward += float(reward)
                 moved = int(action) == env.num_nodes
