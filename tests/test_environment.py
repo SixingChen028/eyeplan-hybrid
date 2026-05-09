@@ -18,6 +18,8 @@ def _env(**overrides):
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
         use_recency_obs=bool(params["use_recency_obs"]),
+        use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
+        use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
         wm_backup=bool(params["wm_backup"]),
         point_set=params["point_set"],
     )
@@ -153,6 +155,34 @@ def test_recency_observation_tracks_direct_fixations():
     expected_recency[action] = 1.0
     np.testing.assert_allclose(np.asarray(obs_jax)[recency_slice], expected_recency, atol=1e-6)
     np.testing.assert_allclose(np.asarray(state.fixation_recency), expected_recency, atol=1e-6)
+
+
+def test_best_value_observation_flags_control_feature_size():
+    num_nodes = 7
+    base_env = _env(
+        num_nodes=num_nodes,
+        use_best_open_value_obs=False,
+        use_best_terminal_value_obs=False,
+    )
+    open_env = _env(
+        num_nodes=num_nodes,
+        use_best_open_value_obs=True,
+        use_best_terminal_value_obs=False,
+    )
+    terminal_env = _env(
+        num_nodes=num_nodes,
+        use_best_open_value_obs=False,
+        use_best_terminal_value_obs=True,
+    )
+    both_env = _env(
+        num_nodes=num_nodes,
+        use_best_open_value_obs=True,
+        use_best_terminal_value_obs=True,
+    )
+
+    assert open_env.observation_shape[0] == base_env.observation_shape[0] + 1
+    assert terminal_env.observation_shape[0] == base_env.observation_shape[0] + 2
+    assert both_env.observation_shape[0] == base_env.observation_shape[0] + 2
 
 
 def test_zero_recency_decay_keeps_only_current_fixation():

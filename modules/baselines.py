@@ -30,9 +30,17 @@ class ObsView:
 
 
 class ObsLayout:
-    def __init__(self, num_nodes: int, use_recency_obs: bool = False):
+    def __init__(
+        self,
+        num_nodes: int,
+        use_recency_obs: bool = False,
+        use_best_open_value_obs: bool = True,
+        use_best_terminal_value_obs: bool = True,
+    ):
         self.num_nodes = num_nodes
         self.use_recency_obs = bool(use_recency_obs)
+        self.use_best_open_value_obs = bool(use_best_open_value_obs)
+        self.use_best_terminal_value_obs = bool(use_best_terminal_value_obs)
         index = 0
 
         self.fixation = slice(index, index + num_nodes)
@@ -62,11 +70,15 @@ class ObsLayout:
         self.is_terminal = slice(index, index + num_nodes)
         index += num_nodes
 
-        self.best_open_value = slice(index, index + 1)
-        index += 1
+        self.best_open_value = slice(index, index)
+        if self.use_best_open_value_obs or self.use_best_terminal_value_obs:
+            self.best_open_value = slice(index, index + 1)
+            index += 1
 
-        self.best_terminal_value = slice(index, index + 1)
-        index += 1
+        self.best_terminal_value = slice(index, index)
+        if self.use_best_terminal_value_obs:
+            self.best_terminal_value = slice(index, index + 1)
+            index += 1
 
         self.recency = slice(index, index + num_nodes)
         if self.use_recency_obs:
@@ -399,7 +411,12 @@ def evaluate_baseline_policies(
     policy_names: List[str],
     reset_keys: jax.Array,
 ) -> Tuple[List[PolicyStats], float, float]:
-    layout = ObsLayout(env.num_nodes, use_recency_obs=getattr(env, "use_recency_obs", False))
+    layout = ObsLayout(
+        env.num_nodes,
+        use_recency_obs=getattr(env, "use_recency_obs", False),
+        use_best_open_value_obs=getattr(env, "use_best_open_value_obs", True),
+        use_best_terminal_value_obs=getattr(env, "use_best_terminal_value_obs", True),
+    )
     reset_fn = jax.jit(lambda key: env.reset(key, env_params))
     step_fn = jax.jit(lambda state, action: env.step(state, action, env_params))
 

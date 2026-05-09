@@ -22,6 +22,8 @@ def _env(**overrides):
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
         use_recency_obs=bool(params["use_recency_obs"]),
+        use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
+        use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
         wm_backup=bool(params["wm_backup"]),
         point_set=params["point_set"],
     )
@@ -83,22 +85,34 @@ def test_mlp_forward_shape_is_unchanged():
 
 def test_node_shared_forward_shape_with_and_without_recency():
     for use_recency_obs, recency_decay in [(False, 0.0), (True, 0.5)]:
-        env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=use_recency_obs)
-        _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=recency_decay))
-        params = init_actor_critic_params(
-            jax.random.PRNGKey(1),
-            feature_size=env.observation_shape[0],
-            action_size=env.action_size,
-            hidden_size=16,
-            network_type=NETWORK_NODE_SHARED,
-        )
+        for use_best_open_value_obs, use_best_terminal_value_obs in [
+            (False, False),
+            (True, False),
+            (False, True),
+            (True, True),
+        ]:
+            env = _env(
+                num_nodes=5,
+                shuffle_nodes=False,
+                use_recency_obs=use_recency_obs,
+                use_best_open_value_obs=use_best_open_value_obs,
+                use_best_terminal_value_obs=use_best_terminal_value_obs,
+            )
+            _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=recency_decay))
+            params = init_actor_critic_params(
+                jax.random.PRNGKey(1),
+                feature_size=env.observation_shape[0],
+                action_size=env.action_size,
+                hidden_size=16,
+                network_type=NETWORK_NODE_SHARED,
+            )
 
-        logits, values = actor_critic_forward(params, obs[None, :], info["mask"][None, :])
+            logits, values = actor_critic_forward(params, obs[None, :], info["mask"][None, :])
 
-        assert logits.shape == (1, env.action_size)
-        assert values.shape == (1,)
-        assert np.all(np.isfinite(np.asarray(logits)))
-        assert np.all(np.isfinite(np.asarray(values)))
+            assert logits.shape == (1, env.action_size)
+            assert values.shape == (1,)
+            assert np.all(np.isfinite(np.asarray(logits)))
+            assert np.all(np.isfinite(np.asarray(values)))
 
 
 def test_node_shared_forward_is_permutation_equivariant_for_node_logits():

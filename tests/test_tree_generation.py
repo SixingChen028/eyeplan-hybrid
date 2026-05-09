@@ -40,6 +40,8 @@ def test_num_nodes_9_sampling_matches_explicit_probabilities():
         scale_factor=1.0,
         shuffle_nodes=True,
         use_recency_obs=False,
+        use_best_open_value_obs=True,
+        use_best_terminal_value_obs=True,
         wm_backup=False,
         point_set=(-8, -4, -2, -1, 1, 2, 4, 8),
     )

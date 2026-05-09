@@ -46,16 +46,25 @@ def init_mlp_actor_critic_params(
 
 def _node_feature_size(feature_size: int, action_size: int) -> int:
     num_nodes = int(action_size) - 1
-    base_size = 8 * num_nodes + 4
-    recency_size = base_size + num_nodes
-    if int(feature_size) == base_size:
-        return 9
-    if int(feature_size) == recency_size:
+    min_size = 8 * num_nodes + 2
+    allowed_sizes = {
+        min_size,
+        min_size + 1,
+        min_size + 2,
+        min_size + num_nodes,
+        min_size + num_nodes + 1,
+        min_size + num_nodes + 2,
+    }
+    if int(feature_size) not in allowed_sizes:
+        raise ValueError(
+            "node_shared network requires a supported decision-tree observation layout; "
+            f"got feature_size={feature_size}. Supported sizes: {sorted(allowed_sizes)}."
+        )
+    if int(feature_size) >= min_size + num_nodes:
         return 10
-    raise ValueError(
-        "node_shared network requires the existing decision-tree observation layout "
-        f"with feature_size={base_size} or {recency_size}; got {feature_size}."
-    )
+    if int(feature_size) == min_size:
+        return 9
+    return 9
 
 
 def init_node_shared_actor_critic_params(
@@ -143,13 +152,23 @@ def _split_node_observation(obs: jax.Array, num_nodes: int):
     index += num_nodes
     is_terminal = obs[..., index : index + num_nodes]
     index += num_nodes
-    best_open_value = obs[..., index : index + 1]
-    index += 1
-    best_terminal_value = obs[..., index : index + 1]
-    index += 1
+    remaining = obs.shape[-1] - index - 1
+    has_recency = remaining >= num_nodes
+    scalar_count = remaining - (num_nodes if has_recency else 0)
 
-    maybe_recency_size = obs.shape[-1] - index - 1
-    if maybe_recency_size == num_nodes:
+    if scalar_count >= 1:
+        best_open_value = obs[..., index : index + 1]
+        index += 1
+    else:
+        best_open_value = jnp.full_like(fixation_point, -10.0)
+
+    if scalar_count >= 2:
+        best_terminal_value = obs[..., index : index + 1]
+        index += 1
+    else:
+        best_terminal_value = jnp.full_like(fixation_point, -10.0)
+
+    if has_recency:
         recency = obs[..., index : index + num_nodes]
         index += num_nodes
     else:

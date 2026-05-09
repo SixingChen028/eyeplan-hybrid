@@ -46,6 +46,8 @@ def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
         scale_factor=float(metadata_args["scale_factor"]),
         shuffle_nodes=bool(metadata_args["shuffle_nodes"]),
         use_recency_obs=bool(metadata_args["use_recency_obs"]),
+        use_best_open_value_obs=bool(metadata_args["use_best_open_value_obs"]),
+        use_best_terminal_value_obs=bool(metadata_args["use_best_terminal_value_obs"]),
         wm_backup=bool(metadata_args["wm_backup"]),
         point_set=metadata_args["point_set"],
     )

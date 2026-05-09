@@ -19,6 +19,10 @@ PARAM_DEFAULTS = {
         "shuffle_nodes": True,
         # Whether observations include per-node fixation recency values.
         "use_recency_obs": True,
+        # Whether observations include best-open-path scalar value.
+        "use_best_open_value_obs": True,
+        # Whether observations include best-seen-terminal scalar value.
+        "use_best_terminal_value_obs": True,
         # Whether value backups use only active working-memory nodes.
         "wm_backup": True,
         # Inverse temperature for softmax move probabilities in environment dynamics.

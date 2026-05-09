@@ -27,6 +27,8 @@ def _env(**overrides):
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
         use_recency_obs=bool(params["use_recency_obs"]),
+        use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
+        use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
         wm_backup=bool(params["wm_backup"]),
         point_set=params["point_set"],
     )
@@ -354,6 +356,8 @@ env = JaxDecisionTreeEnv(
     scale_factor=1 / 8,
     shuffle_nodes=True,
     use_recency_obs=False,
+    use_best_open_value_obs=True,
+    use_best_terminal_value_obs=True,
     wm_backup=False,
     point_set=(-8, -4, -2, -1, 1, 2, 4, 8),
 )

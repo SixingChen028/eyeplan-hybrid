@@ -34,6 +34,8 @@ def test_simulate_requires_scale_factor_in_metadata():
         "t_max": 100,
         "shuffle_nodes": True,
         "use_recency_obs": False,
+        "use_best_open_value_obs": True,
+        "use_best_terminal_value_obs": True,
         "recency_decay": 0.0,
     }
     with pytest.raises(ValueError, match="scale_factor"):
@@ -47,6 +49,8 @@ def test_simulate_reports_all_missing_env_dynamic_keys():
         "scale_factor": 0.125,
         "shuffle_nodes": True,
         "use_recency_obs": False,
+        "use_best_open_value_obs": True,
+        "use_best_terminal_value_obs": True,
         "wm_backup": True,
         "point_set": [-8, -4, -2, -1, 1, 2, 4, 8],
     }
@@ -70,6 +74,8 @@ def test_simulate_build_env_uses_point_set():
         "scale_factor": 0.125,
         "shuffle_nodes": True,
         "use_recency_obs": False,
+        "use_best_open_value_obs": True,
+        "use_best_terminal_value_obs": True,
         "wm_backup": True,
         "point_set": [-3, -1, 1, 3],
     }
@@ -85,6 +91,8 @@ def test_train_results_env_from_args_uses_point_set():
             "scale_factor": 0.125,
             "shuffle_nodes": True,
             "use_recency_obs": False,
+            "use_best_open_value_obs": True,
+            "use_best_terminal_value_obs": True,
             "wm_backup": True,
             "point_set": [-5, -2, 2, 5],
         }

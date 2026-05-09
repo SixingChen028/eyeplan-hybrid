@@ -45,6 +45,8 @@ class JaxDecisionTreeEnv:
         scale_factor: float,
         shuffle_nodes: bool,
         use_recency_obs: bool,
+        use_best_open_value_obs: bool,
+        use_best_terminal_value_obs: bool,
         wm_backup: bool,
         point_set: tuple,
     ):
@@ -53,6 +55,8 @@ class JaxDecisionTreeEnv:
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
         self.use_recency_obs = bool(use_recency_obs)
+        self.use_best_open_value_obs = bool(use_best_open_value_obs)
+        self.use_best_terminal_value_obs = bool(use_best_terminal_value_obs)
         self.wm_backup = bool(wm_backup)
 
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
@@ -344,9 +348,12 @@ class JaxDecisionTreeEnv:
             state.q_values,
             state.n_visits.astype(jnp.float32),
             is_terminal_seen,
-            jnp.array([best_open_value], dtype=jnp.float32),
-            jnp.array([best_terminal_value], dtype=jnp.float32),
         ]
+        if self.use_best_open_value_obs or self.use_best_terminal_value_obs:
+            open_obs = best_open_value if self.use_best_open_value_obs else -10.0
+            parts.append(jnp.array([open_obs], dtype=jnp.float32))
+        if self.use_best_terminal_value_obs:
+            parts.append(jnp.array([best_terminal_value], dtype=jnp.float32))
         if self.use_recency_obs:
             parts.append(state.fixation_recency)
         parts.append(jnp.array([state.time_elapsed], dtype=jnp.float32))
