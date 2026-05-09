@@ -93,6 +93,8 @@ PARAM_DEFAULTS = {
         "print_frequency": 100,
         # Maximum update chunk size to compile; non-positive uses the requested chunk size.
         "max_compiled_updates_per_chunk": -1,
+        # Terminate if training has not started within this many seconds; non-positive disables.
+        "startup_training_timeout_seconds": 300,
     },
 }
 

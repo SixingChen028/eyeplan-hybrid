@@ -4,6 +4,7 @@ import os
 import shutil
 import statistics
 import subprocess
+import sys
 import threading
 import time
 
@@ -40,6 +41,43 @@ PARALLEL_PROGRESS_COLUMNS = (
 def _log(*args, **kwargs) -> None:
     kwargs.setdefault("flush", True)
     print(*args, **kwargs)
+
+
+class StartupTrainingTimeout:
+    def __init__(
+        self,
+        seconds: float,
+        *,
+        exit_code: int = 124,
+        exit_fn=os._exit,
+    ):
+        self.seconds = float(seconds)
+        self.exit_code = int(exit_code)
+        self._exit_fn = exit_fn
+        self._timer: threading.Timer | None = None
+
+    def start(self) -> None:
+        if self.seconds <= 0 or self._timer is not None:
+            return
+        self._timer = threading.Timer(self.seconds, self._expire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def cancel(self) -> None:
+        if self._timer is None:
+            return
+        self._timer.cancel()
+        self._timer = None
+
+    def _expire(self) -> None:
+        print(
+            "parallel_train_startup_timeout "
+            f"seconds={self.seconds:g} "
+            "reason=training_not_started",
+            file=sys.stderr,
+            flush=True,
+        )
+        self._exit_fn(self.exit_code)
 
 
 def _header(columns: tuple[tuple[str, int], ...]) -> str:
@@ -260,6 +298,7 @@ def train_with_progress(
     env_steps_per_update: int = 1,
     print_frequency: int,
     max_compiled_updates_per_chunk: int = -1,
+    startup_timeout: StartupTrainingTimeout | None = None,
     include_gpu_summary: bool = False,
     emit_single_run_progress_to_stdout: bool = False,
 ):
@@ -277,6 +316,8 @@ def train_with_progress(
     )
 
     compile_start = time.time()
+    if emit_progress:
+        _log(f"parallel_train_compiling updates_per_chunk={compiled_updates_per_chunk}")
     states = jax.block_until_ready(trainer.init_sweep_states(hypers))
     trainer.compile_train_sweep_chunk(
         states,
@@ -294,6 +335,9 @@ def train_with_progress(
             _log("-" * len(run_header))
 
     start = time.time()
+    if startup_timeout is not None:
+        startup_timeout.cancel()
+    _log("parallel_train_started")
     metrics_chunks = []
     gpu_samples: list[dict[str, float]] = []
     cumulative_episode_counts = np.zeros((num_runs,), dtype=np.float64)

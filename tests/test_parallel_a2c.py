@@ -13,7 +13,7 @@ from modules.config import expand_sweep
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv
 from modules.network import flatten_observation
-from modules.train_progress import train_with_progress
+from modules.train_progress import StartupTrainingTimeout, train_with_progress
 from modules.train_results import save_results
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
@@ -188,6 +188,16 @@ def test_parallel_sweep_compiles_node_shared_network():
 
     assert result.metrics.loss.shape == (1, 2)
     np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((1,), 2))
+
+
+def test_startup_training_timeout_exits_with_message(capsys):
+    exit_codes = []
+    timeout = StartupTrainingTimeout(5, exit_code=124, exit_fn=exit_codes.append)
+
+    timeout._expire()
+
+    assert exit_codes == [124]
+    assert "parallel_train_startup_timeout seconds=5 reason=training_not_started" in capsys.readouterr().err
 
 
 def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
