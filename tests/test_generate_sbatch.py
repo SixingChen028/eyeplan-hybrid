@@ -1,9 +1,8 @@
 import os
 from pathlib import Path
 import subprocess
-import sys
 
-from generate_sbatch import DEFAULT_META, _build_job_summary_lines, _render_script
+from generate_sbatch import _build_job_summary_lines, _render_script
 
 
 def test_render_script_keeps_point_set_tuple_as_single_param():
@@ -24,34 +23,51 @@ def test_render_script_keeps_point_set_tuple_as_single_param():
     assert '--point_set="${POINT_SET_VALUE}"' not in script
 
 
-def test_generated_script_executes_command_and_passes_only_selected_axes(tmp_path: Path, monkeypatch):
-    entrypoint = tmp_path / "echo_args.py"
-    entrypoint.write_text(
+def test_generated_script_executes_train_py_for_one_array_task(tmp_path: Path):
+    config_path = tmp_path / "slurm_exec_test.toml"
+    config_path.write_text(
         (
-            "import json\n"
-            "import sys\n"
-            "print(json.dumps(sys.argv[1:]))\n"
+            "[meta]\n"
+            f"result_path = {str(tmp_path / 'results')!r}\n"
+            "experiment = 'sbatch-train-exec'\n"
+            "array_vars = ['seed']\n"
+            "\n"
+            "[training]\n"
+            "seed = [7, 9]\n"
+            "num_updates = 1\n"
+            "num_envs = 1\n"
+            "rollout_length = 1\n"
+            "eval_episodes = 1\n"
+            "\n"
+            "[sbatch]\n"
+            "cpus_per_task = 1\n"
+            "time = '00:05:00'\n"
+            "mem_per_cpu = '1G'\n"
         ),
         encoding="utf-8",
     )
 
     config = {
         "meta": {
-            "experiment": "exec-test",
             "result_path": str(tmp_path / "results"),
+            "experiment": "sbatch-train-exec",
             "array_vars": ["seed"],
         },
-        "params": {
+        "training": {
             "seed": [7, 9],
-            "point_set": (-3, -1, 1, 3),
+            "num_updates": 1,
+            "num_envs": 1,
+            "rollout_length": 1,
+            "eval_episodes": 1,
+        },
+        "sbatch": {
+            "cpus_per_task": 1,
+            "time": "00:05:00",
+            "mem_per_cpu": "1G",
         },
     }
-
-    monkeypatch.setitem(DEFAULT_META, "entrypoint", str(entrypoint))
-    monkeypatch.setitem(DEFAULT_META, "python", f"{sys.executable} -u")
-
     script_path = tmp_path / "job.sh"
-    script_path.write_text(_render_script(config, config_path=Path("config/test.toml")), encoding="utf-8")
+    script_path.write_text(_render_script(config, config_path=config_path), encoding="utf-8")
     script_path.chmod(0o755)
 
     result = subprocess.run(
@@ -63,9 +79,11 @@ def test_generated_script_executes_command_and_passes_only_selected_axes(tmp_pat
     )
 
     assert "grid_task task_id=0 seed=7" in result.stdout
-    assert '["config/test.toml", "--path=' in result.stdout
-    assert '"--seed=7"' in result.stdout
-    assert "--point_set=" not in result.stdout
+    assert "parallel_run_config runs=1" in result.stdout
+    run_root = tmp_path / "results" / "runs" / "sbatch-train-exec"
+    assert run_root.exists()
+    run_dirs = [path for path in run_root.iterdir() if path.is_dir()]
+    assert len(run_dirs) == 1
 
 
 def test_build_job_summary_lines_marks_array_axes_and_resources():
