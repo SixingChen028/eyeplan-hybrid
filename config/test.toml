@@ -21,10 +21,10 @@ beta_e_init = 0.02
 beta_e_final = 0.0001
 max_grad_norm = 2.0
 num_updates = 1000
-num_envs = 4
+num_envs = [4, 8]
 rollout_length = 4
 eval_episodes = 16
-seed = [1, 2]
+seed = 5
 
 [network]
 hidden_size = 16
