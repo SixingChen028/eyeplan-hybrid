@@ -78,6 +78,9 @@ class JaxDecisionTreeEnv:
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
         self.empty_path = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
 
+        self.max_height = math.ceil(self.num_nodes / 2)
+        self.min_path_value = self.max_height * min(point_set)
+
         templates = build_tree_templates(self.num_nodes)
         self._tree_roots = jnp.asarray(templates.roots, dtype=jnp.int32)
         self._tree_child_nodes = jnp.asarray(templates.child_nodes, dtype=jnp.int32)
@@ -324,22 +327,16 @@ class JaxDecisionTreeEnv:
             is_terminal_seen,
         ]
         if self.use_best_open_value_obs or self.use_best_terminal_value_obs:
-            open_obs = -10.0
+            open_obs = self.min_path_value
             if self.use_best_open_value_obs:
                 unseen_mask = state.n_visits == 0
                 open_mask = known_mask & unseen_mask
-                open_obs = jnp.where(
-                    jnp.any(open_mask),
-                    jnp.max(jnp.where(open_mask, state.g_values, -jnp.inf)),
-                    -10.0,
-                )
+                open_obs = jnp.max(jnp.where(open_mask, state.g_values, self.min_path_value))
             parts.append(jnp.array([open_obs], dtype=jnp.float32))
         if self.use_best_terminal_value_obs:
             total_values = state.g_values + state.points
-            best_terminal_value = jnp.where(
-                jnp.any(is_terminal_seen_raw),
-                jnp.max(jnp.where(is_terminal_seen_raw, total_values, -jnp.inf)),
-                -10.0,
+            best_terminal_value = jnp.max(
+                jnp.where(is_terminal_seen_raw, total_values, self.min_path_value)
             )
             parts.append(jnp.array([best_terminal_value], dtype=jnp.float32))
         if self.use_recency_obs:
