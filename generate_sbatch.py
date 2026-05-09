@@ -273,6 +273,36 @@ def _default_output_path(config_path: Path) -> Path:
     return Path("sbatch") / f"{config_path.stem}.sbatch"
 
 
+def _format_summary_value(values: list[object]) -> str:
+    return "[" + ", ".join(_to_shell_scalar(value) for value in values) + "]"
+
+
+def _build_job_summary_lines(config: dict, config_path: Path) -> list[str]:
+    normalized_config = normalize_config(config)
+    meta = _as_dict(normalized_config.get("meta"), "meta", default=DEFAULT_META)
+    sbatch = _as_dict(config.get("sbatch"), "sbatch", default=DEFAULT_SBATCH)
+    params = _as_dict(normalized_config.get("params"), "params")
+
+    _, array_params = _split_params(params)
+    selected_axes = set(_selected_array_axes(meta, array_params))
+
+    lines: list[str] = []
+    lines.append("Job summary:")
+    if array_params:
+        for key in sorted(array_params):
+            mode = "array" if key in selected_axes else "not array"
+            lines.append(f"  - {key} ({mode}): {_format_summary_value(array_params[key])}")
+    else:
+        lines.append("  - No varied parameters.")
+
+    resource_label = "gpu:1" if bool(sbatch.get("gpu", False)) else f"cpu:{sbatch['cpus_per_task']}"
+    lines.append(
+        "Resources: "
+        f"{resource_label}, time={sbatch['time']}, mem-per-cpu={sbatch['mem_per_cpu']}"
+    )
+    return lines
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate a lightweight sbatch script for train.py sweeps.")
     parser.add_argument("config", nargs="?", help="Config file path or config stem (e.g. wm_cost). Defaults to the most recently modified file in config/.")
@@ -296,6 +326,8 @@ def main() -> None:
     print(f"Wrote {output_path}")
 
     if args.submit:
+        for line in _build_job_summary_lines(config, config_path):
+            print(line)
         submit_cmd = ["sbatch", str(output_path)]
         print("Command to run:")
         print(" " + " ".join(shlex.quote(part) for part in submit_cmd))
