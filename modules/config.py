@@ -77,7 +77,7 @@ PARAM_DEFAULTS = {
         "seed": 15,
     },
     "network": {
-        # Policy/value network architecture identifier.
+        # Policy/value network architecture identifier. mlp|node_shared
         "network_type": "mlp",
         # Hidden layer width for network architectures that use dense hidden layers.
         "hidden_size": 256,

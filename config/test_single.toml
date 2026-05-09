@@ -3,9 +3,8 @@
 [environment]
 
 [training]
-num_updates = 1000
-num_envs = 10
-seed = [1]
+num_updates = 10_000
+num_envs = 64
 
 [network]
 
