@@ -6,6 +6,22 @@ from typing import NamedTuple
 from modules.tree_generation import build_tree_templates
 
 
+def safe_get(arr: jax.Array, idx: jax.Array, *, fill_value) -> jax.Array:
+    return arr.at[idx].get(
+        mode="fill",
+        fill_value=fill_value,
+        wrap_negative_indices=False,
+    )
+
+
+def safe_set(arr: jax.Array, idx: jax.Array, value) -> jax.Array:
+    return arr.at[idx].set(
+        value,
+        mode="drop",
+        wrap_negative_indices=False,
+    )
+
+
 class JaxDecisionTreeState(NamedTuple):
     rng_key: jax.Array
     time_elapsed: jax.Array
@@ -169,26 +185,11 @@ class JaxDecisionTreeEnv:
 
         return jax.lax.fori_loop(0, self.num_nodes, body_fn, g_values)
 
-    def _known_mask(self, parent_nodes, root_node, n_visits):
-        expanded = n_visits > 0
-        expanded = expanded.at[root_node].set(True)
-        parent_safe = jnp.maximum(parent_nodes, 0)
-        known = (parent_nodes >= 0) & expanded[parent_safe]
-        return known.at[root_node].set(True)
-
     def _bellman_target(self, q_values, child_nodes, points, node, activation=None):
         children = child_nodes[node]
-        child_q = q_values.at[children].get(
-            mode="fill",
-            fill_value=0.0,
-            wrap_negative_indices=False,
-        )
+        child_q = safe_get(q_values, children, fill_value=0.0)
         if activation is not None:
-            child_active = activation.at[children].get(
-                mode="fill",
-                fill_value=0.0,
-                wrap_negative_indices=False,
-            )
+            child_active = safe_get(activation, children, fill_value=0.0)
             # NOTE: inactive nodes are treated as having Q=0 rather than not existing (Q=-inf)
             # this is an assumption; maybe it should be optimized over
             child_q = jnp.where(child_active > 0.0, child_q, 0.0)
@@ -206,11 +207,7 @@ class JaxDecisionTreeEnv:
             parent = state.parent_nodes[current]
             has_parent = parent >= 0
             has_budget = steps < params.backup_steps
-            parent_active = state.activation.at[parent].get(
-                mode="fill",
-                fill_value=0.0,
-                wrap_negative_indices=False,
-            ) > 0.0
+            parent_active = safe_get(state.activation, parent, fill_value=0.0) > 0.0
             wm_allows_backup = (not self.wm_backup) | parent_active
             return (weight > 1e-6) & (current != state.root_node) & has_parent & has_budget & wm_allows_backup
 
@@ -269,18 +266,8 @@ class JaxDecisionTreeEnv:
 
         # activate fixated, parent, children
         activation = activation.at[node].set(1.0)
-        parent = state.parent_nodes[node]
-        activation = activation.at[parent].set(
-            1.0,
-            mode="drop",
-            wrap_negative_indices=False,
-        )
-        children = state.child_nodes[node]
-        activation = activation.at[children].set(
-            1.0,
-            mode="drop",
-            wrap_negative_indices=False,
-        )
+        activation = safe_set(activation, state.parent_nodes[node], 1.0)
+        activation = safe_set(activation, state.child_nodes[node], 1.0)
         # root is always active
         activation = activation.at[state.root_node].set(1.0)
 
@@ -316,7 +303,7 @@ class JaxDecisionTreeEnv:
     def _get_obs(self, state: JaxDecisionTreeState) -> jax.Array:
         fixation_parent = state.parent_nodes[state.fixation_node]
         fixation_children = state.child_nodes[state.fixation_node]
-        known_mask = self._known_mask(state.parent_nodes, state.root_node, state.n_visits)
+        known_mask = safe_get(state.n_visits > 0, state.parent_nodes, fill_value=True)
         visible_g_values_raw = jnp.where(known_mask, state.g_values, 0.0)
         unseen_mask = state.n_visits == 0
         open_mask = known_mask & unseen_mask
