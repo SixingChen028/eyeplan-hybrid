@@ -305,20 +305,7 @@ class JaxDecisionTreeEnv:
         fixation_children = state.child_nodes[state.fixation_node]
         known_mask = safe_get(state.n_visits > 0, state.parent_nodes, fill_value=True)
         visible_g_values_raw = jnp.where(known_mask, state.g_values, 0.0)
-        unseen_mask = state.n_visits == 0
-        open_mask = known_mask & unseen_mask
         is_terminal_seen_raw = (state.child_nodes[:, 0] < 0) & (state.n_visits > 0)
-        best_open_value = jnp.where(
-            jnp.any(open_mask),
-            jnp.max(jnp.where(open_mask, state.g_values, -jnp.inf)),
-            -10.0,
-        )
-        total_values = state.g_values + state.points
-        best_terminal_value = jnp.where(
-            jnp.any(is_terminal_seen_raw),
-            jnp.max(jnp.where(is_terminal_seen_raw, total_values, -jnp.inf)),
-            -10.0,
-        )
 
         is_terminal_seen = is_terminal_seen_raw.astype(jnp.float32)
         fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
@@ -337,9 +324,23 @@ class JaxDecisionTreeEnv:
             is_terminal_seen,
         ]
         if self.use_best_open_value_obs or self.use_best_terminal_value_obs:
-            open_obs = best_open_value if self.use_best_open_value_obs else -10.0
+            open_obs = -10.0
+            if self.use_best_open_value_obs:
+                unseen_mask = state.n_visits == 0
+                open_mask = known_mask & unseen_mask
+                open_obs = jnp.where(
+                    jnp.any(open_mask),
+                    jnp.max(jnp.where(open_mask, state.g_values, -jnp.inf)),
+                    -10.0,
+                )
             parts.append(jnp.array([open_obs], dtype=jnp.float32))
         if self.use_best_terminal_value_obs:
+            total_values = state.g_values + state.points
+            best_terminal_value = jnp.where(
+                jnp.any(is_terminal_seen_raw),
+                jnp.max(jnp.where(is_terminal_seen_raw, total_values, -jnp.inf)),
+                -10.0,
+            )
             parts.append(jnp.array([best_terminal_value], dtype=jnp.float32))
         if self.use_recency_obs:
             parts.append(state.fixation_recency)
