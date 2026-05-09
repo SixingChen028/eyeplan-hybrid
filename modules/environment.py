@@ -320,20 +320,11 @@ class JaxDecisionTreeEnv:
         )
 
     def _get_obs(self, state: JaxDecisionTreeState) -> DecisionTreeObs:
-        fixation_parent = state.parent_nodes[state.fixation_node]
-        fixation_children = state.child_nodes[state.fixation_node]
         known_mask = safe_get(state.n_visits > 0, state.parent_nodes, fill_value=True)
-        visible_g_values_raw = jnp.where(known_mask, state.g_values, 0.0)
-        is_terminal_seen_raw = (state.child_nodes[:, 0] < 0) & (state.n_visits > 0)
-
-        is_terminal_seen = is_terminal_seen_raw.astype(jnp.float32)
-        fixation_child_mask = self._one_hot(fixation_children[0]) + self._one_hot(
-            fixation_children[1]
-        )
+        seen_terminal_mask = (state.child_nodes[:, 0] < 0) & (state.n_visits > 0)
 
         best_open_value = None
         if self.use_best_open_value_obs:
-            open_obs = self.min_path_value
             unseen_mask = state.n_visits == 0
             open_mask = known_mask & unseen_mask
             open_obs = jnp.max(jnp.where(open_mask, state.g_values, self.min_path_value))
@@ -342,25 +333,23 @@ class JaxDecisionTreeEnv:
         best_terminal_value = None
         if self.use_best_terminal_value_obs:
             total_values = state.g_values + state.points
-            best_terminal_obs = jnp.max(
-                jnp.where(is_terminal_seen_raw, total_values, self.min_path_value)
-            )
+            best_terminal_obs = jnp.max(jnp.where(seen_terminal_mask, total_values, self.min_path_value))
             best_terminal_value = jnp.array([best_terminal_obs], dtype=jnp.float32)
 
-        recency = state.fixation_recency if self.use_recency_obs else None
+        child1, child2 = state.child_nodes[state.fixation_node]
         return DecisionTreeObs(
             fixation=self._one_hot(state.fixation_node),
             fixation_point=jnp.array([state.points[state.fixation_node]], dtype=jnp.float32),
-            parent=self._one_hot(fixation_parent),
-            child=fixation_child_mask,
+            parent=self._one_hot(state.parent_nodes[state.fixation_node]),
+            child=self._one_hot(child1) + self._one_hot(child2),
             root=self._one_hot(state.root_node),
-            g_values=visible_g_values_raw,
+            g_values=jnp.where(known_mask, state.g_values, 0.0),
             q_values=state.q_values,
             n_visits=state.n_visits.astype(jnp.float32),
-            is_terminal=is_terminal_seen,
+            is_terminal=seen_terminal_mask.astype(jnp.float32),
             best_open_value=best_open_value,
             best_terminal_value=best_terminal_value,
-            recency=recency,
+            recency=state.fixation_recency if self.use_recency_obs else None,
             time_elapsed=jnp.array([state.time_elapsed], dtype=jnp.float32),
         )
 
