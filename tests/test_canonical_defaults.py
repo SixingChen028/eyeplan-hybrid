@@ -2,6 +2,7 @@ import pytest
 
 import simulate
 from modules import config
+from modules.train_results import env_from_args
 
 
 def test_train_uses_canonical_defaults():
@@ -20,6 +21,11 @@ def test_canonical_defaults_come_from_param_defaults():
 def test_normalize_config_rejects_unknown_section_key():
     with pytest.raises(ValueError, match=r"Unknown \[training\] keys: num_episodes"):
         config.normalize_config({"training": {"num_episodes": 8}})
+
+
+def test_normalize_config_converts_point_set_list_to_tuple():
+    normalized = config.normalize_config({"environment": {"point_set": [1, 3, 9]}})
+    assert normalized["params"]["point_set"] == (1, 3, 9)
 
 
 def test_simulate_requires_scale_factor_in_metadata():
@@ -42,6 +48,7 @@ def test_simulate_reports_all_missing_env_dynamic_keys():
         "shuffle_nodes": True,
         "use_recency_obs": False,
         "wm_backup": True,
+        "point_set": [-8, -4, -2, -1, 1, 2, 4, 8],
     }
     with pytest.raises(ValueError) as error:
         simulate._build_env_params_from_metadata_args(
@@ -54,3 +61,32 @@ def test_simulate_reports_all_missing_env_dynamic_keys():
     assert "beta_move" in message
     assert "cost" in message
     assert "recency_decay" in message
+
+
+def test_simulate_build_env_uses_point_set():
+    metadata_args = {
+        "num_nodes": 15,
+        "t_max": 100,
+        "scale_factor": 0.125,
+        "shuffle_nodes": True,
+        "use_recency_obs": False,
+        "wm_backup": True,
+        "point_set": [-3, -1, 1, 3],
+    }
+    env = simulate._build_env_from_metadata_args(metadata_args)
+    assert tuple(float(value) for value in env.point_set.tolist()) == (-3.0, -1.0, 1.0, 3.0)
+
+
+def test_train_results_env_from_args_uses_point_set():
+    env = env_from_args(
+        {
+            "num_nodes": 15,
+            "t_max": 100,
+            "scale_factor": 0.125,
+            "shuffle_nodes": True,
+            "use_recency_obs": False,
+            "wm_backup": True,
+            "point_set": [-5, -2, 2, 5],
+        }
+    )
+    assert tuple(float(value) for value in env.point_set.tolist()) == (-5.0, -2.0, 2.0, 5.0)

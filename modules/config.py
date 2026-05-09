@@ -43,6 +43,8 @@ PARAM_DEFAULTS = {
         "recency_decay": 0.5,
         # Per-step movement cost subtracted from environment reward.
         "cost": 0.01,
+        # Set of points to sample from for each node.
+        "point_set": (-8, -4, -2, -1, 1, 2, 4, 8),
     },
     "training": {
         # Optimizer learning rate for A2C training.
@@ -207,6 +209,10 @@ def normalize_config(config: dict) -> dict:
         normalized[param_class].update(_ensure_table(config, param_class))
 
     meta = normalized["meta"]
+    point_set = normalized["environment"].get("point_set")
+    if isinstance(point_set, list):
+        normalized["environment"]["point_set"] = tuple(point_set)
+
     params = {
         key: value
         for param_class in PARAM_RUNTIME_CLASSES

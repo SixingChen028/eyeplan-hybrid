@@ -26,9 +26,9 @@ def _env(**overrides):
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
-        use_recency_obs=bool(params.get("use_recency_obs", False)),
+        use_recency_obs=bool(params["use_recency_obs"]),
         wm_backup=bool(params["wm_backup"]),
-        point_set=params.get("point_set"),
+        point_set=params["point_set"],
     )
 
 
@@ -353,7 +353,9 @@ env = JaxDecisionTreeEnv(
     t_max=100,
     scale_factor=1 / 8,
     shuffle_nodes=True,
+    use_recency_obs=False,
     wm_backup=False,
+    point_set=(-8, -4, -2, -1, 1, 2, 4, 8),
 )
 trainer = JaxBatchMaskA2C(
     env=env,

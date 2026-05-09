@@ -39,6 +39,9 @@ def test_num_nodes_9_sampling_matches_explicit_probabilities():
         t_max=8,
         scale_factor=1.0,
         shuffle_nodes=True,
+        use_recency_obs=False,
+        wm_backup=False,
+        point_set=(-8, -4, -2, -1, 1, 2, 4, 8),
     )
 
     counts = Counter()

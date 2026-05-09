@@ -44,9 +44,9 @@ class JaxDecisionTreeEnv:
         t_max: int,
         scale_factor: float,
         shuffle_nodes: bool,
-        use_recency_obs: bool = False,
-        wm_backup: bool = False,
-        point_set=None,
+        use_recency_obs: bool,
+        wm_backup: bool,
+        point_set: tuple,
     ):
         self.num_nodes = int(num_nodes)
         self.t_max = int(t_max)
@@ -55,8 +55,6 @@ class JaxDecisionTreeEnv:
         self.use_recency_obs = bool(use_recency_obs)
         self.wm_backup = bool(wm_backup)
 
-        if point_set is None:
-            point_set = [-8, -4, -2, -1, 1, 2, 4, 8]
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
         self.empty_path = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
 

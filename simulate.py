@@ -47,6 +47,7 @@ def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
         shuffle_nodes=bool(metadata_args["shuffle_nodes"]),
         use_recency_obs=bool(metadata_args["use_recency_obs"]),
         wm_backup=bool(metadata_args["wm_backup"]),
+        point_set=metadata_args["point_set"],
     )
 
 
