@@ -12,10 +12,15 @@ from modules.a2c_sweep import VmappedA2CTrainer, build_hypers
 from modules.config import expand_sweep
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv
+from modules.network import flatten_observation
 from modules.train_progress import train_with_progress
 from modules.train_results import save_results
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
+
+
+def _obs_size(env: JaxDecisionTreeEnv) -> int:
+    return int(flatten_observation(env.observation_template).shape[0])
 
 
 def _env(**overrides):
@@ -107,7 +112,11 @@ def test_dynamic_env_params_match_default_env_for_same_values():
     state_default, obs_default, info_default = env.reset(key, params)
     state_dynamic, obs_dynamic, info_dynamic = env.reset(key, params)
 
-    np.testing.assert_allclose(np.asarray(obs_dynamic), np.asarray(obs_default), atol=1e-6)
+    np.testing.assert_allclose(
+        np.asarray(flatten_observation(obs_dynamic)),
+        np.asarray(flatten_observation(obs_default)),
+        atol=1e-6,
+    )
     np.testing.assert_array_equal(np.asarray(info_dynamic["mask"]), np.asarray(info_default["mask"]))
 
     action = jnp.asarray(1, dtype=jnp.int32)
@@ -119,7 +128,11 @@ def test_dynamic_env_params_match_default_env_for_same_values():
         jax.tree_util.tree_leaves(default_step[0]),
     ):
         np.testing.assert_allclose(np.asarray(dynamic_leaf), np.asarray(default_leaf), atol=1e-6)
-    np.testing.assert_allclose(np.asarray(dynamic_step[1]), np.asarray(default_step[1]), atol=1e-6)
+    np.testing.assert_allclose(
+        np.asarray(flatten_observation(dynamic_step[1])),
+        np.asarray(flatten_observation(default_step[1])),
+        atol=1e-6,
+    )
     np.testing.assert_allclose(float(dynamic_step[2]), float(default_step[2]), atol=1e-6)
     assert bool(dynamic_step[3]) == bool(default_step[3])
 
@@ -138,7 +151,6 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
     )
     trainer = VmappedA2CTrainer(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
         num_envs=fixed["num_envs"],
@@ -165,7 +177,6 @@ def test_parallel_sweep_compiles_node_shared_network():
     )
     trainer = VmappedA2CTrainer(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
         num_envs=fixed["num_envs"],
@@ -198,7 +209,7 @@ def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
         point_set=np.array([1.0], dtype=np.float32),
     )
     no_recency_env = _env(num_nodes=fixed["num_nodes"], use_recency_obs=False)
-    assert env.observation_shape[0] == no_recency_env.observation_shape[0] + fixed["num_nodes"]
+    assert _obs_size(env) == _obs_size(no_recency_env) + fixed["num_nodes"]
 
 
 def test_parallel_sweep_allows_q_drop_rate_arrays():
@@ -254,7 +265,6 @@ def test_train_with_progress_reports_numeric_rate(capsys):
     num_updates = fixed["num_updates"]
     trainer = VmappedA2CTrainer(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
         num_envs=fixed["num_envs"],
@@ -305,7 +315,6 @@ def test_parallel_single_combo_matches_existing_a2c():
 
     reference_trainer = JaxBatchMaskA2C(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
         num_envs=fixed["num_envs"],
@@ -326,7 +335,6 @@ def test_parallel_single_combo_matches_existing_a2c():
 
     parallel_trainer = VmappedA2CTrainer(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
         num_envs=fixed["num_envs"],
@@ -363,7 +371,6 @@ env = JaxDecisionTreeEnv(
 )
 trainer = JaxBatchMaskA2C(
     env=env,
-    feature_size=env.observation_shape[0],
     action_size=env.action_size,
     hidden_size=128,
     num_envs=64,
@@ -448,7 +455,6 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
     )
     trainer = VmappedA2CTrainer(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
         num_envs=fixed["num_envs"],

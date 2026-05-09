@@ -52,7 +52,6 @@ def main() -> None:
     env = env_from_args(runs[0])
     trainer = VmappedA2CTrainer(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
         num_envs=num_envs,

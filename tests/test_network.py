@@ -6,6 +6,7 @@ from modules.environment import JaxDecisionTreeEnv
 from modules.network import (
     NETWORK_NODE_SHARED,
     actor_critic_forward,
+    flatten_observation,
     init_actor_critic_params,
     init_mlp_actor_critic_params,
 )
@@ -35,36 +36,22 @@ def _env_params(env, **overrides):
     return env.make_params(**params)
 
 
-def _permute_node_observation(obs, permutation, has_recency=False):
-    num_nodes = len(permutation)
-    index = 0
-    parts = []
+def _batch_obs(obs):
+    return jax.tree_util.tree_map(
+        lambda value: None if value is None else value[None, ...],
+        obs,
+    )
 
-    for width in [
-        num_nodes,
-        1,
-        num_nodes,
-        num_nodes,
-        num_nodes,
-        num_nodes,
-        num_nodes,
-        num_nodes,
-        num_nodes,
-        1,
-        1,
-    ]:
-        part = obs[index : index + width]
-        if width == num_nodes:
-            part = part[permutation]
-        parts.append(part)
-        index += width
 
-    if has_recency:
-        parts.append(obs[index : index + num_nodes][permutation])
-        index += num_nodes
+def _permute_node_observation(obs, permutation):
+    def permute(value):
+        if value is None:
+            return None
+        if value.shape[-1] == len(permutation):
+            return value[permutation]
+        return value
 
-    parts.append(obs[index : index + 1])
-    return np.concatenate(parts)
+    return jax.tree_util.tree_map(permute, obs)
 
 
 def test_mlp_forward_shape_is_unchanged():
@@ -72,12 +59,12 @@ def test_mlp_forward_shape_is_unchanged():
     _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
     params = init_mlp_actor_critic_params(
         jax.random.PRNGKey(1),
-        feature_size=env.observation_shape[0],
+        feature_size=int(flatten_observation(env.observation_template).shape[0]),
         action_size=env.action_size,
         hidden_size=16,
     )
 
-    logits, values = actor_critic_forward(params, obs[None, :], info["mask"][None, :])
+    logits, values = actor_critic_forward(params, _batch_obs(obs), info["mask"][None, :])
 
     assert logits.shape == (1, env.action_size)
     assert values.shape == (1,)
@@ -101,14 +88,22 @@ def test_node_shared_forward_shape_with_and_without_recency():
             _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=recency_decay))
             params = init_actor_critic_params(
                 jax.random.PRNGKey(1),
-                feature_size=env.observation_shape[0],
+                observation_template=env.observation_template,
                 action_size=env.action_size,
                 hidden_size=16,
                 network_type=NETWORK_NODE_SHARED,
             )
 
-            logits, values = actor_critic_forward(params, obs[None, :], info["mask"][None, :])
+            logits, values = actor_critic_forward(params, _batch_obs(obs), info["mask"][None, :])
 
+            expected_node_features = 10 if use_recency_obs else 9
+            expected_global_features = 16 * 2 + 2
+            if use_best_open_value_obs:
+                expected_global_features += 1
+            if use_best_terminal_value_obs:
+                expected_global_features += 1
+            assert params["node_fc1"]["w"].shape == (expected_node_features, 16)
+            assert params["global_fc"]["w"].shape == (expected_global_features, 16)
             assert logits.shape == (1, env.action_size)
             assert values.shape == (1,)
             assert np.all(np.isfinite(np.asarray(logits)))
@@ -120,19 +115,19 @@ def test_node_shared_forward_is_permutation_equivariant_for_node_logits():
     _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),
-        feature_size=env.observation_shape[0],
+        observation_template=env.observation_template,
         action_size=env.action_size,
         hidden_size=16,
         network_type=NETWORK_NODE_SHARED,
     )
     permutation = np.array([2, 0, 4, 1, 3], dtype=np.int32)
-    permuted_obs = _permute_node_observation(np.asarray(obs), permutation, has_recency=True)
+    permuted_obs = _permute_node_observation(obs, permutation)
     permuted_mask = np.concatenate([np.asarray(info["mask"])[:-1][permutation], np.asarray(info["mask"])[-1:]])
 
-    logits, values = actor_critic_forward(params, obs[None, :], info["mask"][None, :])
+    logits, values = actor_critic_forward(params, _batch_obs(obs), info["mask"][None, :])
     permuted_logits, permuted_values = actor_critic_forward(
         params,
-        permuted_obs[None, :],
+        _batch_obs(permuted_obs),
         permuted_mask[None, :],
     )
 

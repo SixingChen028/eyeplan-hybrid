@@ -49,7 +49,6 @@ class VmappedA2CTrainer:
     def __init__(
         self,
         env: JaxDecisionTreeEnv,
-        feature_size: int,
         action_size: int,
         hidden_size: int,
         num_envs: int,
@@ -60,7 +59,6 @@ class VmappedA2CTrainer:
         self.num_updates = int(num_updates)
         self.trainer = JaxBatchMaskA2C(
             env=env,
-            feature_size=feature_size,
             action_size=action_size,
             hidden_size=hidden_size,
             num_envs=num_envs,

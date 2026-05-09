@@ -52,7 +52,6 @@ def test_jax_train_step_compiles_and_runs():
 
     trainer = JaxBatchMaskA2C(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=32,
         num_envs=4,
@@ -86,7 +85,6 @@ def test_jax_train_step_runs_node_shared_network():
 
     trainer = JaxBatchMaskA2C(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=16,
         num_envs=4,
@@ -119,7 +117,6 @@ def test_jax_simulator_runs_trials():
 
     trainer = JaxBatchMaskA2C(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=32,
         num_envs=4,
@@ -158,7 +155,6 @@ def test_jax_simulator_runs_node_shared_trials():
 
     trainer = JaxBatchMaskA2C(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=16,
         num_envs=4,
@@ -197,7 +193,6 @@ def test_jax_simulator_runs_detailed_trials():
 
     trainer = JaxBatchMaskA2C(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=32,
         num_envs=4,
@@ -243,7 +238,6 @@ def test_jax_simulator_records_forced_terminal_action():
 
     trainer = JaxBatchMaskA2C(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=32,
         num_envs=4,
@@ -281,7 +275,6 @@ def test_jax_simulator_evaluate_policy_returns_summary_stats():
 
     trainer = JaxBatchMaskA2C(
         env=env,
-        feature_size=env.observation_shape[0],
         action_size=env.action_size,
         hidden_size=32,
         num_envs=4,

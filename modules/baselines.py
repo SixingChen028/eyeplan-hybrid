@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
-from .network import actor_critic_forward, apply_action_mask
+from .network import actor_critic_forward, apply_action_mask, flatten_observation
 
 
 @dataclass
@@ -124,6 +124,13 @@ def _choose_legal_fixation(
         return int(legal[0])
 
     return num_nodes
+
+
+def _batch_obs(obs):
+    return jax.tree_util.tree_map(
+        lambda value: None if value is None else value[None, ...],
+        obs,
+    )
 
 
 def _optimal_path_reward_raw(child_nodes: np.ndarray, points: np.ndarray, root: int) -> float:
@@ -437,7 +444,7 @@ def evaluate_baseline_policies(
 
         for policy_name in policy_names:
             state, obs, info = reset_fn(key)
-            obs_np = np.asarray(obs)
+            obs_np = np.asarray(flatten_observation(obs))
             action_mask_np = np.asarray(info["mask"])
 
             obs_view = parse_obs(obs_np, layout)
@@ -460,7 +467,7 @@ def evaluate_baseline_policies(
 
                 state, obs, reward, done, info = step_fn(state, int(action))
 
-                obs_np = np.asarray(obs)
+                obs_np = np.asarray(flatten_observation(obs))
                 action_mask_np = np.asarray(info["mask"])
                 episode_reward += float(reward)
                 moved = int(action) == env.num_nodes
@@ -519,7 +526,7 @@ def evaluate_network_greedy(
         moved = False
 
         while (not done) and (steps < env.t_max):
-            logits, _ = forward_fn(params, obs[None, :])
+            logits, _ = forward_fn(params, _batch_obs(obs), info["mask"][None, :])
             masked_logits = apply_action_mask(logits[0], info["mask"])
             action = int(jnp.argmax(masked_logits))
 

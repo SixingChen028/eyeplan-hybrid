@@ -11,6 +11,13 @@ from .network import actor_critic_forward, apply_action_mask, sample_actions
 DETAIL_KEYS = ["activations", "counts", "gs", "qs", "logits"]
 
 
+def _batch_obs(obs):
+    return jax.tree_util.tree_map(
+        lambda value: None if value is None else value[None, ...],
+        obs,
+    )
+
+
 def empty_simulation_data(*, detailed: bool = False) -> Dict[str, List[Any]]:
     data = {
         "adj_lists": [],
@@ -122,7 +129,7 @@ class JaxSimulator:
             count_seq = count_seq.at[step_count].set(state.n_visits)
             g_seq = g_seq.at[step_count].set(state.g_values)
             q_seq = q_seq.at[step_count].set(state.q_values)
-            logits, _ = actor_critic_forward(params, obs[None, :], action_mask[None, :])
+            logits, _ = actor_critic_forward(params, _batch_obs(obs), action_mask[None, :])
             logits = logits[0]
             logits_seq = logits_seq.at[step_count].set(logits)
 
@@ -232,7 +239,7 @@ class JaxSimulator:
         def body_fn(carry):
             state, obs, action_mask, step_count, episode_reward, moved, _, rng_key = carry
 
-            logits, _ = actor_critic_forward(params, obs[None, :], action_mask[None, :])
+            logits, _ = actor_critic_forward(params, _batch_obs(obs), action_mask[None, :])
             logits = logits[0]
 
             def greedy_action(_):

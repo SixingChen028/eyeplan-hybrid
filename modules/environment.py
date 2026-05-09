@@ -51,6 +51,22 @@ class JaxDecisionTreeParams(NamedTuple):
     cost: jax.Array
 
 
+class DecisionTreeObs(NamedTuple):
+    fixation: jax.Array
+    fixation_point: jax.Array
+    parent: jax.Array
+    child: jax.Array
+    root: jax.Array
+    g_values: jax.Array
+    q_values: jax.Array
+    n_visits: jax.Array
+    is_terminal: jax.Array
+    best_open_value: jax.Array | None
+    best_terminal_value: jax.Array | None
+    recency: jax.Array | None
+    time_elapsed: jax.Array
+
+
 class JaxDecisionTreeEnv:
     metadata = {"render_modes": ["human", "rgb_array"]}
 
@@ -88,7 +104,7 @@ class JaxDecisionTreeEnv:
         self._tree_probabilities = jnp.asarray(templates.probabilities, dtype=jnp.float32)
 
         dummy_key = jnp.zeros((2,), dtype=jnp.uint32)
-        self.observation_shape = self._get_obs(self._sample_initial_state(dummy_key)).shape
+        self.observation_template = self._get_obs(self._sample_initial_state(dummy_key))
         self.action_size = self.num_nodes + 1
 
     def make_params(
@@ -303,7 +319,7 @@ class JaxDecisionTreeEnv:
             rng_key=key,
         )
 
-    def _get_obs(self, state: JaxDecisionTreeState) -> jax.Array:
+    def _get_obs(self, state: JaxDecisionTreeState) -> DecisionTreeObs:
         fixation_parent = state.parent_nodes[state.fixation_node]
         fixation_children = state.child_nodes[state.fixation_node]
         known_mask = safe_get(state.n_visits > 0, state.parent_nodes, fill_value=True)
@@ -315,34 +331,38 @@ class JaxDecisionTreeEnv:
             fixation_children[1]
         )
 
-        parts = [
-            self._one_hot(state.fixation_node),
-            jnp.array([state.points[state.fixation_node]], dtype=jnp.float32),
-            self._one_hot(fixation_parent),
-            fixation_child_mask,
-            self._one_hot(state.root_node),
-            visible_g_values_raw,
-            state.q_values,
-            state.n_visits.astype(jnp.float32),
-            is_terminal_seen,
-        ]
-        if self.use_best_open_value_obs or self.use_best_terminal_value_obs:
+        best_open_value = None
+        if self.use_best_open_value_obs:
             open_obs = self.min_path_value
-            if self.use_best_open_value_obs:
-                unseen_mask = state.n_visits == 0
-                open_mask = known_mask & unseen_mask
-                open_obs = jnp.max(jnp.where(open_mask, state.g_values, self.min_path_value))
-            parts.append(jnp.array([open_obs], dtype=jnp.float32))
+            unseen_mask = state.n_visits == 0
+            open_mask = known_mask & unseen_mask
+            open_obs = jnp.max(jnp.where(open_mask, state.g_values, self.min_path_value))
+            best_open_value = jnp.array([open_obs], dtype=jnp.float32)
+
+        best_terminal_value = None
         if self.use_best_terminal_value_obs:
             total_values = state.g_values + state.points
-            best_terminal_value = jnp.max(
+            best_terminal_obs = jnp.max(
                 jnp.where(is_terminal_seen_raw, total_values, self.min_path_value)
             )
-            parts.append(jnp.array([best_terminal_value], dtype=jnp.float32))
-        if self.use_recency_obs:
-            parts.append(state.fixation_recency)
-        parts.append(jnp.array([state.time_elapsed], dtype=jnp.float32))
-        return jnp.concatenate(parts)
+            best_terminal_value = jnp.array([best_terminal_obs], dtype=jnp.float32)
+
+        recency = state.fixation_recency if self.use_recency_obs else None
+        return DecisionTreeObs(
+            fixation=self._one_hot(state.fixation_node),
+            fixation_point=jnp.array([state.points[state.fixation_node]], dtype=jnp.float32),
+            parent=self._one_hot(fixation_parent),
+            child=fixation_child_mask,
+            root=self._one_hot(state.root_node),
+            g_values=visible_g_values_raw,
+            q_values=state.q_values,
+            n_visits=state.n_visits.astype(jnp.float32),
+            is_terminal=is_terminal_seen,
+            best_open_value=best_open_value,
+            best_terminal_value=best_terminal_value,
+            recency=recency,
+            time_elapsed=jnp.array([state.time_elapsed], dtype=jnp.float32),
+        )
 
     def _get_action_mask(self, state: JaxDecisionTreeState) -> jax.Array:
         fixation_allowed = state.time_elapsed != (self.t_max - 1)

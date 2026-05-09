@@ -5,6 +5,7 @@ import pytest
 
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv
+from modules.network import flatten_observation
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
 
@@ -83,6 +84,10 @@ def _jax_action(action: int):
     return jnp.asarray(action, dtype=jnp.int32)
 
 
+def _obs_size(env: JaxDecisionTreeEnv) -> int:
+    return int(flatten_observation(env.observation_template).shape[0])
+
+
 
 
 @pytest.mark.parametrize(
@@ -116,10 +121,8 @@ def test_reset_uses_raw_node_ids_by_default():
     state, obs, info = env.reset(jax.random.PRNGKey(23), _env_params(env))
     root = int(state.root_node)
 
-    fixation_slice = slice(0, env.num_nodes)
-    root_slice = slice(1 + env.num_nodes * 3, 1 + env.num_nodes * 4)
-    np.testing.assert_array_equal(np.asarray(obs[fixation_slice]), np.eye(env.num_nodes)[root])
-    np.testing.assert_array_equal(np.asarray(obs[root_slice]), np.eye(env.num_nodes)[root])
+    np.testing.assert_array_equal(np.asarray(obs.fixation), np.eye(env.num_nodes)[root])
+    np.testing.assert_array_equal(np.asarray(obs.root), np.eye(env.num_nodes)[root])
 
     expected_mask = np.zeros(env.action_size, dtype=bool)
     expected_mask[: env.num_nodes] = np.asarray(state.activation) > 0
@@ -139,21 +142,20 @@ def test_recency_observation_tracks_direct_fixations():
     jax_params = _env_params(jax_env, wm_decay=0.5, recency_decay=0.5)
     default_env = _env(num_nodes=num_nodes, use_recency_obs=False)
 
-    assert jax_env.observation_shape[0] == default_env.observation_shape[0] + num_nodes
+    assert _obs_size(jax_env) == _obs_size(default_env) + num_nodes
 
     state, obs_jax, _ = jax_env.reset(jax.random.PRNGKey(8), jax_params)
 
-    recency_slice = slice(-num_nodes - 1, -1)
     reset_recency = np.zeros(num_nodes)
     reset_recency[int(state.root_node)] = 1.0
-    np.testing.assert_allclose(np.asarray(obs_jax)[recency_slice], reset_recency, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(obs_jax.recency), reset_recency, atol=1e-6)
 
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
     state, obs_jax, _, _, _ = jax_env.step(state, _jax_action(action), jax_params)
 
     expected_recency = reset_recency * 0.5
     expected_recency[action] = 1.0
-    np.testing.assert_allclose(np.asarray(obs_jax)[recency_slice], expected_recency, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(obs_jax.recency), expected_recency, atol=1e-6)
     np.testing.assert_allclose(np.asarray(state.fixation_recency), expected_recency, atol=1e-6)
 
 
@@ -180,9 +182,9 @@ def test_best_value_observation_flags_control_feature_size():
         use_best_terminal_value_obs=True,
     )
 
-    assert open_env.observation_shape[0] == base_env.observation_shape[0] + 1
-    assert terminal_env.observation_shape[0] == base_env.observation_shape[0] + 2
-    assert both_env.observation_shape[0] == base_env.observation_shape[0] + 2
+    assert _obs_size(open_env) == _obs_size(base_env) + 1
+    assert _obs_size(terminal_env) == _obs_size(base_env) + 1
+    assert _obs_size(both_env) == _obs_size(base_env) + 2
 
 
 def test_zero_recency_decay_keeps_only_current_fixation():
@@ -194,18 +196,17 @@ def test_zero_recency_decay_keeps_only_current_fixation():
     )
     params = _env_params(env, wm_decay=0.5, recency_decay=0.0)
     state, obs, _ = env.reset(jax.random.PRNGKey(9), params)
-    recency_slice = slice(-env.num_nodes - 1, -1)
 
     expected_reset = np.zeros(env.num_nodes)
     expected_reset[int(state.root_node)] = 1.0
-    np.testing.assert_allclose(np.asarray(obs)[recency_slice], expected_reset, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(obs.recency), expected_reset, atol=1e-6)
 
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
     state, obs, _, _, _ = env.step(state, _jax_action(action), params)
 
     expected_step = np.zeros(env.num_nodes)
     expected_step[action] = 1.0
-    np.testing.assert_allclose(np.asarray(obs)[recency_slice], expected_step, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(obs.recency), expected_step, atol=1e-6)
     np.testing.assert_allclose(np.asarray(state.fixation_recency), expected_step, atol=1e-6)
 
 
@@ -221,7 +222,7 @@ def test_recency_decay_one_means_no_decay():
     action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
     state, obs, _, _, _ = env.step(state, _jax_action(action), params)
 
-    recency = np.asarray(obs)[-env.num_nodes - 1 : -1]
+    recency = np.asarray(obs.recency)
     expected = np.zeros(env.num_nodes)
     expected[int(state.root_node)] = 1.0
     expected[action] = 1.0
@@ -411,7 +412,11 @@ def test_compiled_rollout_matches_eager_rollout():
         np.testing.assert_allclose(np.asarray(compiled_leaf), np.asarray(eager_leaf), atol=1e-6)
 
     for eager_item, compiled_item in zip(eager[1:], compiled[1:]):
-        np.testing.assert_allclose(np.asarray(compiled_item), np.asarray(eager_item), atol=1e-6)
+        for eager_leaf, compiled_leaf in zip(
+            jax.tree_util.tree_leaves(eager_item),
+            jax.tree_util.tree_leaves(compiled_item),
+        ):
+            np.testing.assert_allclose(np.asarray(compiled_leaf), np.asarray(eager_leaf), atol=1e-6)
 
 def test_move_path_is_not_stored_in_environment_state():
     env = _env(num_nodes=7, t_max=3, shuffle_nodes=False)

@@ -118,6 +118,8 @@ def _global_norm(tree):
 
 
 def _select_reset_on_done(done: jax.Array, stepped: jax.Array, reset: jax.Array):
+    if stepped is None or reset is None:
+        return None
     selector = done
     while selector.ndim < stepped.ndim:
         selector = selector[..., None]
@@ -128,7 +130,6 @@ class JaxBatchMaskA2C:
     def __init__(
         self,
         env: JaxDecisionTreeEnv,
-        feature_size: int,
         action_size: int,
         hidden_size: int,
         num_envs: int,
@@ -145,7 +146,6 @@ class JaxBatchMaskA2C:
         adam_eps: float = 1e-8,
     ):
         self.env = env
-        self.feature_size = int(feature_size)
         self.action_size = int(action_size)
         self.hidden_size = int(hidden_size)
 
@@ -178,7 +178,7 @@ class JaxBatchMaskA2C:
 
         params = init_actor_critic_params(
             init_key,
-            feature_size=self.feature_size,
+            observation_template=self.env.observation_template,
             action_size=self.action_size,
             hidden_size=self.hidden_size,
             network_type=self.network_type,
@@ -252,7 +252,11 @@ class JaxBatchMaskA2C:
                 next_env_state,
                 reset_env_state,
             )
-            obs = _select_reset_on_done(dones, next_obs, reset_obs)
+            obs = jax.tree_util.tree_map(
+                lambda stepped, reset: _select_reset_on_done(dones, stepped, reset),
+                next_obs,
+                reset_obs,
+            )
             action_mask = _select_reset_on_done(dones, next_action_mask, reset_action_mask)
             running_return = running_return + rewards.astype(jnp.float32)
             running_length = running_length + one_mask

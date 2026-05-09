@@ -3,6 +3,8 @@ from typing import Dict
 import jax
 import jax.numpy as jnp
 
+from .environment import DecisionTreeObs
+
 
 NETWORK_MLP = "mlp"
 NETWORK_NODE_SHARED = "node_shared"
@@ -44,36 +46,39 @@ def init_mlp_actor_critic_params(
     return params
 
 
-def _node_feature_size(feature_size: int, action_size: int) -> int:
-    num_nodes = int(action_size) - 1
-    min_size = 8 * num_nodes + 2
-    allowed_sizes = {
-        min_size,
-        min_size + 1,
-        min_size + 2,
-        min_size + num_nodes,
-        min_size + num_nodes + 1,
-        min_size + num_nodes + 2,
-    }
-    if int(feature_size) not in allowed_sizes:
-        raise ValueError(
-            "node_shared network requires a supported decision-tree observation layout; "
-            f"got feature_size={feature_size}. Supported sizes: {sorted(allowed_sizes)}."
-        )
-    if int(feature_size) >= min_size + num_nodes:
-        return 10
-    if int(feature_size) == min_size:
-        return 9
-    return 9
+def flatten_observation(obs: DecisionTreeObs) -> jax.Array:
+    parts = [
+        obs.fixation,
+        obs.fixation_point,
+        obs.parent,
+        obs.child,
+        obs.root,
+        obs.g_values,
+        obs.q_values,
+        obs.n_visits,
+        obs.is_terminal,
+    ]
+    if obs.best_open_value is not None:
+        parts.append(obs.best_open_value)
+    if obs.best_terminal_value is not None:
+        parts.append(obs.best_terminal_value)
+    if obs.recency is not None:
+        parts.append(obs.recency)
+    parts.append(obs.time_elapsed)
+    return jnp.concatenate(parts, axis=-1)
 
 
 def init_node_shared_actor_critic_params(
     key: jax.Array,
-    feature_size: int,
-    action_size: int,
+    observation_template: DecisionTreeObs,
     hidden_size: int = 128,
 ) -> Dict[str, Dict[str, jax.Array]]:
-    node_feature_size = _node_feature_size(feature_size, action_size)
+    node_feature_size = 10 if observation_template.recency is not None else 9
+    global_feature_size = hidden_size * 2 + 2
+    if observation_template.best_open_value is not None:
+        global_feature_size += 1
+    if observation_template.best_terminal_value is not None:
+        global_feature_size += 1
     k1, k2, k3, k4, k5, k6 = jax.random.split(key, 6)
 
     return {
@@ -90,7 +95,7 @@ def init_node_shared_actor_critic_params(
             "b": jnp.zeros((1,), dtype=jnp.float32),
         },
         "global_fc": {
-            "w": _xavier_uniform(k4, hidden_size * 2 + 4, hidden_size),
+            "w": _xavier_uniform(k4, global_feature_size, hidden_size),
             "b": jnp.zeros((hidden_size,), dtype=jnp.float32),
         },
         "terminate": {
@@ -106,12 +111,13 @@ def init_node_shared_actor_critic_params(
 
 def init_actor_critic_params(
     key: jax.Array,
-    feature_size: int,
+    observation_template: DecisionTreeObs,
     action_size: int,
     hidden_size: int = 128,
     network_type: str = NETWORK_MLP,
 ) -> Dict[str, Dict[str, jax.Array]]:
     if network_type == NETWORK_MLP:
+        feature_size = int(flatten_observation(observation_template).shape[-1])
         return init_mlp_actor_critic_params(
             key,
             feature_size=feature_size,
@@ -121,8 +127,7 @@ def init_actor_critic_params(
     if network_type == NETWORK_NODE_SHARED:
         return init_node_shared_actor_critic_params(
             key,
-            feature_size=feature_size,
-            action_size=action_size,
+            observation_template=observation_template,
             hidden_size=hidden_size,
         )
     raise ValueError(f"Unknown network_type={network_type!r}. Expected one of {NETWORK_TYPES}.")
@@ -130,66 +135,6 @@ def init_actor_critic_params(
 
 def _linear(x: jax.Array, layer: Dict[str, jax.Array]) -> jax.Array:
     return x @ layer["w"] + layer["b"]
-
-
-def _split_node_observation(obs: jax.Array, num_nodes: int):
-    index = 0
-    fixation = obs[..., index : index + num_nodes]
-    index += num_nodes
-    fixation_point = obs[..., index : index + 1]
-    index += 1
-    parent = obs[..., index : index + num_nodes]
-    index += num_nodes
-    child = obs[..., index : index + num_nodes]
-    index += num_nodes
-    root = obs[..., index : index + num_nodes]
-    index += num_nodes
-    g_values = obs[..., index : index + num_nodes]
-    index += num_nodes
-    q_values = obs[..., index : index + num_nodes]
-    index += num_nodes
-    n_visits = obs[..., index : index + num_nodes]
-    index += num_nodes
-    is_terminal = obs[..., index : index + num_nodes]
-    index += num_nodes
-    remaining = obs.shape[-1] - index - 1
-    has_recency = remaining >= num_nodes
-    scalar_count = remaining - (num_nodes if has_recency else 0)
-
-    if scalar_count >= 1:
-        best_open_value = obs[..., index : index + 1]
-        index += 1
-    else:
-        best_open_value = jnp.full_like(fixation_point, -10.0)
-
-    if scalar_count >= 2:
-        best_terminal_value = obs[..., index : index + 1]
-        index += 1
-    else:
-        best_terminal_value = jnp.full_like(fixation_point, -10.0)
-
-    if has_recency:
-        recency = obs[..., index : index + num_nodes]
-        index += num_nodes
-    else:
-        recency = None
-
-    time_elapsed = obs[..., index : index + 1]
-    return (
-        fixation,
-        fixation_point,
-        parent,
-        child,
-        root,
-        g_values,
-        q_values,
-        n_visits,
-        is_terminal,
-        best_open_value,
-        best_terminal_value,
-        recency,
-        time_elapsed,
-    )
 
 
 def _masked_mean(values: jax.Array, mask: jax.Array) -> jax.Array:
@@ -209,31 +154,29 @@ def _masked_max(values: jax.Array, mask: jax.Array) -> jax.Array:
 
 def _node_shared_forward(
     params: Dict[str, Dict[str, jax.Array]],
-    obs: jax.Array,
+    obs: DecisionTreeObs,
     action_mask: jax.Array | None = None,
 ):
     if action_mask is None:
         raise ValueError("node_shared network requires action_mask.")
     num_nodes = action_mask.shape[-1] - 1
 
-    (
-        fixation,
-        fixation_point,
-        parent,
-        child,
-        root,
-        g_values,
-        q_values,
-        n_visits,
-        is_terminal,
-        best_open_value,
-        best_terminal_value,
-        recency,
-        time_elapsed,
-    ) = _split_node_observation(obs, num_nodes)
+    fixation = obs.fixation
+    fixation_point = obs.fixation_point
+    parent = obs.parent
+    child = obs.child
+    root = obs.root
+    g_values = obs.g_values
+    q_values = obs.q_values
+    n_visits = obs.n_visits
+    is_terminal = obs.is_terminal
+    best_open_value = obs.best_open_value
+    best_terminal_value = obs.best_terminal_value
+    recency = obs.recency
+    time_elapsed = obs.time_elapsed
 
     legal_nodes = action_mask[..., :num_nodes]
-    legal_feature = legal_nodes.astype(obs.dtype)
+    legal_feature = legal_nodes.astype(fixation.dtype)
 
     parts = [
         fixation,
@@ -257,10 +200,12 @@ def _node_shared_forward(
     legal_mean = _masked_mean(node_embeddings, legal_nodes)
     legal_max = _masked_max(node_embeddings, legal_nodes)
 
-    global_features = jnp.concatenate(
-        [legal_mean, legal_max, fixation_point, time_elapsed, best_open_value, best_terminal_value],
-        axis=-1,
-    )
+    global_parts = [legal_mean, legal_max, fixation_point, time_elapsed]
+    if best_open_value is not None:
+        global_parts.append(best_open_value)
+    if best_terminal_value is not None:
+        global_parts.append(best_terminal_value)
+    global_features = jnp.concatenate(global_parts, axis=-1)
     global_hidden = jax.nn.relu(_linear(global_features, params["global_fc"]))
     terminate_logit = _linear(global_hidden, params["terminate"]).squeeze(-1)
     value = _linear(global_hidden, params["value"]).squeeze(-1)
@@ -280,11 +225,13 @@ def _mlp_forward(params: Dict[str, Dict[str, jax.Array]], obs: jax.Array):
 
 def actor_critic_forward(
     params: Dict[str, Dict[str, jax.Array]],
-    obs: jax.Array,
+    obs: DecisionTreeObs | jax.Array,
     action_mask: jax.Array | None = None,
 ):
     if "node_fc1" in params:
         return _node_shared_forward(params, obs, action_mask)
+    if isinstance(obs, DecisionTreeObs):
+        obs = flatten_observation(obs)
     return _mlp_forward(params, obs)
 
 
