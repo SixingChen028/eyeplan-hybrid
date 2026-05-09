@@ -322,7 +322,7 @@ def resolve_training_geometry(params: dict) -> tuple[int, int, int]:
     )
 
 
-def parse_cli_value(raw: str, template_value):
+def _parse_cli_scalar(raw: str, template_value):
     if isinstance(template_value, bool):
         lowered = raw.strip().lower()
         if lowered in {"1", "true", "t", "yes", "y", "on"}:
@@ -335,6 +335,23 @@ def parse_cli_value(raw: str, template_value):
     if isinstance(template_value, float):
         return float(raw)
     return raw
+
+
+def parse_cli_value(raw: str, template_value):
+    if isinstance(template_value, list):
+        if not template_value:
+            raise ValueError("Cannot parse CLI override against an empty list template.")
+        return _parse_cli_scalar(raw, template_value[0])
+
+    if isinstance(template_value, tuple):
+        if not template_value:
+            raise ValueError("Cannot parse CLI override against an empty tuple template.")
+        items = [item.strip() for item in raw.split(",")]
+        if any(item == "" for item in items):
+            raise ValueError(f"Invalid tuple override value: {raw!r}")
+        return tuple(_parse_cli_scalar(item, template_value[0]) for item in items)
+
+    return _parse_cli_scalar(raw, template_value)
 
 
 def apply_cli_param_overrides(params: dict, override_tokens: list[str]) -> dict:

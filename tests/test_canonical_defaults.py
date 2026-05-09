@@ -28,6 +28,28 @@ def test_normalize_config_converts_point_set_list_to_tuple():
     assert normalized["params"]["point_set"] == (1, 3, 9)
 
 
+def test_cli_override_uses_array_element_type():
+    params = {"cost": [0.01, 0.02], "num_envs": [64, 128], "shuffle_nodes": [True, False]}
+
+    updated = config.apply_cli_param_overrides(
+        params,
+        ["--cost=0.03", "--num_envs=256", "--shuffle_nodes=false"],
+    )
+
+    assert updated["cost"] == 0.03
+    assert updated["num_envs"] == 256
+    assert updated["shuffle_nodes"] is False
+
+
+def test_cli_override_parses_tuple_values():
+    updated = config.apply_cli_param_overrides(
+        {"point_set": (-8, -4, 4, 8)},
+        ["--point_set=-2,2"],
+    )
+
+    assert updated["point_set"] == (-2, 2)
+
+
 def test_simulate_requires_scale_factor_in_metadata():
     metadata_args = {
         "num_nodes": 15,
