@@ -1,6 +1,6 @@
 [meta]
-experiment = "pareto_shared_v3"
-array_vars = ["seed"]
+experiment = "pareto_shared_v4"
+array_vars = []
 
 [environment]
 wm_decay = [0.0, 0.5, 1.0]
@@ -8,14 +8,14 @@ cost = [0.001, 0.01, 0.02, 0.03, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24]
 
 [training]
 beta_e_final = 0.0001
-seed = [1, 2]
-num_envs = [128, 256]
+num_envs = [64, 128]
+num_updates = [30_000, 50_000]
 
 [network]
 network_type = "node_shared"
 hidden_size = 64
 
 [sbatch]
-time = "1:30:00"
+time = "1:00:00"
 mem_per_cpu = "4000M"
 gpu = true
