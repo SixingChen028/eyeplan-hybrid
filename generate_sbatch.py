@@ -110,7 +110,7 @@ def _split_params(params: dict) -> tuple[dict[str, object], dict[str, list[objec
     scalars: dict[str, object] = {}
     arrays: dict[str, list[object]] = {}
     for key, value in params.items():
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list):
             items = list(value)
             if len(items) == 0:
                 raise ValueError(f"params.{key} must be a non-empty array.")
@@ -118,6 +118,15 @@ def _split_params(params: dict) -> tuple[dict[str, object], dict[str, list[objec
                 if not _is_scalar(item):
                     raise ValueError(f"params.{key}[{idx}] must be scalar, got {type(item).__name__}.")
             arrays[key] = items
+            continue
+        if isinstance(value, tuple):
+            items = list(value)
+            if len(items) == 0:
+                raise ValueError(f"params.{key} tuple must be non-empty.")
+            for idx, item in enumerate(items):
+                if not _is_scalar(item):
+                    raise ValueError(f"params.{key}[{idx}] must be scalar, got {type(item).__name__}.")
+            scalars[key] = value
             continue
         if not _is_scalar(value):
             raise ValueError(f"params.{key} must be scalar or array, got {type(value).__name__}.")

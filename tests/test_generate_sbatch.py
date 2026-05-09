@@ -1,9 +1,12 @@
+import os
 from pathlib import Path
+import subprocess
+import sys
 
-from generate_sbatch import _build_job_summary_lines, _render_script
+from generate_sbatch import DEFAULT_META, _build_job_summary_lines, _render_script
 
 
-def test_render_script_accepts_tuple_array_params():
+def test_render_script_keeps_point_set_tuple_as_single_param():
     config = {
         "meta": {
             "experiment": "tuple-point-set",
@@ -16,9 +19,53 @@ def test_render_script_accepts_tuple_array_params():
 
     script = _render_script(config, config_path=Path("config/test.toml"))
 
-    assert "#SBATCH --array=0-3" in script
-    assert 'POINT_SET_VALUES=(-3 -1 1 3)' in script
-    assert '--point_set="${POINT_SET_VALUE}"' in script
+    assert "#SBATCH --array=0-0" in script
+    assert "POINT_SET_VALUES=" not in script
+    assert '--point_set="${POINT_SET_VALUE}"' not in script
+
+
+def test_generated_script_executes_command_and_passes_only_selected_axes(tmp_path: Path, monkeypatch):
+    entrypoint = tmp_path / "echo_args.py"
+    entrypoint.write_text(
+        (
+            "import json\n"
+            "import sys\n"
+            "print(json.dumps(sys.argv[1:]))\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = {
+        "meta": {
+            "experiment": "exec-test",
+            "result_path": str(tmp_path / "results"),
+            "array_vars": ["seed"],
+        },
+        "params": {
+            "seed": [7, 9],
+            "point_set": (-3, -1, 1, 3),
+        },
+    }
+
+    monkeypatch.setitem(DEFAULT_META, "entrypoint", str(entrypoint))
+    monkeypatch.setitem(DEFAULT_META, "python", f"{sys.executable} -u")
+
+    script_path = tmp_path / "job.sh"
+    script_path.write_text(_render_script(config, config_path=Path("config/test.toml")), encoding="utf-8")
+    script_path.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "SLURM_ARRAY_TASK_ID": "0"},
+    )
+
+    assert "grid_task task_id=0 seed=7" in result.stdout
+    assert '["config/test.toml", "--path=' in result.stdout
+    assert '"--seed=7"' in result.stdout
+    assert "--point_set=" not in result.stdout
 
 
 def test_build_job_summary_lines_marks_array_axes_and_resources():
