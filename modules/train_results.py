@@ -12,7 +12,7 @@ import numpy as np
 
 from modules.a2c import save_jax_params
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
-from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams, make_decision_tree_params
+from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from modules.results_layout import create_run_dir, write_run_metadata
 from modules.simulation import JaxSimulator
 
@@ -32,8 +32,7 @@ def env_from_args(args: dict) -> JaxDecisionTreeEnv:
 
 
 def env_params_from_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecisionTreeParams:
-    return make_decision_tree_params(
-        env,
+    return env.make_params(
         **{key: args[key] for key in ENV_DYNAMIC_PARAM_KEYS},
     )
 

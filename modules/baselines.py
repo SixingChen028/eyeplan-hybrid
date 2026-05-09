@@ -400,8 +400,8 @@ def evaluate_baseline_policies(
     reset_keys: jax.Array,
 ) -> Tuple[List[PolicyStats], float, float]:
     layout = ObsLayout(env.num_nodes, use_recency_obs=getattr(env, "use_recency_obs", False))
-    reset_fn = jax.jit(lambda key: env.reset_with_params(key, env_params))
-    step_fn = jax.jit(lambda state, action: env.step_with_params(state, action, env_params))
+    reset_fn = jax.jit(lambda key: env.reset(key, env_params))
+    step_fn = jax.jit(lambda state, action: env.step(state, action, env_params))
 
     policy_returns = {name: [] for name in policy_names}
     policy_no_cost_scaled = {name: [] for name in policy_names}
@@ -484,8 +484,8 @@ def evaluate_network_greedy(
     params: Any,
     reset_keys: jax.Array,
 ) -> PolicyStats:
-    reset_fn = jax.jit(lambda key: env.reset_with_params(key, env_params))
-    step_fn = jax.jit(lambda state, action: env.step_with_params(state, action, env_params))
+    reset_fn = jax.jit(lambda key: env.reset(key, env_params))
+    step_fn = jax.jit(lambda state, action: env.step(state, action, env_params))
     forward_fn = jax.jit(actor_critic_forward)
 
     rewards = []

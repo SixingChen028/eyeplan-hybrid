@@ -11,7 +11,7 @@ from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
 from modules.a2c_sweep import VmappedA2CTrainer, build_hypers
 from modules.config import expand_sweep
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
-from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
+from modules.environment import JaxDecisionTreeEnv
 from modules.train_progress import train_with_progress
 from modules.train_results import save_results
 
@@ -35,7 +35,7 @@ def _env(**overrides):
 def _env_params(env, **overrides):
     params = {key: _DEFAULT_PARAMS[key] for key in ENV_DYNAMIC_PARAM_KEYS}
     params.update(overrides)
-    return make_decision_tree_params(env, **params)
+    return env.make_params(**params)
 
 
 def _small_params(**overrides):
@@ -102,15 +102,15 @@ def test_dynamic_env_params_match_default_env_for_same_values():
         cost=0.01,
     )
 
-    state_default, obs_default, info_default = env.reset_with_params(key, params)
-    state_dynamic, obs_dynamic, info_dynamic = env.reset_with_params(key, params)
+    state_default, obs_default, info_default = env.reset(key, params)
+    state_dynamic, obs_dynamic, info_dynamic = env.reset(key, params)
 
     np.testing.assert_allclose(np.asarray(obs_dynamic), np.asarray(obs_default), atol=1e-6)
     np.testing.assert_array_equal(np.asarray(info_dynamic["mask"]), np.asarray(info_default["mask"]))
 
     action = jnp.asarray(1, dtype=jnp.int32)
-    default_step = env.step_with_params(state_default, action, params)
-    dynamic_step = env.step_with_params(state_dynamic, action, params)
+    default_step = env.step(state_default, action, params)
+    dynamic_step = env.step(state_dynamic, action, params)
 
     for dynamic_leaf, default_leaf in zip(
         jax.tree_util.tree_leaves(dynamic_step[0]),
@@ -346,7 +346,7 @@ import numpy as np
 import jax
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
-from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
+from modules.environment import JaxDecisionTreeEnv
 
 env = JaxDecisionTreeEnv(
     num_nodes=15,
@@ -367,8 +367,7 @@ trainer = JaxBatchMaskA2C(
     beta_v=0.05,
     beta_e=0.05,
 )
-env_params = make_decision_tree_params(
-    env,
+env_params = env.make_params(
     beta_move=40.0,
     eps_move=0.0,
     learning_rate=1.0,

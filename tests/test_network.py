@@ -2,7 +2,7 @@ import jax
 import numpy as np
 
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
-from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
+from modules.environment import JaxDecisionTreeEnv
 from modules.network import (
     NETWORK_NODE_SHARED,
     actor_critic_forward,
@@ -30,7 +30,7 @@ def _env(**overrides):
 def _env_params(env, **overrides):
     params = {key: _DEFAULT_PARAMS[key] for key in ENV_DYNAMIC_PARAM_KEYS}
     params.update(overrides)
-    return make_decision_tree_params(env, **params)
+    return env.make_params(**params)
 
 
 def _permute_node_observation(obs, permutation, has_recency=False):
@@ -67,7 +67,7 @@ def _permute_node_observation(obs, permutation, has_recency=False):
 
 def test_mlp_forward_shape_is_unchanged():
     env = _env(num_nodes=5, shuffle_nodes=False)
-    _, obs, info = env.reset_with_params(jax.random.PRNGKey(0), _env_params(env))
+    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
     params = init_mlp_actor_critic_params(
         jax.random.PRNGKey(1),
         feature_size=env.observation_shape[0],
@@ -84,7 +84,7 @@ def test_mlp_forward_shape_is_unchanged():
 def test_node_shared_forward_shape_with_and_without_recency():
     for use_recency_obs, recency_decay in [(False, 0.0), (True, 0.5)]:
         env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=use_recency_obs)
-        _, obs, info = env.reset_with_params(jax.random.PRNGKey(0), _env_params(env, recency_decay=recency_decay))
+        _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=recency_decay))
         params = init_actor_critic_params(
             jax.random.PRNGKey(1),
             feature_size=env.observation_shape[0],
@@ -103,7 +103,7 @@ def test_node_shared_forward_shape_with_and_without_recency():
 
 def test_node_shared_forward_is_permutation_equivariant_for_node_logits():
     env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=True)
-    _, obs, info = env.reset_with_params(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
+    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),
         feature_size=env.observation_shape[0],

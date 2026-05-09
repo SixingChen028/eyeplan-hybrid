@@ -190,7 +190,7 @@ class JaxBatchMaskA2C:
             v=_zeros_like_tree(params),
         )
         reset_keys = jax.random.split(reset_key, self.num_envs)
-        env_state, obs, info = jax.vmap(self.env.reset_with_params, in_axes=(0, None))(reset_keys, env_params)
+        env_state, obs, info = jax.vmap(self.env.reset, in_axes=(0, None))(reset_keys, env_params)
         rollout_state = RolloutState(
             env_state=env_state,
             obs=obs,
@@ -235,14 +235,14 @@ class JaxBatchMaskA2C:
             actions, log_probs, entropies = sample_actions(action_key, logits, action_mask)
 
             next_env_state, next_obs, rewards, dones, info = jax.vmap(
-                self.env.step_with_params,
+                self.env.step,
                 in_axes=(0, 0, None),
             )(env_state, actions, train_params.env)
             next_action_mask = info["mask"]
 
             reset_keys = jax.random.split(reset_key, self.num_envs)
             reset_env_state, reset_obs, reset_info = jax.vmap(
-                self.env.reset_with_params,
+                self.env.reset,
                 in_axes=(0, None),
             )(reset_keys, train_params.env)
             reset_action_mask = reset_info["mask"]

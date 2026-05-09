@@ -73,7 +73,7 @@ class JaxSimulator:
 
     def _run_trial(self, params: Any, rng_key: jax.Array, greedy: bool = False):
         env_params = self.env_params
-        state, obs, info = self.env.reset_with_params(rng_key, env_params)
+        state, obs, info = self.env.reset(rng_key, env_params)
         action_mask = info["mask"]
 
         action_seq = -jnp.ones((self.env.t_max,), dtype=jnp.int32)
@@ -140,7 +140,7 @@ class JaxSimulator:
             else:
                 action, rng_key = sampled_action(rng_key)
             raw_action = action
-            state, obs, _, done, info = self.env.step_with_params(state, action, env_params)
+            state, obs, _, done, info = self.env.step(state, action, env_params)
             action_mask = info["mask"]
             action_seq = action_seq.at[step_count].set(raw_action)
             step_count = step_count + 1
@@ -211,7 +211,7 @@ class JaxSimulator:
 
     def _run_trial_metrics(self, params: Any, rng_key: jax.Array, greedy: bool = False):
         env_params = self.env_params
-        state, obs, info = self.env.reset_with_params(rng_key, env_params)
+        state, obs, info = self.env.reset(rng_key, env_params)
         action_mask = info["mask"]
 
         carry = (
@@ -251,7 +251,7 @@ class JaxSimulator:
                 rng_key,
             )
 
-            state, obs, reward, done, info = self.env.step_with_params(state, action, env_params)
+            state, obs, reward, done, info = self.env.step(state, action, env_params)
             action_mask = info["mask"]
             step_count = step_count + 1
             episode_reward = episode_reward + reward

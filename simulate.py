@@ -7,7 +7,7 @@ import traceback
 
 from modules.a2c import load_jax_params
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
-from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
+from modules.environment import JaxDecisionTreeEnv
 from modules.results_layout import resolve_analysis_target
 from modules.simulation import JaxSimulator
 
@@ -54,8 +54,7 @@ def _build_env_params_from_metadata_args(env: JaxDecisionTreeEnv, metadata_args:
     _require_metadata_keys(metadata_args, ENV_DYNAMIC_PARAM_KEYS, "environment dynamic")
     recency_decay = metadata_args["recency_decay"]
 
-    return make_decision_tree_params(
-        env,
+    return env.make_params(
         beta_move=float(metadata_args["beta_move"]),
         eps_move=float(metadata_args["eps_move"]),
         learning_rate=float(metadata_args["learning_rate"]),

@@ -2,7 +2,7 @@ import numpy as np
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
-from modules.environment import JaxDecisionTreeEnv, make_decision_tree_params
+from modules.environment import JaxDecisionTreeEnv
 from modules.simulation import JaxSimulator, append_simulation_trial, empty_simulation_data
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
@@ -25,7 +25,7 @@ def _env(**overrides):
 def _env_params(env, **overrides):
     params = {key: _DEFAULT_PARAMS[key] for key in ENV_DYNAMIC_PARAM_KEYS}
     params.update(overrides)
-    return make_decision_tree_params(env, **params)
+    return env.make_params(**params)
 
 
 def _train_params(env_params):
