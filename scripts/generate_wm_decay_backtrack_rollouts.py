@@ -81,6 +81,7 @@ def _choose_action(
     if step_idx >= t_max - 1:
         return num_nodes
 
+    root = int(state.root_node)
     parent = int(parent_nodes[current])
     can_backtrack = parent >= 0 and bool(action_mask[parent])
 
@@ -90,18 +91,31 @@ def _choose_action(
         if child >= 0 and bool(action_mask[int(child)])
     ]
 
-    if step_idx >= min_steps_before_terminate and len(children) == 0:
-        return num_nodes
-
     if can_backtrack and rng.random() < backtrack_prob:
         return parent
 
     if children:
+        n_visits = np.asarray(state.n_visits)
         q_values = np.asarray(state.q_values)
-        child_scores = q_values[children]
+        child_visits = n_visits[children]
+        min_visits = np.min(child_visits)
+        least_visited_children = [
+            child for child, visits in zip(children, child_visits) if visits == min_visits
+        ]
+        child_scores = q_values[least_visited_children]
         best_score = np.max(child_scores)
-        best_children = [child for child, score in zip(children, child_scores) if score == best_score]
+        best_children = [
+            child
+            for child, score in zip(least_visited_children, child_scores)
+            if score == best_score
+        ]
         return int(rng.choice(best_children))
+
+    if bool(action_mask[root]):
+        return root
+
+    if step_idx >= min_steps_before_terminate:
+        return num_nodes
 
     if can_backtrack:
         return parent
@@ -292,15 +306,12 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=15)
     parser.add_argument("--num-trials", type=int, default=30)
     parser.add_argument("--backtrack-prob", type=float, default=0.2)
-    parser.add_argument("--min-steps-before-terminate", type=int, default=10)
-    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--min-steps-before-terminate", type=int, default=20)
     args = parser.parse_args()
 
     _, base_params = load_canonical_defaults()
     source_dir = (args.results_root / args.name).resolve()
     if source_dir.exists():
-        if not args.overwrite:
-            raise SystemExit(f"Refusing to overwrite existing directory: {source_dir}")
         shutil.rmtree(source_dir)
     source_dir.mkdir(parents=True)
 
