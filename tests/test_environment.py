@@ -547,7 +547,7 @@ def test_backup_steps_limits_ancestor_depth():
     )
 
 
-def test_wm_decay_zero_multi_step_backup_uses_previous_activation():
+def test_wm_decay_zero_multi_step_backup_uses_refreshed_activation():
     env = _env(num_nodes=7, shuffle_nodes=False, wm_backup=True)
     params = _env_params(
         env,
@@ -579,7 +579,7 @@ def test_wm_decay_zero_multi_step_backup_uses_previous_activation():
 
     np.testing.assert_allclose(
         np.asarray(state.q_values),
-        np.array([111.0, 111.0, 110.0, 100.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        np.array([11.0, 11.0, 110.0, 100.0, 0.0, 0.0, 0.0], dtype=np.float32),
         atol=1e-6,
     )
 

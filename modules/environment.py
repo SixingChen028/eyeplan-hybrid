@@ -271,8 +271,8 @@ class JaxDecisionTreeEnv:
             n_visits=state.n_visits.at[node].add(1),
             fixation_recency=state.fixation_recency.at[node].set(1.0),
         )
-        state = self._update_q(state, params)
         state = self._update_activation(state, params)
+        state = self._update_q(state, params)
         state = self._corrupt_q_values(state, params)
         return state
 
