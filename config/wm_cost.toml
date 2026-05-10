@@ -1,0 +1,21 @@
+[meta]
+experiment = "pareto_shared_v5"
+array_vars = ["seed"]
+
+[environment]
+wm_decay = [0.0, 0.5, 0.75, 0.875, 1]
+cost = [0.001, 0.005, 0.01, 0.02, 0.04, 0.08, 0.16]
+
+[training]
+num_envs = 64
+num_updates = 30_000
+seed = [1, 2, 3]
+
+[network]
+network_type = "node_shared"
+hidden_size = 64
+
+[sbatch]
+time = "1:00:00"
+mem_per_cpu = "4000M"
+gpu = true
