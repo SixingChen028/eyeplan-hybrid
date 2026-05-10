@@ -1,15 +1,15 @@
 [meta]
-experiment = "pareto_shared_v4"
+experiment = "pareto_shared_v5"
 array_vars = []
 
 [environment]
-wm_decay = [0.0, 0.5, 1.0]
+wm_decay = [0.0, 0.5, 0.75]
 cost = [0.001, 0.01, 0.02, 0.03, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24]
 
 [training]
 beta_e_final = 0.0001
-num_envs = [64, 128]
-num_updates = [30_000, 50_000]
+num_envs = 64
+num_updates = 30_000
 
 [network]
 network_type = "node_shared"
