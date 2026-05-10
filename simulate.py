@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import pickle
+import subprocess
 import sys
 import traceback
 
@@ -248,8 +249,11 @@ def main() -> None:
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--skip_timeout_trials", action="store_true")
     parser.add_argument("--detailed", action="store_true")
+    parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--seed-filter", type=int, default=None)
     args = parser.parse_args()
+    if args.viewer:
+        args.detailed = True
     if args.seed_filter is None and args.detailed:
         args.seed_filter = 1
     num_trials = args.num_trials
@@ -300,6 +304,7 @@ def main() -> None:
 
     idx = 0
     total = len(runs_to_simulate)
+    simulated_experiments: set[str] = set()
 
     for experiment, run_dir in runs_to_simulate:
         try:
@@ -318,6 +323,7 @@ def main() -> None:
                 detailed=args.detailed,
             )
             print(f"{idx+1:>2}/{total:<3} {output_path}")
+            simulated_experiments.add(experiment)
             idx += 1
             # print(
             #     f"output_json={output_path} "
@@ -333,6 +339,18 @@ def main() -> None:
             print(f"Error simulating run: {run_dir}", file=sys.stderr)
             traceback.print_exc()
             continue
+
+    if args.viewer and simulated_experiments:
+        viewer_root = os.path.expanduser("~/projects/eyeplan/tree-viewer")
+        experiment_dirs = [
+            os.path.abspath(os.path.join(args.results_root, "runs", experiment))
+            for experiment in sorted(simulated_experiments)
+        ]
+        subprocess.run(
+            ["bun", "scripts/reformat-sim15.mjs", *experiment_dirs],
+            cwd=viewer_root,
+            check=True,
+        )
 
     if had_error:
         raise SystemExit(1)
