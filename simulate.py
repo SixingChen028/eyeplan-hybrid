@@ -121,18 +121,6 @@ def _round_floats(value):
     return value
 
 
-def _freeze_for_cache(value):
-    if isinstance(value, dict):
-        return tuple((key, _freeze_for_cache(val)) for key, val in sorted(value.items()))
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_for_cache(item) for item in value)
-    return value
-
-
-def _simulator_cache_key(metadata_args: dict) -> tuple:
-    return tuple(_freeze_for_cache(metadata_args[key]) for key in ENV_STATIC_PARAM_KEYS)
-
-
 def _expected_num_updates(metadata_args: dict) -> int:
     num_updates = int(metadata_args.get("num_updates", 0))
     if num_updates <= 0:
@@ -213,11 +201,9 @@ def _is_complete_run(run_dir: str) -> bool:
 
 def _simulate_run(
     run_dir: str,
-    simulator: JaxSimulator,
     *,
     output_path: str,
     num_trials: int,
-    batch_size: int,
     greedy: bool,
     skip_timeout_trials: bool,
     detailed: bool,
@@ -225,18 +211,18 @@ def _simulate_run(
 
     metadata = _read_metadata(run_dir)
     metadata_args = _read_metadata_args(run_dir)
-    env_params = _build_env_params_from_metadata_args(simulator.env, metadata_args)
+    env = _build_env_from_metadata_args(metadata_args)
+    env_params = _build_env_params_from_metadata_args(env, metadata_args)
 
     params_path = _resolve_params_path_from_metadata(run_dir, metadata)
     params = load_jax_params(params_path)
 
     seed = int(metadata_args.get("seed", 15))
+    simulator = JaxSimulator(env, env_params=env_params)
     data = simulator.simulate(
         params=params,
-        env_params=env_params,
         seed=seed,
         num_trials=num_trials,
-        batch_size=batch_size,
         greedy=greedy,
         detailed=detailed,
         skip_timeout_trials=skip_timeout_trials,
@@ -263,7 +249,6 @@ def main() -> None:
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--skip_timeout_trials", action="store_true")
     parser.add_argument("--detailed", action="store_true")
-    parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--seed-filter", type=int, default=None)
     args = parser.parse_args()
@@ -274,9 +259,6 @@ def main() -> None:
     num_trials = args.num_trials
     if num_trials is None:
         num_trials = 100 if args.detailed else 10_240
-    batch_size = args.batch_size
-    if batch_size is None:
-        batch_size = 256 if args.detailed else 2048
 
     runs_to_simulate: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -323,18 +305,9 @@ def main() -> None:
     idx = 0
     total = len(runs_to_simulate)
     simulated_experiments: set[str] = set()
-    simulators: dict[tuple, JaxSimulator] = {}
 
     for experiment, run_dir in runs_to_simulate:
         try:
-            metadata_args = _read_metadata_args(run_dir)
-            simulator_key = _simulator_cache_key(metadata_args)
-            simulator = simulators.get(simulator_key)
-            if simulator is None:
-                env = _build_env_from_metadata_args(metadata_args)
-                simulator = JaxSimulator(env)
-                simulators[simulator_key] = simulator
-
             output_path = args.output
             if output_path == "":
                 output_name = "data_simulation_detailed.json" if args.detailed else "data_simulation.json"
@@ -343,10 +316,8 @@ def main() -> None:
 
             params_path, seed, num_trials_raw, num_trials_exported = _simulate_run(
                 run_dir=run_dir,
-                simulator=simulator,
                 output_path=output_path,
                 num_trials=num_trials,
-                batch_size=batch_size,
                 greedy=args.greedy,
                 skip_timeout_trials=args.skip_timeout_trials,
                 detailed=args.detailed,

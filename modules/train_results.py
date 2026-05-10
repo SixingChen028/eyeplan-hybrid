@@ -150,7 +150,7 @@ def save_results(
         env_key = env_cache_key(run)
         if env_key not in simulators:
             env = env_from_args(run)
-            simulators[env_key] = JaxSimulator(env)
+            simulators[env_key] = JaxSimulator(env, env_params=env_params_from_args(env, run))
         simulator = simulators[env_key]
         run_dir = run_dirs[run_index]
 
@@ -169,7 +169,6 @@ def save_results(
         eval_episodes = int(run["eval_episodes"])
         eval_stats = simulator.evaluate_policy(
             params=state.params,
-            env_params=env_params_from_args(simulator.env, run),
             seed=int(run["seed"]),
             num_trials=eval_episodes,
             greedy=True,
