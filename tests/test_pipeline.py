@@ -130,9 +130,10 @@ def test_jax_simulator_runs_trials():
 
     env_params = _env_params(env)
     state = trainer.init_state(seed=1, env_params=env_params)
-    simulator = JaxSimulator(env, env_params)
+    simulator = JaxSimulator(env)
     data = simulator.simulate(
         params=state.params,
+        env_params=env_params,
         seed=1,
         num_trials=5,
         greedy=False,
@@ -169,9 +170,10 @@ def test_jax_simulator_runs_node_shared_trials():
 
     env_params = _env_params(env)
     state = trainer.init_state(seed=1, env_params=env_params)
-    simulator = JaxSimulator(env, env_params)
+    simulator = JaxSimulator(env)
     data = simulator.simulate(
         params=state.params,
+        env_params=env_params,
         seed=1,
         num_trials=5,
         greedy=False,
@@ -206,9 +208,10 @@ def test_jax_simulator_runs_detailed_trials():
 
     env_params = _env_params(env)
     state = trainer.init_state(seed=1, env_params=env_params)
-    simulator = JaxSimulator(env, env_params)
+    simulator = JaxSimulator(env)
     data = simulator.simulate(
         params=state.params,
+        env_params=env_params,
         seed=1,
         num_trials=5,
         greedy=False,
@@ -251,9 +254,10 @@ def test_jax_simulator_records_forced_terminal_action():
 
     env_params = _env_params(env)
     state = trainer.init_state(seed=3, env_params=env_params)
-    simulator = JaxSimulator(env, env_params)
+    simulator = JaxSimulator(env)
     data = simulator.simulate(
         params=state.params,
+        env_params=env_params,
         seed=3,
         num_trials=4,
         greedy=False,
@@ -288,9 +292,10 @@ def test_jax_simulator_evaluate_policy_returns_summary_stats():
 
     env_params = _env_params(env)
     state = trainer.init_state(seed=2, env_params=env_params)
-    simulator = JaxSimulator(env, env_params)
+    simulator = JaxSimulator(env)
     summary = simulator.evaluate_policy(
         params=state.params,
+        env_params=env_params,
         seed=2,
         num_trials=17,
         greedy=True,
