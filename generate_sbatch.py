@@ -295,14 +295,25 @@ def _build_job_summary_lines(config: dict, config_path: Path) -> list[str]:
     _, array_params = _split_params(params)
     selected_axes = set(_selected_array_axes(meta, array_params))
 
+    array_combination_count = 1
+    for key in sorted(selected_axes):
+        array_combination_count *= len(array_params[key])
+
+    vmap_keys = sorted(key for key in array_params if key not in selected_axes)
+    vmap_combination_count = 1
+    for key in vmap_keys:
+        vmap_combination_count *= len(array_params[key])
+
     lines: list[str] = []
-    lines.append("Job summary:")
-    if array_params:
-        for key in sorted(array_params):
-            mode = "array" if key in selected_axes else "not array"
-            lines.append(f"  - {key} ({mode}): {_format_summary_value(array_params[key])}")
-    else:
-        lines.append("  - No varied parameters.")
+    lines.append(f"Array parameters: {array_combination_count} combinations")
+    if selected_axes:
+        for key in sorted(selected_axes):
+            lines.append(f"  - {key}: {_format_summary_value(array_params[key])}")
+
+    lines.append(f"Vmap parameters: {vmap_combination_count} combinations")
+    if vmap_keys:
+        for key in vmap_keys:
+            lines.append(f"  - {key}: {_format_summary_value(array_params[key])}")
 
     resource_label = "gpu:1" if bool(sbatch.get("gpu", False)) else f"cpu:{sbatch['cpus_per_task']}"
     lines.append(
@@ -338,8 +349,6 @@ def main() -> None:
         for line in _build_job_summary_lines(config, config_path):
             print(line)
         submit_cmd = ["sbatch", str(output_path)]
-        print("Command to run:")
-        print(" " + " ".join(shlex.quote(part) for part in submit_cmd))
         confirm = input("Submit job? [y/N] ").strip().lower()
         if confirm != "y":
             print("Cancelled.")
