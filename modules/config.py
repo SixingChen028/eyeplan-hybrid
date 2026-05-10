@@ -66,21 +66,21 @@ PARAM_DEFAULTS = {
         # Global gradient norm clipping threshold.
         "max_grad_norm": 2.0,
         # Number of A2C optimization updates to run.
-        "num_updates": 50000,
+        "num_updates": 30000,
         # Number of parallel training environments.
-        "num_envs": 256,
+        "num_envs": 128,
         # Number of environment steps collected per update.
         "rollout_length": 50,
         # Number of evaluation episodes run after training.
         "eval_episodes": 102400,
         # Random seed for a training run.
-        "seed": 15,
+        "seed": 1,
     },
     "network": {
         # Policy/value network architecture identifier. mlp|node_shared
-        "network_type": "mlp",
+        "network_type": "node_shared",
         # Hidden layer width for network architectures that use dense hidden layers.
-        "hidden_size": 256,
+        "hidden_size": 64,
     },
     "meta": {
         # Directory where run outputs are written.
