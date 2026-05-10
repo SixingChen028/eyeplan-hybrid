@@ -547,6 +547,43 @@ def test_backup_steps_limits_ancestor_depth():
     )
 
 
+def test_wm_decay_zero_multi_step_backup_uses_previous_activation():
+    env = _env(num_nodes=7, shuffle_nodes=False, wm_backup=True)
+    params = _env_params(
+        env,
+        learning_rate=1.0,
+        lamda_backup=1.0,
+        backup_steps=100,
+        wm_decay=0.0,
+    )
+    child_nodes = jnp.array(
+        [[1, -1], [2, -1], [3, -1], [4, -1], [5, -1], [-1, -1], [-1, -1]],
+        dtype=jnp.int32,
+    )
+    parent_nodes = jnp.array([-1, 0, 1, 2, 3, 4, -1], dtype=jnp.int32)
+    points = jnp.array([0.0, 1.0, 10.0, 100.0, 1000.0, 10000.0, 0.0], dtype=jnp.float32)
+
+    state = env._sample_initial_state(jax.random.PRNGKey(0))
+    state = state._replace(
+        child_nodes=child_nodes,
+        parent_nodes=parent_nodes,
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(0, dtype=jnp.int32),
+        points=points,
+        q_values=jnp.zeros((7,), dtype=jnp.float32),
+        activation=jnp.zeros((7,), dtype=jnp.float32),
+    )
+
+    for action in [0, 1, 2, 3]:
+        state = env._look(state, _jax_action(action), params)
+
+    np.testing.assert_allclose(
+        np.asarray(state.q_values),
+        np.array([111.0, 111.0, 110.0, 100.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        atol=1e-6,
+    )
+
+
 def test_wm_backup_stops_at_inactive_ancestor():
     child_nodes = jnp.array(
         [
