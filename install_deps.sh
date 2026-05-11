@@ -12,20 +12,26 @@ if [[ $# -ne 0 ]]; then
     exit 1
 fi
 
-# Install uv.
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Install uv if not already present.
+if ! command -v uv &>/dev/null && [[ ! -x "$HOME/.local/bin/uv" ]]; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
 export PATH="$HOME/.local/bin:$PATH"
 
-# Install modern Python and create venv.
-uv python install 3.12
-uv venv --python 3.12 .venv
+# Create venv if it doesn't already exist.
+if [[ ! -d .venv ]]; then
+    uv python install 3.12
+    uv venv --python 3.12 .venv
+fi
 source .venv/bin/activate
 
-# Install deps.
-uv pip install -U pip
+# Install deps only when missing.
+uv pip install pip
 if [[ "${USE_GPU}" == "true" ]]; then
-    uv pip install -U "jax[cuda12]"
+    uv pip install "jax[cuda12]"
 else
-    uv pip install -U "jax"
+    uv pip install "jax"
 fi
-uv pip install -U numpy pandas matplotlib pytest
+uv pip install numpy pandas matplotlib pytest
+
+pytest
