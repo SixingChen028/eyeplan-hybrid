@@ -7,19 +7,15 @@ how working memory constraints shape human planning strategies.
 
 In this codebase, the "environment" should be understood as a cognitive
 architecture. It is internal to the agent, but it is not under the agent's
-direct control: the model can choose how to deliberate, but it cannot choose to
-increase its working memory capacity or reduce the cost of deliberation.
+direct control. The core assumptions of the cognitive architecture are:
 
-The core assumptions of the cognitive architecture are:
-
-- Operations can only be performed on information currently available in working
-  memory.
+- Operations can only be performed on information currently available in working memory.
 - Information in working memory decays rapidly.
 - Value information can be stored in and retrieved from persistent memory.
 
 Keep this framing explicit when naming concepts, writing comments, adding config
 options, or documenting behavior. Avoid language that implies the environment is
-an external task world unless that distinction is intentional.
+an external task world unless that distinction is intentional. Note that WM stands for working memory (e.g. `wm_decay`). 
 
 ## Repository Layout
 
