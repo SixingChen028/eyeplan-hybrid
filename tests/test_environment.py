@@ -247,6 +247,34 @@ def test_update_activation_preserves_q_values():
     np.testing.assert_allclose(np.asarray(state.q_values), np.asarray(q_values), atol=1e-6)
 
 
+def test_update_activation_tracks_consumed_rng_key():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+    )
+    params = _env_params(env)
+    state, _, _ = env.reset(jax.random.PRNGKey(17), params)
+    expected_key, _ = jax.random.split(state.rng_key)
+
+    state = env._update_activation(state, params)
+
+    np.testing.assert_array_equal(np.asarray(state.rng_key), np.asarray(expected_key))
+
+
+def test_corrupt_q_values_tracks_consumed_rng_key():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+    )
+    params = _env_params(env)
+    state, _, _ = env.reset(jax.random.PRNGKey(18), params)
+    expected_key, _, _ = jax.random.split(state.rng_key, 3)
+
+    state = env._corrupt_q_values(state, params)
+
+    np.testing.assert_array_equal(np.asarray(state.rng_key), np.asarray(expected_key))
+
+
 def test_q_drop_rate_resets_inactive_q_values():
     env = _env(
         num_nodes=7,

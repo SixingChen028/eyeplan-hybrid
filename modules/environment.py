@@ -295,20 +295,21 @@ class JaxDecisionTreeEnv:
         keep = jax.random.uniform(drop_key, shape=(self.num_nodes,)) < activation
         activation = jnp.where(keep, activation, 0.0)
 
-        return state._replace(activation=activation)
+        return state._replace(
+            rng_key=key,
+            activation=activation,
+        )
 
     def _corrupt_q_values(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
-        key = state.rng_key
+        key, q_drift_key, q_drop_key = jax.random.split(state.rng_key, 3)
         inactive = state.activation == 0.0
 
         # add noise/drift to q values outside of WM
-        key, q_drift_key = jax.random.split(key)
         q_values = jnp.where(inactive, state.q_values * params.q_decay, state.q_values)
         q_noise = jax.random.normal(q_drift_key, shape=(self.num_nodes,)) * params.q_drift
         q_values = jnp.where(inactive, q_values + q_noise, q_values)
 
         # stochastically drop q values outside of WM
-        key, q_drop_key = jax.random.split(key)
         q_drop_mask = inactive & (
             jax.random.uniform(q_drop_key, shape=(self.num_nodes,)) < params.q_drop_rate
         )
