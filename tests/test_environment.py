@@ -247,6 +247,30 @@ def test_update_activation_preserves_q_values():
     np.testing.assert_allclose(np.asarray(state.q_values), np.asarray(q_values), atol=1e-6)
 
 
+def test_update_activation_refreshes_fixation_neighborhood_after_drop():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+    )
+    params = _env_params(env, wm_decay=0.0)
+    state = env._sample_initial_state(jax.random.PRNGKey(18))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(1, dtype=jnp.int32),
+        child_nodes=jnp.array(
+            [[1, 2], [3, 4], [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1]],
+            dtype=jnp.int32,
+        ),
+        parent_nodes=jnp.array([-1, 0, 0, 1, 1, -1, -1], dtype=jnp.int32),
+        activation=jnp.ones((7,), dtype=jnp.float32),
+    )
+
+    state = env._update_activation(state, params)
+
+    expected_activation = np.array([1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    np.testing.assert_array_equal(np.asarray(state.activation), expected_activation)
+
+
 def test_update_activation_tracks_consumed_rng_key():
     env = _env(
         num_nodes=7,

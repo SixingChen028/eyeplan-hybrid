@@ -283,17 +283,17 @@ class JaxDecisionTreeEnv:
         activation = state.activation * params.wm_decay
         activation = jnp.clip(activation, 0.0, 1.0)
 
+        # stochastically drop nodes from WM
+        key, drop_key = jax.random.split(state.rng_key)
+        keep = jax.random.uniform(drop_key, shape=(self.num_nodes,)) < activation
+        activation = jnp.where(keep, activation, 0.0)
+
         # activate fixated, parent, children
         activation = activation.at[node].set(1.0)
         activation = safe_set(activation, state.parent_nodes[node], 1.0)
         activation = safe_set(activation, state.child_nodes[node], 1.0)
         # root is always active
         activation = activation.at[state.root_node].set(1.0)
-
-        # stochastically drop nodes from WM
-        key, drop_key = jax.random.split(state.rng_key)
-        keep = jax.random.uniform(drop_key, shape=(self.num_nodes,)) < activation
-        activation = jnp.where(keep, activation, 0.0)
 
         return state._replace(
             rng_key=key,
