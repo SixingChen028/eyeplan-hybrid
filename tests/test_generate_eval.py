@@ -13,7 +13,7 @@ def test_generate_eval_skips_run_without_params(tmp_path: Path):
     result = subprocess.run(
         [
             sys.executable,
-            "generate_eval.py",
+            "evaluate.py",
             "experiment",
             "--results_root",
             str(results_root),
