@@ -77,6 +77,7 @@ class JaxSimulator:
         self._trial_jit = jax.jit(self._run_trial, static_argnames=("greedy",))
         self._trial_batch_jit = jax.jit(self._run_trial_batch, static_argnames=("greedy",))
         self._eval_batch_jit = jax.jit(self._run_eval_batch, static_argnames=("greedy",))
+        self._eval_batch_for_env_jit = jax.jit(self._run_eval_batch_for_env, static_argnames=("greedy",))
 
     def _run_trial(self, params: Any, rng_key: jax.Array, greedy: bool = False):
         env_params = self.env_params
@@ -217,7 +218,15 @@ class JaxSimulator:
         )
 
     def _run_trial_metrics(self, params: Any, rng_key: jax.Array, greedy: bool = False):
-        env_params = self.env_params
+        return self._run_trial_metrics_for_env(params, self.env_params, rng_key, greedy=greedy)
+
+    def _run_trial_metrics_for_env(
+        self,
+        params: Any,
+        env_params: JaxDecisionTreeParams,
+        rng_key: jax.Array,
+        greedy: bool = False,
+    ):
         state, obs, info = self.env.reset(rng_key, env_params)
         action_mask = info["mask"]
 
@@ -280,6 +289,18 @@ class JaxSimulator:
     def _run_eval_batch(self, params: Any, trial_keys: jax.Array, greedy: bool = False):
         rewards, rewards_no_cost, steps, _ = jax.vmap(
             lambda key: self._run_trial_metrics(params, key, greedy=greedy)
+        )(trial_keys)
+        return rewards, rewards_no_cost, steps
+
+    def _run_eval_batch_for_env(
+        self,
+        params: Any,
+        env_params: JaxDecisionTreeParams,
+        trial_keys: jax.Array,
+        greedy: bool = False,
+    ):
+        rewards, rewards_no_cost, steps, _ = jax.vmap(
+            lambda key: self._run_trial_metrics_for_env(params, env_params, key, greedy=greedy)
         )(trial_keys)
         return rewards, rewards_no_cost, steps
 
@@ -412,6 +433,23 @@ class JaxSimulator:
         greedy: bool = True,
         batch_size: int = 512,
     ):
+        return self._evaluate_policy_batches(
+            seed=seed,
+            num_trials=num_trials,
+            batch_size=batch_size,
+            eval_batch=lambda trial_keys: self._eval_batch_jit(params, trial_keys, greedy=greedy),
+            greedy=greedy,
+        )
+
+    def _evaluate_policy_batches(
+        self,
+        *,
+        seed: int,
+        num_trials: int,
+        batch_size: int,
+        eval_batch,
+        greedy: bool,
+    ):
         if num_trials <= 0:
             raise ValueError("num_trials must be positive")
         if batch_size <= 0:
@@ -427,11 +465,7 @@ class JaxSimulator:
         for _ in range(num_batches):
             rng_key, batch_key = jax.random.split(rng_key)
             trial_keys = jax.random.split(batch_key, batch_size)
-            batch_rewards, batch_rewards_no_cost, batch_steps = self._eval_batch_jit(
-                params,
-                trial_keys,
-                greedy=greedy,
-            )
+            batch_rewards, batch_rewards_no_cost, batch_steps = eval_batch(trial_keys)
             rewards.append(np.asarray(batch_rewards, dtype=np.float32))
             rewards_no_cost.append(np.asarray(batch_rewards_no_cost, dtype=np.float32))
             steps.append(np.asarray(batch_steps, dtype=np.float32))
@@ -450,3 +484,20 @@ class JaxSimulator:
             "n_steps_mean": float(np.mean(steps)),
             "n_steps_sd": float(np.std(steps)),
         }
+
+    def evaluate_policy_for_env(
+        self,
+        params: Any,
+        env_params: JaxDecisionTreeParams,
+        seed: int,
+        num_trials: int,
+        greedy: bool = True,
+        batch_size: int = 512,
+    ):
+        return self._evaluate_policy_batches(
+            seed=seed,
+            num_trials=num_trials,
+            batch_size=batch_size,
+            eval_batch=lambda trial_keys: self._eval_batch_for_env_jit(params, env_params, trial_keys, greedy=greedy),
+            greedy=greedy,
+        )
