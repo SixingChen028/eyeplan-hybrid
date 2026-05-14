@@ -5,6 +5,13 @@ from modules import config
 from modules.train_results import env_from_args
 
 
+def _make_simulate_run_dir(tmp_path):
+    run_dir = tmp_path / "results" / "runs" / "test" / "seed1_20260425_122806_pfs1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "metadata.json").write_text("{}")
+    return run_dir
+
+
 def test_train_uses_canonical_defaults():
     meta, params = config.load_canonical_defaults()
     assert config.DEFAULT_META == meta
@@ -103,6 +110,50 @@ def test_simulate_build_env_uses_point_set():
     }
     env = simulate._build_env_from_metadata_args(metadata_args)
     assert tuple(float(value) for value in env.point_set.tolist()) == (-3.0, -1.0, 1.0, 3.0)
+
+
+def test_simulate_skips_existing_output_by_default(tmp_path, monkeypatch, capsys):
+    run_dir = _make_simulate_run_dir(tmp_path)
+    output_path = run_dir / "data_simulation.json"
+    output_path.write_text("{}\n")
+    calls = []
+
+    def fake_simulate_run(**kwargs):
+        calls.append(kwargs)
+        return "params.p", 15, 10, 10
+
+    monkeypatch.setattr(simulate, "_simulate_run", fake_simulate_run)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["simulate.py", str(run_dir), "--results_root", str(tmp_path / "results")],
+    )
+
+    simulate.main()
+
+    assert calls == []
+    assert "skip existing" in capsys.readouterr().out
+
+
+def test_simulate_overwrite_reruns_existing_output(tmp_path, monkeypatch):
+    run_dir = _make_simulate_run_dir(tmp_path)
+    output_path = run_dir / "data_simulation.json"
+    output_path.write_text("{}\n")
+    calls = []
+
+    def fake_simulate_run(**kwargs):
+        calls.append(kwargs)
+        return "params.p", 15, 10, 10
+
+    monkeypatch.setattr(simulate, "_simulate_run", fake_simulate_run)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["simulate.py", str(run_dir), "--results_root", str(tmp_path / "results"), "--overwrite"],
+    )
+
+    simulate.main()
+
+    assert len(calls) == 1
+    assert calls[0]["output_path"] == str(output_path)
 
 
 def test_train_results_env_from_args_uses_point_set():

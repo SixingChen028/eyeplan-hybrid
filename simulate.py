@@ -251,6 +251,7 @@ def main() -> None:
     parser.add_argument("--detailed", action="store_true")
     parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--seed-filter", type=int, default=None)
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     if args.viewer:
         args.detailed = True
@@ -302,17 +303,20 @@ def main() -> None:
         had_error = True
         runs_to_simulate = []
 
-    idx = 0
     total = len(runs_to_simulate)
     simulated_experiments: set[str] = set()
 
-    for experiment, run_dir in runs_to_simulate:
+    for idx, (experiment, run_dir) in enumerate(runs_to_simulate, start=1):
         try:
             output_path = args.output
             if output_path == "":
                 output_name = "data_simulation_detailed.json" if args.detailed else "data_simulation.json"
                 output_path = os.path.join(run_dir, output_name)
             output_path = os.path.abspath(os.path.expanduser(output_path))
+
+            if not args.overwrite and os.path.exists(output_path):
+                print(f"{idx:>2}/{total:<3} skip existing {output_path}")
+                continue
 
             params_path, seed, num_trials_raw, num_trials_exported = _simulate_run(
                 run_dir=run_dir,
@@ -322,9 +326,8 @@ def main() -> None:
                 skip_timeout_trials=args.skip_timeout_trials,
                 detailed=args.detailed,
             )
-            print(f"{idx+1:>2}/{total:<3} {output_path}")
+            print(f"{idx:>2}/{total:<3} {output_path}")
             simulated_experiments.add(experiment)
-            idx += 1
             # print(
             #     f"output_json={output_path} "
             #     f"run_dir={run_dir} "
