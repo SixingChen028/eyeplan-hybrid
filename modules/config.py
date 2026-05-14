@@ -194,7 +194,7 @@ def _split_legacy_params(params: dict) -> dict[str, dict]:
 
 
 def normalize_config(config: dict) -> dict:
-    allowed_top_level = set(PARAM_CLASSES) | {"params", "sbatch"}
+    allowed_top_level = set(PARAM_CLASSES) | {"params", "sbatch", "local"}
     unknown_tables = sorted(set(config) - allowed_top_level)
     if unknown_tables:
         raise ValueError("Unknown config tables: " + ", ".join(unknown_tables))
