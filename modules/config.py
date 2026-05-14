@@ -94,6 +94,7 @@ PARAM_DEFAULTS = {
         # Maximum update chunk size to compile; non-positive uses the requested chunk size.
         "max_compiled_updates_per_chunk": -1,
         # Terminate if training has not started within this many seconds; non-positive disables.
+        # On timeout, train.py prints JAX/GPU diagnostics before exiting.
         "startup_training_timeout_seconds": 300,
     },
 }

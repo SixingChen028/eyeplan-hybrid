@@ -14,7 +14,7 @@ from modules.config import (
     load_config,
     resolve_training_geometry,
 )
-from modules.train_progress import StartupTrainingTimeout, train_with_progress
+from modules.train_progress import StartupTrainingTimeout, log_jax_gpu_diagnostics, train_with_progress
 from modules.train_results import (
     env_from_args,
     log_run_dirs_preview,
@@ -48,7 +48,10 @@ def main() -> None:
         results_dir_display = results_dir_display[2:]
     _log(f"writing results to {results_dir_display}")
 
-    startup_timeout = StartupTrainingTimeout(float(meta["startup_training_timeout_seconds"]))
+    startup_timeout = StartupTrainingTimeout(
+        float(meta["startup_training_timeout_seconds"]),
+        diagnostic_fn=log_jax_gpu_diagnostics,
+    )
     startup_timeout.start()
     try:
         num_updates, num_envs, rollout_length = resolve_training_geometry(fixed)

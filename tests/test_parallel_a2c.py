@@ -192,12 +192,22 @@ def test_parallel_sweep_compiles_node_shared_network():
 
 def test_startup_training_timeout_exits_with_message(capsys):
     exit_codes = []
-    timeout = StartupTrainingTimeout(5, exit_code=124, exit_fn=exit_codes.append)
+    diagnostics = []
+    timeout = StartupTrainingTimeout(
+        5,
+        exit_code=124,
+        exit_fn=exit_codes.append,
+        diagnostic_fn=lambda: diagnostics.append("called"),
+    )
+    timeout.set_stage("init_sweep_states")
 
     timeout._expire()
 
     assert exit_codes == [124]
-    assert "parallel_train_startup_timeout seconds=5 reason=training_not_started" in capsys.readouterr().err
+    assert diagnostics == ["called"]
+    stderr = capsys.readouterr().err
+    assert "parallel_train_startup_timeout seconds=5 stage=init_sweep_states" in stderr
+    assert "reason=training_not_started" in stderr
 
 
 def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
@@ -300,6 +310,46 @@ def test_train_with_progress_reports_numeric_rate(capsys):
     for line in progress_lines:
         rate = float(line.rsplit("updates_per_second=", maxsplit=1)[1])
         assert rate > 0.0
+
+
+def test_train_with_progress_tracks_startup_timeout_compile_stages():
+    class Timeout:
+        def __init__(self):
+            self.cancel_count = 0
+            self.stages = []
+
+        def cancel(self):
+            self.cancel_count += 1
+
+        def set_stage(self, stage):
+            self.stages.append(stage)
+
+    fixed, runs, _ = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
+    env = _env(
+        num_nodes=fixed["num_nodes"],
+        t_max=fixed["t_max"],
+        shuffle_nodes=fixed["shuffle_nodes"],
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+    trainer = VmappedA2CTrainer(
+        env=env,
+        action_size=env.action_size,
+        hidden_size=fixed["hidden_size"],
+        num_envs=fixed["num_envs"],
+        num_updates=fixed["num_updates"],
+    )
+    timeout = Timeout()
+
+    train_with_progress(
+        trainer,
+        build_hypers(runs),
+        num_updates=fixed["num_updates"],
+        print_frequency=0,
+        startup_timeout=timeout,
+    )
+
+    assert timeout.cancel_count == 1
+    assert timeout.stages == ["init_sweep_states", "compile_train_sweep_chunk"]
 
 
 def test_parallel_single_combo_matches_existing_a2c():
