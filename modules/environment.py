@@ -44,6 +44,7 @@ class JaxDecisionTreeParams(NamedTuple):
     lamda_backup: jax.Array
     backup_steps: jax.Array
     wm_decay: jax.Array
+    wm_neighbor_activation: jax.Array
     q_drop_rate: jax.Array
     q_drift: jax.Array
     q_decay: jax.Array
@@ -116,6 +117,7 @@ class JaxDecisionTreeEnv:
         lamda_backup: float,
         backup_steps: int,
         wm_decay: float,
+        wm_neighbor_activation: float,
         q_drop_rate: float,
         q_drift: float,
         q_decay,
@@ -129,6 +131,7 @@ class JaxDecisionTreeEnv:
         assert 0.0 <= lamda_backup <= 1.0, "lamda_backup must be between 0 and 1."
         assert backup_steps >= 0, "backup_steps must be non-negative."
         assert 0.0 <= wm_decay <= 1.0, "wm_decay must be between 0 and 1."
+        assert 0.0 <= wm_neighbor_activation <= 1.0, "wm_neighbor_activation must be between 0 and 1."
         assert 0.0 <= q_drop_rate <= 1.0, "q_drop_rate must be between 0 and 1."
         assert q_drift >= 0.0, "q_drift must be non-negative."
         assert 0.0 <= q_decay <= 1.0, "q_decay must be between 0 and 1."
@@ -142,6 +145,7 @@ class JaxDecisionTreeEnv:
             lamda_backup=jnp.asarray(lamda_backup, dtype=jnp.float32),
             backup_steps=jnp.asarray(backup_steps, dtype=jnp.int32),
             wm_decay=jnp.asarray(wm_decay, dtype=jnp.float32),
+            wm_neighbor_activation=jnp.asarray(wm_neighbor_activation, dtype=jnp.float32),
             q_drop_rate=jnp.asarray(q_drop_rate, dtype=jnp.float32),
             q_drift=jnp.asarray(q_drift, dtype=jnp.float32),
             q_decay=jnp.asarray(q_decay, dtype=jnp.float32),
@@ -290,8 +294,18 @@ class JaxDecisionTreeEnv:
 
         # activate fixated, parent, children
         activation = activation.at[node].set(1.0)
-        activation = safe_set(activation, state.parent_nodes[node], 1.0)
-        activation = safe_set(activation, state.child_nodes[node], 1.0)
+        parent = state.parent_nodes[node]
+        children = state.child_nodes[node]
+        parent_activation = jnp.maximum(
+            safe_get(activation, parent, fill_value=0.0),
+            params.wm_neighbor_activation,
+        )
+        child_activation = jnp.maximum(
+            safe_get(activation, children, fill_value=0.0),
+            params.wm_neighbor_activation,
+        )
+        activation = safe_set(activation, parent, parent_activation)
+        activation = safe_set(activation, children, child_activation)
         # root is always active
         activation = activation.at[state.root_node].set(1.0)
 

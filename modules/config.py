@@ -37,6 +37,8 @@ PARAM_DEFAULTS = {
         "backup_steps": 100,
         # Per-step decay applied to working-memory activation.
         "wm_decay": 1.0,
+        # Activation assigned to the fixated node's parent and children.
+        "wm_neighbor_activation": 1.0,
         # Probability of clearing inactive Q-values after each step.
         "q_drop_rate": 0.0,
         # Standard deviation of Gaussian drift added to inactive Q-values.
@@ -106,6 +108,7 @@ ENV_DYNAMIC_PARAM_KEYS = (
     "lamda_backup",
     "backup_steps",
     "wm_decay",
+    "wm_neighbor_activation",
     "q_drop_rate",
     "q_drift",
     "q_decay",
@@ -279,7 +282,7 @@ def validate_params(params: dict) -> None:
         if key not in SWEEP_KEYS:
             raise ValueError(f"params.{key} is not a supported parallel sweep parameter.")
 
-    for key in ("recency_decay", "q_decay"):
+    for key in ("recency_decay", "q_decay", "wm_neighbor_activation"):
         value = params.get(key, 0.0)
         values = value if is_list(value) else [value]
         for item in values:

@@ -447,6 +447,7 @@ env_params = env.make_params(
     lamda_backup=1.0,
     backup_steps=100,
     wm_decay=1.0,
+    wm_neighbor_activation=1.0,
     q_drop_rate=0.0,
     q_drift=0.0,
     q_decay=0.0,

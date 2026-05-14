@@ -99,6 +99,7 @@ def _obs_size(env: JaxDecisionTreeEnv) -> int:
         ({"lamda_backup": 1.1}, "lamda_backup"),
         ({"backup_steps": -1}, "backup_steps"),
         ({"wm_decay": 1.1}, "wm_decay"),
+        ({"wm_neighbor_activation": 1.1}, "wm_neighbor_activation"),
         ({"q_drop_rate": -0.1}, "q_drop_rate"),
         ({"q_drift": -0.1}, "q_drift"),
         ({"q_decay": 1.1}, "q_decay"),
@@ -268,6 +269,30 @@ def test_update_activation_refreshes_fixation_neighborhood_after_drop():
     state = env._update_activation(state, params)
 
     expected_activation = np.array([1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    np.testing.assert_array_equal(np.asarray(state.activation), expected_activation)
+
+
+def test_update_activation_uses_neighbor_activation_without_reducing_activation():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+    )
+    params = _env_params(env, wm_decay=1.0, wm_neighbor_activation=0.25)
+    state = env._sample_initial_state(jax.random.PRNGKey(19))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(1, dtype=jnp.int32),
+        child_nodes=jnp.array(
+            [[1, 2], [3, 4], [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1]],
+            dtype=jnp.int32,
+        ),
+        parent_nodes=jnp.array([-1, 0, 0, 1, 1, -1, -1], dtype=jnp.int32),
+        activation=jnp.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=jnp.float32),
+    )
+
+    state = env._update_activation(state, params)
+
+    expected_activation = np.array([1.0, 1.0, 0.0, 1.0, 0.25, 0.0, 0.0], dtype=np.float32)
     np.testing.assert_array_equal(np.asarray(state.activation), expected_activation)
 
 
