@@ -316,16 +316,15 @@ def train_with_progress(
     )
 
     compile_start = time.time()
-    if emit_progress:
-        _log(f"parallel_train_compiling updates_per_chunk={compiled_updates_per_chunk}")
+    _log(f"compiling jax graph; updates_per_chunk={compiled_updates_per_chunk}")
     states = jax.block_until_ready(trainer.init_sweep_states(hypers))
+    _log(f"  block_until_ready done after {time.time() - compile_start:.1f} seconds")
     trainer.compile_train_sweep_chunk(
         states,
         hypers,
         schedule[:, :compiled_updates_per_chunk],
     )
-    if emit_progress:
-        _log(f"parallel_train_compile_seconds={time.time() - compile_start:.3f}")
+    _log(f"  compilation done after {time.time() - compile_start:.1f} seconds")
 
     if emit_progress and has_run_dirs:
         _init_per_run_training_logs(run_dirs)
