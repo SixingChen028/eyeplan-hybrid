@@ -134,6 +134,7 @@ def save_results(
     config_path: Path | None = None,
     varied_keys: list[str] | None = None,
     elapsed_seconds: float,
+    skip_eval: bool = False,
 ) -> list[str]:
     if run_dirs is None:
         if path is None or experiment is None or config_path is None:
@@ -147,11 +148,6 @@ def save_results(
         )
     simulators: dict[tuple, JaxSimulator] = {}
     for run_index, run in enumerate(runs):
-        env_key = env_cache_key(run)
-        if env_key not in simulators:
-            env = env_from_args(run)
-            simulators[env_key] = JaxSimulator(env, env_params=env_params_from_args(env, run))
-        simulator = simulators[env_key]
         run_dir = run_dirs[run_index]
 
         state = state_slice(result.states, run_index)
@@ -165,50 +161,66 @@ def save_results(
             pickle.dump(data, file)
         save_jax_params(state.params, os.path.join(run_dir, "net_jax.p"))
 
-        eval_start = time.time()
-        eval_episodes = int(run["eval_episodes"])
-        eval_stats = simulator.evaluate_policy(
-            params=state.params,
-            seed=int(run["seed"]),
-            num_trials=eval_episodes,
-            greedy=True,
-            batch_size=eval_episodes,
-        )
-        eval_elapsed_seconds = time.time() - eval_start
-        eval_summary = {
-            "num_trials": int(eval_stats["num_trials"]),
-            "reward_mean": float(eval_stats["reward_mean"]),
-            "reward_sd": float(eval_stats["reward_sd"]),
-            "reward_no_cost_mean": float(eval_stats["reward_no_cost_mean"]),
-            "reward_no_cost_sd": float(eval_stats["reward_no_cost_sd"]),
-            "n_steps_mean": float(eval_stats["n_steps_mean"]),
-            "n_steps_sd": float(eval_stats["n_steps_sd"]),
-            "train_elapsed_seconds": float(elapsed_seconds),
-            "eval_elapsed_seconds": float(eval_elapsed_seconds),
-            "num_updates": int(run["num_updates"]),
-        }
-        with open(os.path.join(run_dir, EVAL_SUMMARY_NAME), "w") as file:
-            json.dump(eval_summary, file, indent=2, sort_keys=True)
+        if not skip_eval:
+            env_key = env_cache_key(run)
+            if env_key not in simulators:
+                env = env_from_args(run)
+                simulators[env_key] = JaxSimulator(env, env_params=env_params_from_args(env, run))
+            simulator = simulators[env_key]
+
+            eval_start = time.time()
+            eval_episodes = int(run["eval_episodes"])
+            eval_stats = simulator.evaluate_policy(
+                params=state.params,
+                seed=int(run["seed"]),
+                num_trials=eval_episodes,
+                greedy=True,
+                batch_size=eval_episodes,
+            )
+            eval_elapsed_seconds = time.time() - eval_start
+            eval_summary = {
+                "num_trials": int(eval_stats["num_trials"]),
+                "reward_mean": float(eval_stats["reward_mean"]),
+                "reward_sd": float(eval_stats["reward_sd"]),
+                "reward_no_cost_mean": float(eval_stats["reward_no_cost_mean"]),
+                "reward_no_cost_sd": float(eval_stats["reward_no_cost_sd"]),
+                "n_steps_mean": float(eval_stats["n_steps_mean"]),
+                "n_steps_sd": float(eval_stats["n_steps_sd"]),
+                "train_elapsed_seconds": float(elapsed_seconds),
+                "eval_elapsed_seconds": float(eval_elapsed_seconds),
+                "num_updates": int(run["num_updates"]),
+            }
+            with open(os.path.join(run_dir, EVAL_SUMMARY_NAME), "w") as file:
+                json.dump(eval_summary, file, indent=2, sort_keys=True)
 
         log_path = os.path.join(run_dir, "training.log")
         with open(log_path, "a") as file:
             file.write("\n")
-            file.write(
-                "run_summary "
-                f"run_index={run_index} "
-                f"seed={int(run['seed'])} "
-                f"train_elapsed_seconds={elapsed_seconds:.3f} "
-                f"eval_elapsed_seconds={eval_elapsed_seconds:.3f}\n"
-            )
-            file.write(
-                "eval_summary "
-                f"episodes={eval_summary['num_trials']} "
-                f"reward_mean={eval_summary['reward_mean']:.6f} "
-                f"reward_sd={eval_summary['reward_sd']:.6f} "
-                f"reward_no_cost_mean={eval_summary['reward_no_cost_mean']:.6f} "
-                f"reward_no_cost_sd={eval_summary['reward_no_cost_sd']:.6f} "
-                f"n_steps_mean={eval_summary['n_steps_mean']:.3f} "
-                f"n_steps_sd={eval_summary['n_steps_sd']:.3f}\n"
-            )
+            if skip_eval:
+                file.write(
+                    "run_summary "
+                    f"run_index={run_index} "
+                    f"seed={int(run['seed'])} "
+                    f"train_elapsed_seconds={elapsed_seconds:.3f} "
+                    "eval_skipped=true\n"
+                )
+            else:
+                file.write(
+                    "run_summary "
+                    f"run_index={run_index} "
+                    f"seed={int(run['seed'])} "
+                    f"train_elapsed_seconds={elapsed_seconds:.3f} "
+                    f"eval_elapsed_seconds={eval_elapsed_seconds:.3f}\n"
+                )
+                file.write(
+                    "eval_summary "
+                    f"episodes={eval_summary['num_trials']} "
+                    f"reward_mean={eval_summary['reward_mean']:.6f} "
+                    f"reward_sd={eval_summary['reward_sd']:.6f} "
+                    f"reward_no_cost_mean={eval_summary['reward_no_cost_mean']:.6f} "
+                    f"reward_no_cost_sd={eval_summary['reward_no_cost_sd']:.6f} "
+                    f"n_steps_mean={eval_summary['n_steps_mean']:.3f} "
+                    f"n_steps_sd={eval_summary['n_steps_sd']:.3f}\n"
+                )
             file.write(f"training_log={log_path}\n")
     return run_dirs

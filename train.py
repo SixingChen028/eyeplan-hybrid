@@ -33,6 +33,7 @@ def main() -> None:
     parser.add_argument("config", help="TOML config path or config stem under ./config.")
     parser.add_argument("--path", help="Override output path from [meta].result_path.")
     parser.add_argument("--experiment", help="Override experiment name. Defaults to [meta].experiment or config stem.")
+    parser.add_argument("--skipeval", action="store_true", help="Skip post-training policy evaluation.")
     args, override_tokens = parser.parse_known_args()
 
     config_path, config = load_config(args.config)
@@ -113,6 +114,7 @@ def main() -> None:
         runs,
         run_dirs,
         elapsed_seconds=elapsed_seconds,
+        skip_eval=args.skipeval,
     )
 
 

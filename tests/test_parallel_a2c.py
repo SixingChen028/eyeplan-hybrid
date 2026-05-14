@@ -542,3 +542,38 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
     with open(run_dir / "data_training_jax.p", "rb") as file:
         data = pickle.load(file)
     assert len(data["loss"]) == 2
+
+
+def test_save_results_can_skip_eval(tmp_path):
+    fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
+    env = _env(
+        num_nodes=fixed["num_nodes"],
+        t_max=fixed["t_max"],
+        shuffle_nodes=fixed["shuffle_nodes"],
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+    trainer = VmappedA2CTrainer(
+        env=env,
+        action_size=env.action_size,
+        hidden_size=fixed["hidden_size"],
+        num_envs=fixed["num_envs"],
+        num_updates=fixed["num_updates"],
+    )
+    result = trainer.train_sweep(build_hypers(runs))
+
+    run_dirs = save_results(
+        result,
+        runs,
+        path=str(tmp_path),
+        experiment="parallel-test",
+        config_path=tmp_path / "config.toml",
+        varied_keys=varied_keys,
+        elapsed_seconds=0.25,
+        skip_eval=True,
+    )
+
+    run_dir = Path(run_dirs[0])
+    assert (run_dir / "net_jax.p").exists()
+    assert (run_dir / "data_training_jax.p").exists()
+    assert not (run_dir / "eval_summary_jax.json").exists()
+    assert "eval_skipped=true" in (run_dir / "training.log").read_text()
