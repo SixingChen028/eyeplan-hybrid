@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 import os
 import pickle
-import time
 from argparse import Namespace
 from pathlib import Path
 
@@ -13,31 +11,25 @@ import numpy as np
 from modules.a2c import save_jax_params
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
+from modules.evaluation import (
+    EVAL_SUMMARY_NAME,
+    build_simulator,
+    env_from_run_args,
+    env_params_from_run_args,
+    evaluate_params,
+    write_eval_summary,
+)
 from modules.results_layout import create_run_dir, write_run_metadata
-from modules.simulation import JaxSimulator
 
-EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 TRAINING_DATA_NAME = "data_training_jax.p"
 
 
 def env_from_args(args: dict) -> JaxDecisionTreeEnv:
-    return JaxDecisionTreeEnv(
-        num_nodes=args["num_nodes"],
-        t_max=args["t_max"],
-        scale_factor=args["scale_factor"],
-        shuffle_nodes=args["shuffle_nodes"],
-        use_recency_obs=bool(args["use_recency_obs"]),
-        use_best_open_value_obs=bool(args["use_best_open_value_obs"]),
-        use_best_terminal_value_obs=bool(args["use_best_terminal_value_obs"]),
-        wm_backup=bool(args["wm_backup"]),
-        point_set=args["point_set"],
-    )
+    return env_from_run_args(args)
 
 
 def env_params_from_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecisionTreeParams:
-    return env.make_params(
-        **{key: args[key] for key in ENV_DYNAMIC_PARAM_KEYS},
-    )
+    return env_params_from_run_args(env, args)
 
 
 def env_cache_key(args: dict) -> tuple:
@@ -146,7 +138,7 @@ def save_results(
             config_path=config_path,
             varied_keys=[] if varied_keys is None else varied_keys,
         )
-    simulators: dict[tuple, JaxSimulator] = {}
+    simulators: dict[tuple, object] = {}
     for run_index, run in enumerate(runs):
         run_dir = run_dirs[run_index]
 
@@ -164,34 +156,17 @@ def save_results(
         if not skip_eval:
             env_key = env_cache_key(run)
             if env_key not in simulators:
-                env = env_from_args(run)
-                simulators[env_key] = JaxSimulator(env, env_params=env_params_from_args(env, run))
+                simulators[env_key] = build_simulator(run)
             simulator = simulators[env_key]
 
-            eval_start = time.time()
-            eval_episodes = int(run["eval_episodes"])
-            eval_stats = simulator.evaluate_policy(
-                params=state.params,
-                seed=int(run["seed"]),
-                num_trials=eval_episodes,
-                greedy=True,
-                batch_size=eval_episodes,
+            eval_summary = evaluate_params(
+                state.params,
+                run,
+                train_elapsed_seconds=elapsed_seconds,
+                batch_size=int(run["eval_episodes"]),
+                simulator=simulator,
             )
-            eval_elapsed_seconds = time.time() - eval_start
-            eval_summary = {
-                "num_trials": int(eval_stats["num_trials"]),
-                "reward_mean": float(eval_stats["reward_mean"]),
-                "reward_sd": float(eval_stats["reward_sd"]),
-                "reward_no_cost_mean": float(eval_stats["reward_no_cost_mean"]),
-                "reward_no_cost_sd": float(eval_stats["reward_no_cost_sd"]),
-                "n_steps_mean": float(eval_stats["n_steps_mean"]),
-                "n_steps_sd": float(eval_stats["n_steps_sd"]),
-                "train_elapsed_seconds": float(elapsed_seconds),
-                "eval_elapsed_seconds": float(eval_elapsed_seconds),
-                "num_updates": int(run["num_updates"]),
-            }
-            with open(os.path.join(run_dir, EVAL_SUMMARY_NAME), "w") as file:
-                json.dump(eval_summary, file, indent=2, sort_keys=True)
+            write_eval_summary(run_dir, eval_summary)
 
         log_path = os.path.join(run_dir, "training.log")
         with open(log_path, "a") as file:
@@ -210,7 +185,7 @@ def save_results(
                     f"run_index={run_index} "
                     f"seed={int(run['seed'])} "
                     f"train_elapsed_seconds={elapsed_seconds:.3f} "
-                    f"eval_elapsed_seconds={eval_elapsed_seconds:.3f}\n"
+                    f"eval_elapsed_seconds={eval_summary['eval_elapsed_seconds']:.3f}\n"
                 )
                 file.write(
                     "eval_summary "

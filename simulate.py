@@ -18,110 +18,15 @@ def _configure_jax_platform(argv: list[str], environ: dict[str, str]) -> None:
 _configure_jax_platform(sys.argv, os.environ)
 
 from modules.a2c import load_jax_params
-from modules.config import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
-from modules.environment import JaxDecisionTreeEnv
+from modules.evaluation import (
+    env_from_run_args as _build_env_from_metadata_args,
+    env_params_from_run_args as _build_env_params_from_metadata_args,
+    read_metadata as _read_metadata,
+    read_metadata_args as _read_metadata_args,
+    resolve_params_path_from_metadata as _resolve_params_path_from_metadata,
+)
 from modules.results_layout import resolve_analysis_target
 from modules.simulation import JaxSimulator
-
-
-def _read_metadata(run_dir: str) -> dict:
-    metadata_path = os.path.join(run_dir, "metadata.json")
-    if not os.path.exists(metadata_path):
-        raise FileNotFoundError(f"Run metadata not found: {metadata_path}")
-
-    with open(metadata_path, "r") as file:
-        return json.load(file)
-
-
-def _read_metadata_args(run_dir: str) -> dict:
-    metadata = _read_metadata(run_dir)
-    args = metadata.get("args")
-    if not isinstance(args, dict):
-        raise ValueError(f"Invalid metadata args payload: {os.path.join(run_dir, 'metadata.json')}")
-    return args
-
-
-def _require_metadata_keys(metadata_args: dict, keys: tuple[str, ...], section_name: str) -> None:
-    missing = [key for key in keys if key not in metadata_args]
-    if missing:
-        raise ValueError(
-            f"Run metadata args missing required {section_name} keys: {', '.join(sorted(missing))}"
-        )
-
-
-def _build_env_from_metadata_args(metadata_args: dict) -> JaxDecisionTreeEnv:
-    _require_metadata_keys(metadata_args, ENV_STATIC_PARAM_KEYS, "environment static")
-
-    return JaxDecisionTreeEnv(
-        num_nodes=int(metadata_args["num_nodes"]),
-        t_max=int(metadata_args["t_max"]),
-        scale_factor=float(metadata_args["scale_factor"]),
-        shuffle_nodes=bool(metadata_args["shuffle_nodes"]),
-        use_recency_obs=bool(metadata_args["use_recency_obs"]),
-        use_best_open_value_obs=bool(metadata_args["use_best_open_value_obs"]),
-        use_best_terminal_value_obs=bool(metadata_args["use_best_terminal_value_obs"]),
-        wm_backup=bool(metadata_args["wm_backup"]),
-        point_set=metadata_args["point_set"],
-    )
-
-
-def _build_env_params_from_metadata_args(env: JaxDecisionTreeEnv, metadata_args: dict):
-    required_keys = tuple(key for key in ENV_DYNAMIC_PARAM_KEYS if key != "wm_neighbor_activation")
-    _require_metadata_keys(metadata_args, required_keys, "environment dynamic")
-    recency_decay = metadata_args["recency_decay"]
-
-    return env.make_params(
-        beta_move=float(metadata_args["beta_move"]),
-        eps_move=float(metadata_args["eps_move"]),
-        learning_rate=float(metadata_args["learning_rate"]),
-        lamda_backup=float(metadata_args["lamda_backup"]),
-        backup_steps=int(metadata_args["backup_steps"]),
-        wm_decay=float(metadata_args["wm_decay"]),
-        wm_neighbor_activation=float(metadata_args.get("wm_neighbor_activation", 1.0)),
-        q_drop_rate=float(metadata_args["q_drop_rate"]),
-        q_drift=float(metadata_args["q_drift"]),
-        q_decay=metadata_args["q_decay"],
-        cost=float(metadata_args["cost"]),
-        recency_decay=recency_decay,
-    )
-
-
-def _resolve_params_path_from_metadata(run_dir: str, metadata: dict) -> str:
-    # Prefer explicit metadata field when available.
-    explicit = metadata.get("model_params_file")
-    if isinstance(explicit, str) and explicit.strip() != "":
-        candidate = explicit.strip()
-        if not os.path.isabs(candidate):
-            candidate = os.path.join(run_dir, candidate)
-        if os.path.exists(candidate):
-            return candidate
-
-    argv = metadata.get("argv", [])
-    entrypoint = ""
-    if isinstance(argv, list) and len(argv) > 0:
-        entrypoint = os.path.basename(str(argv[0]))
-
-    if entrypoint in {"train_ppo.py", "train_jax_ppo.py"}:
-        preferred = os.path.join(run_dir, "net_jax_ppo.p")
-    else:
-        preferred = os.path.join(run_dir, "net_jax.p")
-
-    if os.path.exists(preferred):
-        return preferred
-
-    available = []
-    for name in ("net_jax.p", "net_jax_ppo.p"):
-        candidate = os.path.join(run_dir, name)
-        if os.path.exists(candidate):
-            available.append(candidate)
-
-    if len(available) == 1:
-        return available[0]
-
-    raise FileNotFoundError(
-        f"Unable to resolve model params file from metadata for run: {run_dir}. "
-        f"preferred={preferred} available={available}"
-    )
 
 
 def _round_floats(value):

@@ -12,6 +12,7 @@ from modules.a2c_sweep import VmappedA2CTrainer, build_hypers
 from modules.config import expand_sweep
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv
+from modules.evaluation import evaluate_run_dir
 from modules.network import flatten_observation
 from modules.train_progress import StartupTrainingTimeout, train_with_progress
 from modules.train_results import save_results
@@ -577,3 +578,39 @@ def test_save_results_can_skip_eval(tmp_path):
     assert (run_dir / "data_training_jax.p").exists()
     assert not (run_dir / "eval_summary_jax.json").exists()
     assert "eval_skipped=true" in (run_dir / "training.log").read_text()
+
+
+def test_evaluate_run_dir_writes_eval_summary_after_skip_eval(tmp_path):
+    fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
+    env = _env(
+        num_nodes=fixed["num_nodes"],
+        t_max=fixed["t_max"],
+        shuffle_nodes=fixed["shuffle_nodes"],
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+    trainer = VmappedA2CTrainer(
+        env=env,
+        action_size=env.action_size,
+        hidden_size=fixed["hidden_size"],
+        num_envs=fixed["num_envs"],
+        num_updates=fixed["num_updates"],
+    )
+    result = trainer.train_sweep(build_hypers(runs))
+    run_dirs = save_results(
+        result,
+        runs,
+        path=str(tmp_path),
+        experiment="parallel-test",
+        config_path=tmp_path / "config.toml",
+        varied_keys=varied_keys,
+        elapsed_seconds=0.25,
+        skip_eval=True,
+    )
+
+    path, summary = evaluate_run_dir(run_dirs[0])
+
+    assert path == str(Path(run_dirs[0]) / "eval_summary_jax.json")
+    assert summary["num_trials"] == 3
+    assert summary["num_updates"] == 2
+    assert summary["train_elapsed_seconds"] == 0.25
+    assert Path(path).exists()
