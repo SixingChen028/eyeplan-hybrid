@@ -6,6 +6,17 @@ import subprocess
 import sys
 import traceback
 
+
+def _configure_jax_platform(argv: list[str], environ: dict[str, str]) -> None:
+    if "--gpu" in argv[1:]:
+        return
+
+    environ["JAX_PLATFORMS"] = "cpu"
+    environ["JAX_PLATFORM_NAME"] = "cpu"
+
+
+_configure_jax_platform(sys.argv, os.environ)
+
 from modules.a2c import load_jax_params
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv
@@ -254,6 +265,7 @@ def main() -> None:
     parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--seed-filter", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--gpu", action="store_true", help="Allow JAX to use GPU devices.")
     args = parser.parse_args()
     if args.viewer:
         args.detailed = True

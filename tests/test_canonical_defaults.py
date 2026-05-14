@@ -112,6 +112,24 @@ def test_simulate_build_env_uses_point_set():
     assert tuple(float(value) for value in env.point_set.tolist()) == (-3.0, -1.0, 1.0, 3.0)
 
 
+def test_simulate_configures_jax_cpu_without_gpu_flag():
+    environ = {"JAX_PLATFORMS": "gpu", "JAX_PLATFORM_NAME": "gpu"}
+
+    simulate._configure_jax_platform(["simulate.py", "results/runs/test"], environ)
+
+    assert environ["JAX_PLATFORMS"] == "cpu"
+    assert environ["JAX_PLATFORM_NAME"] == "cpu"
+
+
+def test_simulate_preserves_jax_platform_with_gpu_flag():
+    environ = {"JAX_PLATFORMS": "gpu", "JAX_PLATFORM_NAME": "gpu"}
+
+    simulate._configure_jax_platform(["simulate.py", "results/runs/test", "--gpu"], environ)
+
+    assert environ["JAX_PLATFORMS"] == "gpu"
+    assert environ["JAX_PLATFORM_NAME"] == "gpu"
+
+
 def test_simulate_skips_existing_output_by_default(tmp_path, monkeypatch, capsys):
     run_dir = _make_simulate_run_dir(tmp_path)
     output_path = run_dir / "data_simulation.json"
