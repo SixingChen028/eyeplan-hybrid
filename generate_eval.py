@@ -13,7 +13,7 @@ def _configure_jax_platform(argv: list[str], environ: dict[str, str]) -> None:
 
 _configure_jax_platform(sys.argv, os.environ)
 
-from modules.evaluation import EVAL_SUMMARY_NAME, evaluate_run_group, grouped_evaluation_key, load_evaluation_run
+from modules.evaluation import EVAL_SUMMARY_NAME, evaluate_run_dir
 from modules.results_layout import resolve_analysis_target
 
 
@@ -41,7 +41,6 @@ def main() -> None:
                 seen.add(run_dir)
                 run_dirs.append(run_dir)
 
-    pending_runs = []
     for run_dir in run_dirs:
         eval_summary_path = os.path.join(run_dir, EVAL_SUMMARY_NAME)
         if os.path.exists(eval_summary_path) and not args.overwrite:
@@ -49,35 +48,22 @@ def main() -> None:
             continue
 
         try:
-            pending_runs.append(
-                load_evaluation_run(
-                    run_dir,
-                    eval_episodes=args.eval_episodes,
-                    batch_size=args.batch_size,
-                )
+            path, summary = evaluate_run_dir(
+                run_dir,
+                overwrite=args.overwrite,
+                eval_episodes=args.eval_episodes,
+                batch_size=args.batch_size,
             )
         except FileNotFoundError as error:
             print(f"skip incomplete run={run_dir} reason={error}", flush=True)
             continue
-
-    grouped_runs = {}
-    for run in pending_runs:
-        grouped_runs.setdefault(grouped_evaluation_key(run), []).append(run)
-
-    for runs in grouped_runs.values():
-        try:
-            results = evaluate_run_group(runs)
-        except FileNotFoundError as error:
-            print(f"skip incomplete run={runs[0].run_dir} reason={error}", flush=True)
-            continue
-        for path, summary in results:
-            print(
-                "wrote_eval_summary "
-                f"path={path} "
-                f"episodes={summary['num_trials']} "
-                f"reward_mean={summary['reward_mean']:.6f}",
-                flush=True,
-            )
+        print(
+            "wrote_eval_summary "
+            f"path={path} "
+            f"episodes={summary['num_trials']} "
+            f"reward_mean={summary['reward_mean']:.6f}",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

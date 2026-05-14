@@ -4,7 +4,6 @@ import json
 import os
 import re
 import time
-from dataclasses import dataclass
 from typing import Any
 
 from modules.a2c import load_jax_params
@@ -14,16 +13,6 @@ from modules.simulation import JaxSimulator
 
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 PARAMS_NAME = "net_jax.p"
-
-
-@dataclass(frozen=True)
-class EvaluationRun:
-    run_dir: str
-    args: dict
-    params: Any
-    train_elapsed_seconds: float
-    num_trials: int
-    batch_size: int
 
 
 def read_metadata(run_dir: str) -> dict:
@@ -129,18 +118,6 @@ def build_simulator(args: dict) -> JaxSimulator:
     return JaxSimulator(env, env_params=env_params_from_run_args(env, args))
 
 
-def _hashable_value(value):
-    if isinstance(value, list):
-        return tuple(_hashable_value(item) for item in value)
-    if isinstance(value, dict):
-        return tuple((key, _hashable_value(value[key])) for key in sorted(value))
-    return value
-
-
-def static_env_cache_key(args: dict) -> tuple:
-    return tuple(_hashable_value(args[key]) for key in ENV_STATIC_PARAM_KEYS)
-
-
 def evaluate_params(
     params: Any,
     args: dict,
@@ -149,7 +126,6 @@ def evaluate_params(
     eval_episodes: int | None = None,
     batch_size: int | None = None,
     simulator: JaxSimulator | None = None,
-    env_params: JaxDecisionTreeParams | None = None,
 ) -> dict:
     if simulator is None:
         simulator = build_simulator(args)
@@ -158,23 +134,13 @@ def evaluate_params(
         batch_size = num_trials
 
     eval_start = time.time()
-    if env_params is None:
-        eval_stats = simulator.evaluate_policy(
-            params=params,
-            seed=int(args["seed"]),
-            num_trials=num_trials,
-            greedy=True,
-            batch_size=int(batch_size),
-        )
-    else:
-        eval_stats = simulator.evaluate_policy_for_env(
-            params=params,
-            env_params=env_params,
-            seed=int(args["seed"]),
-            num_trials=num_trials,
-            greedy=True,
-            batch_size=int(batch_size),
-        )
+    eval_stats = simulator.evaluate_policy(
+        params=params,
+        seed=int(args["seed"]),
+        num_trials=num_trials,
+        greedy=True,
+        batch_size=int(batch_size),
+    )
     eval_elapsed_seconds = time.time() - eval_start
 
     return {
@@ -236,61 +202,3 @@ def evaluate_run_dir(
         batch_size=batch_size,
     )
     return write_eval_summary(run_dir, eval_summary), eval_summary
-
-
-def load_evaluation_run(
-    run_dir: str,
-    *,
-    eval_episodes: int | None = None,
-    batch_size: int | None = None,
-) -> EvaluationRun:
-    metadata = read_metadata(run_dir)
-    args = read_metadata_args(run_dir)
-    params_path = resolve_params_path_from_metadata(run_dir, metadata)
-    num_trials = int(args["eval_episodes"] if eval_episodes is None else eval_episodes)
-    return EvaluationRun(
-        run_dir=run_dir,
-        args=args,
-        params=load_jax_params(params_path),
-        train_elapsed_seconds=read_train_elapsed_seconds_from_log(run_dir),
-        num_trials=num_trials,
-        batch_size=int(num_trials if batch_size is None else batch_size),
-    )
-
-
-def grouped_evaluation_key(run: EvaluationRun) -> tuple:
-    return (
-        static_env_cache_key(run.args),
-        run.num_trials,
-        run.batch_size,
-    )
-
-
-def evaluate_run_group(runs: list[EvaluationRun]) -> list[tuple[str, dict]]:
-    if len(runs) == 0:
-        return []
-    if len(runs) == 1:
-        run = runs[0]
-        summary = evaluate_params(
-            run.params,
-            run.args,
-            train_elapsed_seconds=run.train_elapsed_seconds,
-            eval_episodes=run.num_trials,
-            batch_size=run.batch_size,
-        )
-        return [(write_eval_summary(run.run_dir, summary), summary)]
-
-    simulator = build_simulator(runs[0].args)
-    results = []
-    for run in runs:
-        summary = evaluate_params(
-            run.params,
-            run.args,
-            train_elapsed_seconds=run.train_elapsed_seconds,
-            eval_episodes=run.num_trials,
-            batch_size=run.batch_size,
-            simulator=simulator,
-            env_params=env_params_from_run_args(simulator.env, run.args),
-        )
-        results.append((write_eval_summary(run.run_dir, summary), summary))
-    return results
