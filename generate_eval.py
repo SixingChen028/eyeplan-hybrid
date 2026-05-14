@@ -47,12 +47,16 @@ def main() -> None:
             print(f"skip existing eval_summary={eval_summary_path}", flush=True)
             continue
 
-        path, summary = evaluate_run_dir(
-            run_dir,
-            overwrite=args.overwrite,
-            eval_episodes=args.eval_episodes,
-            batch_size=args.batch_size,
-        )
+        try:
+            path, summary = evaluate_run_dir(
+                run_dir,
+                overwrite=args.overwrite,
+                eval_episodes=args.eval_episodes,
+                batch_size=args.batch_size,
+            )
+        except FileNotFoundError as error:
+            print(f"skip incomplete run={run_dir} reason={error}", flush=True)
+            continue
         print(
             "wrote_eval_summary "
             f"path={path} "
