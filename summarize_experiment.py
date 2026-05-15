@@ -5,9 +5,7 @@ import json
 import math
 import os
 import sys
-import tomllib
 
-from modules.config import normalize_config
 from modules.results_layout import get_summary_analysis_dir, resolve_analysis_target
 
 
@@ -25,19 +23,6 @@ EVAL_FIELDS = [
 def _read_json(path: str) -> dict:
     with open(path, "r") as file:
         return json.load(file)
-
-
-def _read_toml(path: str) -> dict:
-    with open(path, "rb") as file:
-        return tomllib.load(file)
-
-
-def _varying_param_values_from_config(config_path: str) -> dict[str, list]:
-    params = normalize_config(_read_toml(config_path))["params"]
-    return {
-        key: value for key, value in params.items()
-        if isinstance(value, list) and len(value) > 1
-    }
 
 
 def _value_key(value) -> str:
@@ -94,17 +79,15 @@ def _varying_param_values_from_metadata(run_dirs: list[str]) -> dict[str, list]:
 def _resolve_experiment_and_runs(
     target: str,
     results_root: str,
-    config_dir: str,
-) -> tuple[str, list[str], str | None]:
+) -> tuple[str, list[str]]:
     if target.endswith(".toml"):
         config_path = os.path.abspath(os.path.expanduser(target))
         experiment = os.path.splitext(os.path.basename(config_path))[0]
         resolved = resolve_analysis_target(experiment, results_root=results_root)
-        return experiment, resolved.run_dirs, config_path if os.path.exists(config_path) else None
+        return experiment, resolved.run_dirs
 
     resolved = resolve_analysis_target(target, results_root=results_root)
-    config_path = os.path.join(config_dir, f"{resolved.experiment}.toml")
-    return resolved.experiment, resolved.run_dirs, config_path if os.path.exists(config_path) else None
+    return resolved.experiment, resolved.run_dirs
 
 
 def _build_row(run_dir: str, varying_params: list[str], eval_file: str) -> dict:
@@ -283,17 +266,15 @@ def main() -> None:
         help="Experiment target, runs path, run path, or config file path, e.g. apr24, results/runs/apr24, config/apr24.toml",
     )
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
-    parser.add_argument("--config_dir", type=str, default=os.path.join(os.getcwd(), "config"))
     parser.add_argument("--eval_file", type=str, default="eval_summary_jax.json")
     parser.add_argument("--table", action="store_true", help="Print grouped mean ± sd table")
     parser.add_argument("--marginals", action="store_true", help="Print one-parameter summary tables")
     parser.add_argument("--pairwise", action="store_true", help="Print paired t tests for parameters with up to 4 values")
     args = parser.parse_args()
 
-    experiment, run_dirs, config_path = _resolve_experiment_and_runs(
+    experiment, run_dirs = _resolve_experiment_and_runs(
         target=args.target,
         results_root=args.results_root,
-        config_dir=args.config_dir,
     )
     if not run_dirs:
         raise FileNotFoundError(
@@ -317,14 +298,7 @@ def main() -> None:
             file=sys.stderr,
         )
         raise SystemExit(1)
-    if config_path is None:
-        varying_param_values = _varying_param_values_from_metadata(summarized_run_dirs)
-        print(
-            "Config file not found; inferred varying parameters from run metadata.",
-            file=sys.stderr,
-        )
-    else:
-        varying_param_values = _varying_param_values_from_config(config_path)
+    varying_param_values = _varying_param_values_from_metadata(summarized_run_dirs)
     varying_params = list(varying_param_values)
 
     rows = [
