@@ -1,0 +1,22 @@
+[meta]
+# array_vars = ["seed"]
+
+[environment]
+wm_decay = [0.5, 0.625, 0.75, 0.875]
+wm_neighbor_activation = [0.25, 0.5, 0.75, 1.0]
+cost = 0.01
+
+[training]
+num_envs = 128
+num_updates = 30_000
+seed = [1,2,3,4]
+beta_e_final = 0.005
+
+[network]
+network_type = "node_shared"
+hidden_size = 64
+
+[sbatch]
+time = "1:00:00"
+mem_per_cpu = "4000M"
+gpu = true
