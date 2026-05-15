@@ -130,6 +130,21 @@ def test_simulate_preserves_jax_platform_with_gpu_flag():
     assert environ["JAX_PLATFORM_NAME"] == "gpu"
 
 
+def test_simulate_counts_net_jax_params_as_complete(tmp_path):
+    run_dir = _make_simulate_run_dir(tmp_path)
+    (run_dir / "metadata.json").write_text('{"args": {}}')
+    (run_dir / "net_jax.p").write_bytes(b"params")
+
+    assert simulate._is_complete_run(str(run_dir)) is True
+
+
+def test_simulate_requires_metadata_args_for_net_jax_params(tmp_path):
+    run_dir = _make_simulate_run_dir(tmp_path)
+    (run_dir / "net_jax.p").write_bytes(b"params")
+
+    assert simulate._is_complete_run(str(run_dir)) is False
+
+
 def test_simulate_skips_existing_output_by_default(tmp_path, monkeypatch, capsys):
     run_dir = _make_simulate_run_dir(tmp_path)
     output_path = run_dir / "data_simulation.json"

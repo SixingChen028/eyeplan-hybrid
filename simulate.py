@@ -19,6 +19,7 @@ _configure_jax_platform(sys.argv, os.environ)
 
 from modules.a2c import load_jax_params
 from modules.evaluation import (
+    PARAMS_NAME,
     env_from_run_args as _build_env_from_metadata_args,
     env_params_from_run_args as _build_env_params_from_metadata_args,
     read_metadata as _read_metadata,
@@ -92,6 +93,9 @@ def _is_complete_run(run_dir: str) -> bool:
         metadata_args = metadata.get("args")
         if not isinstance(metadata_args, dict):
             return False
+
+        if os.path.exists(os.path.join(run_dir, PARAMS_NAME)):
+            return True
 
         # If model parameters cannot be resolved, the run cannot be simulated.
         _resolve_params_path_from_metadata(run_dir, metadata)
