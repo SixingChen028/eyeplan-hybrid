@@ -11,7 +11,7 @@ num_envs = 64
 seed = [1, 2]
 
 [network]
-network_type = "shared"
+network_type = "node_shared"
 hidden_size = 64
 # network_type = "mlp"
 # hidden_size = 256
