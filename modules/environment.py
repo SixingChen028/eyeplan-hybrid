@@ -184,7 +184,7 @@ class JaxDecisionTreeEnv:
         parent_nodes = self._tree_parent_nodes[tree_idx]
 
         if self.shuffle_nodes:
-            key, perm_key = jax.random.split(key)
+            key, perm_key, swap_key = jax.random.split(key, 3)
             perm = jax.random.permutation(perm_key, jnp.arange(self.num_nodes, dtype=jnp.int32))
 
             child_safe = jnp.maximum(child_nodes, 0)
@@ -195,6 +195,9 @@ class JaxDecisionTreeEnv:
             child_nodes = jnp.full_like(child_nodes, -1).at[perm].set(mapped_children)
             parent_nodes = jnp.full_like(parent_nodes, -1).at[perm].set(mapped_parents)
             root = perm[root]
+
+            swap_children = jax.random.bernoulli(swap_key, shape=(self.num_nodes,))
+            child_nodes = jnp.where(swap_children[:, None], jnp.flip(child_nodes, axis=1), child_nodes)
 
         return key, root, child_nodes, parent_nodes
 

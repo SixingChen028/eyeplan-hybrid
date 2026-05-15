@@ -67,6 +67,15 @@ def _optimal_path_reward_raw(child_nodes: np.ndarray, points: np.ndarray, root: 
     return dfs(int(root))
 
 
+def _descendant_count(child_nodes: np.ndarray, node: int) -> int:
+    left = int(child_nodes[node, 0])
+    if left < 0:
+        return 1
+
+    right = int(child_nodes[node, 1])
+    return 1 + _descendant_count(child_nodes, left) + _descendant_count(child_nodes, right)
+
+
 def _first_child_path(child_nodes: np.ndarray, root: int) -> list[int]:
     path: list[int] = []
     node = int(root)
@@ -130,6 +139,29 @@ def test_reset_uses_raw_node_ids_by_default():
     expected_mask[root] = True
     expected_mask[-1] = True
     np.testing.assert_array_equal(np.asarray(info["mask"]), expected_mask)
+
+
+def test_shuffle_nodes_randomizes_sibling_order():
+    env = _env(num_nodes=15, shuffle_nodes=True)
+    params = _env_params(env)
+
+    descendant_diffs: list[int] = []
+    for seed in range(128):
+        state, _, _ = env.reset(jax.random.PRNGKey(seed), params)
+        child_nodes = np.asarray(state.child_nodes)
+
+        for children in child_nodes:
+            left = int(children[0])
+            if left < 0:
+                continue
+
+            right = int(children[1])
+            diff = _descendant_count(child_nodes, left) - _descendant_count(child_nodes, right)
+            if diff != 0:
+                descendant_diffs.append(diff)
+
+    assert any(diff < 0 for diff in descendant_diffs)
+    assert any(diff > 0 for diff in descendant_diffs)
 
 
 def test_recency_observation_tracks_direct_fixations():
