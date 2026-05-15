@@ -1,5 +1,6 @@
 [meta]
-array_vars = ["seed"]
+# array_vars = ["seed"]
+experiment = "neighbor_activation_fixed"
 
 [environment]
 wm_decay = [0.5, 0.625, 0.75, 0.875]
@@ -9,7 +10,8 @@ cost = 0.01
 [training]
 num_envs = 64
 num_updates = 30_000
-seed = [1, 2, 3]
+seed = [1, 2]
+beta_e_final = 0.01
 
 [network]
 network_type = "node_shared"
