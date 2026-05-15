@@ -1,0 +1,14 @@
+[environment]
+lamda_backup = [0.0, 0.5, 1.0]
+wm_decay = [0.0, 0.5, 1.0]
+cost = 0.01
+wm_backup = false
+
+[training]
+num_updates = 30000
+num_envs = 128
+seed = [1, 2]
+
+[network]
+network_type = "mlp"
+hidden_size = 256
