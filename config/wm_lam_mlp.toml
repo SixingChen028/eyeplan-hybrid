@@ -1,0 +1,20 @@
+[environment]
+lamda_backup = [0.0, 0.5, 1.0]
+wm_decay = [0.0, 0.5, 1.0]
+cost = 0.01
+wm_backup = false
+use_recency_obs = false
+use_best_open_value_obs = false
+use_best_terminal_value_obs = false
+beta_move = 100
+
+[training]
+num_updates = 50000
+num_envs = 128
+beta_e_final = 0.0001
+seed = [1, 2]
+lr = 0.001
+
+[network]
+network_type = "mlp"
+hidden_size = 256
