@@ -1,14 +1,36 @@
-# Sigma Backup
+# Working-Memory Backups
 
 ## Goal
 
-Make the value backup in the working-memory environment more principled using ideas from Sutton chapter 7, especially n-step tree backup and $Q(\sigma)$.
+Make the value backup in the working-memory environment more principled using the two useful extremes from Sutton chapter 7:
+
+1. Tree backup when both children of a parent are available in working memory.
+2. Sampled n-step Sarsa-style backup, with importance sampling if needed, when only the constructed child branch is available in working memory.
 
 The relevant MDP is not the full fixation/look environment. It is the deterministic tree MDP induced by the decision tree represented in the current state. Because this MDP is tree-structured, we can represent $Q(p, c)$ as $Q(c)$: the value of taking the action from parent $p$ to child $c$ is stored on the child node.
 
-## Current Backup
+When we look at node $s$, we construct an artificial tree-action history: the sequence of child actions that would take the agent from the root to $s$. For an ancestor parent $p$, let:
 
-For parent $p$ with children $c_1$ and $c_2$, the current backup is greedy:
+$$
+\begin{aligned}
+c_1 &= \text{the child on the constructed path to } s \\
+c_2 &= \text{the sibling child} \\
+r(p) &= \text{the point value at } p \\
+G(c_1) &= \text{the improved downstream return for the constructed child branch} \\
+\pi_1 &= \pi(c_1 \mid p) \\
+\pi_2 &= \pi(c_2 \mid p)
+\end{aligned}
+$$
+
+Use the same target policy as the internal movement policy unless we intentionally define a working-memory-restricted policy:
+
+$$
+\pi(c \mid p) = \mathrm{softmax\_epsilon}(Q(c), \beta_{\mathrm{move}}, \epsilon_{\mathrm{move}})
+$$
+
+## Current Behavior
+
+The current backup is greedy. For a parent $p$ with children $c_1$ and $c_2$:
 
 $$
 \mathrm{target}(p) = r(p) + \max(Q(c_1), Q(c_2))
@@ -18,137 +40,191 @@ $$
 Q(p) \leftarrow Q(p) + \alpha \cdot w \cdot [\mathrm{target}(p) - Q(p)]
 $$
 
-Here $r(p)$ is the point value at $p$, $\alpha$ is the learning rate, and $w$ is the ancestor backup weight, currently derived from $\lambda_{\mathrm{backup}}$.
+Here $\alpha$ is the learning rate and $w$ is the ancestor backup weight, currently derived from $\lambda_{\mathrm{backup}}$.
 
-This estimates the value of arriving at $p$ assuming the internal mover will choose the best child according to stored $Q$ values. That may be intentional, but it is not aligned with the stochastic movement policy used elsewhere if $\beta_{\mathrm{move}}$ and $\epsilon_{\mathrm{move}}$ imply non-greedy choices.
+If `wm_backup` is active, inactive children are treated as having value zero in ancestor backups.
 
-## $Q(\sigma)$ Backup
+### Current Case 1: Both Children in WM
 
-When we look at node $s$, we can construct an artificial tree-action history: the sequence of child actions that would take the agent from the root to $s$. For an ancestor parent $p$, let $c_1$ be the child on this constructed path and $c_2$ the sibling.
+If both $c_1$ and $c_2$ are active:
 
-Let:
+$$
+\mathrm{target}_{\mathrm{current}}(p) = r(p) + \max(Q(c_1), Q(c_2))
+$$
+
+This is an optimal/greedy backup. It ignores the stochastic movement policy.
+
+### Current Case 2: One Child in WM
+
+If only the constructed child $c_1$ is active and $c_2$ is inactive:
+
+$$
+\mathrm{target}_{\mathrm{current}}(p) = r(p) + \max(Q(c_1), 0)
+$$
+
+This is not tree backup and not sampled Sarsa. It is a greedy backup with an implicit zero-valued missing sibling. That can be useful as a heuristic, but it is not a principled target for either the full tree MDP or a sampled branch return.
+
+## Planned Behavior
+
+Separate the backup rule by what is actually available in working memory.
+
+## Case 1: Both Children in WM -> Tree Backup
+
+When both $c_1$ and $c_2$ are in working memory, use a tree-backup / expected target:
+
+$$
+\mathrm{target}_{\mathrm{tree}}(p)
+  = r(p) + \pi_1 \cdot G(c_1) + \pi_2 \cdot Q(c_2)
+$$
+
+The constructed child $c_1$ gets the improved downstream return $G(c_1)$. The sibling $c_2$ contributes its current stored estimate $Q(c_2)$.
+
+This is the right target when both children are cognitively available because the backup can represent the expected continuation under the movement policy.
+
+If both child branches had improved returns available, the fully expected target would be:
+
+$$
+\mathrm{target}_{\mathrm{tree}}(p)
+  = r(p) + \pi_1 \cdot G(c_1) + \pi_2 \cdot G(c_2)
+$$
+
+but a single look usually improves only the constructed branch.
+
+## Case 2: One Child in WM -> Sampled Backup
+
+When only the constructed child $c_1$ is in working memory, the backup should not pretend that the sibling value is available.
+
+There are two coherent interpretations.
+
+### Option A: Working-Memory-Restricted Target Policy
+
+If the target policy is defined over WM-available children only, then:
+
+$$
+\pi_{\mathrm{WM}}(c_1 \mid p) = 1
+$$
+
+and the sampled target is:
+
+$$
+\mathrm{target}_{\mathrm{sample}}(p) = r(p) + G(c_1)
+$$
+
+No importance sampling is needed because the target policy and the constructed behavior both choose the only available child.
+
+This estimates the value of the cognitive architecture given the current WM contents, not the value of the full tree MDP under the full movement policy.
+
+### Option B: Full Target Policy With Importance Sampling
+
+If the target remains the full movement policy over both children, then the sampled branch should be corrected by an importance ratio:
+
+$$
+\rho_1 = \frac{\pi(c_1 \mid p)}{b(c_1 \mid p)}
+$$
+
+The tempting artificial-history argument is:
+
+$$
+b(c_1 \mid p) = 1
+\quad\Rightarrow\quad
+\rho_1 = \pi_1
+$$
+
+This is only conditionally true after the look has already selected a branch. For statistical off-policy correction, $b(c_1 \mid p)$ should be the probability that the behavior process constructs the $c_1$ branch before conditioning on the observed look. That probability is induced by the look policy, not by the deterministic path reconstruction itself.
+
+If we intentionally define the constructed backup as a deterministic query rather than sampled data, then $b = 1$ can be used as a modeling convention. In that convention, the one-child sampled update should be written as an importance-weighted update, not as a plain Bellman target:
+
+$$
+Q(p) \leftarrow Q(p) + \alpha \cdot w \cdot \rho_1 \cdot [r(p) + G(c_1) - Q(p)]
+$$
+
+Equivalently, if the implementation requires a target:
+
+$$
+\mathrm{target}_{\mathrm{eff}}(p)
+  = Q(p) + \rho_1 \cdot [r(p) + G(c_1) - Q(p)]
+$$
+
+This is different from:
+
+$$
+r(p) + \pi_1 \cdot G(c_1)
+$$
+
+which scales the continuation but drops the correct baseline against the current estimate.
+
+## Problem With the Control-Variate Sigma=1 Target
+
+The control-variate form for off-policy sampled backups is:
 
 $$
 \begin{aligned}
-G(c_1) &= \text{improved downstream return already computed for the constructed child branch} \\
-\pi_1 &= \pi(c_1 \mid p) \\
-\pi_2 &= \pi(c_2 \mid p) \\
-\pi_1 + \pi_2 &= 1 \\
-\sigma &\in [0, 1]
+\mathrm{target}_{\mathrm{cv}}(p)
+  &= r(p) + V_\pi(p) + \rho_1 \cdot [G(c_1) - Q(c_1)] \\
+V_\pi(p) &= \pi_1 \cdot Q(c_1) + \pi_2 \cdot Q(c_2)
 \end{aligned}
 $$
 
-Then the local $Q(\sigma)$-style target is:
+If we use the artificial-history convention $b(c_1 \mid p) = 1$, then $\rho_1 = \pi_1$ and:
 
 $$
-\begin{aligned}
-\mathrm{target}_\sigma(p)
-  &= r(p) \\
-  &\quad + [\sigma + (1 - \sigma) \cdot \pi_1] \cdot G(c_1) \\
-  &\quad + (1 - \sigma) \cdot \pi_2 \cdot Q(c_2)
-\end{aligned}
+\mathrm{target}_{\mathrm{cv}}(p)
+  = r(p) + \pi_1 \cdot G(c_1) + \pi_2 \cdot Q(c_2)
 $$
 
-Special cases:
+This is exactly the local tree-backup target.
 
-$$
-\sigma = 1:\quad \mathrm{target}(p) = r(p) + G(c_1)
-$$
+That is a problem for the intended WM split. The control-variate target requires $Q(c_2)$, the sibling value. But the one-child-in-WM case is defined by $c_2$ not being available. Therefore the control-variate sigma=1 rule does not give a distinct principled one-child backup. It collapses back to tree backup when the sibling is available, and it is not implementable without an assumption about the missing sibling when the sibling is unavailable.
 
-This is the pure sampled/Sarsa-like backup if the constructed branch is treated as on-policy data.
+Actionable conclusion: use tree backup for the both-children-in-WM case, and use either a WM-restricted sampled target or a non-control-variate importance-weighted sampled update for the one-child-in-WM case.
 
-$$
-\sigma = 0:\quad \mathrm{target}(p) = r(p) + \pi_1 \cdot G(c_1) + \pi_2 \cdot Q(c_2)
-$$
+## Implementation Direction
 
-This is the pure tree-backup / expected backup. The constructed child receives the improved downstream return; the sibling contributes its current stored estimate.
-
-## Off-Policy Correction
-
-The arbitrary look sequence is not naturally a rollout from the tree MDP. However, each look constructs an artificial action history. If we treat that construction as the behavior policy, then along the constructed branch:
-
-$$
-\begin{aligned}
-b(c_1 \mid p) &= 1 \\
-\rho &= \pi(c_1 \mid p) / b(c_1 \mid p) = \pi_1
-\end{aligned}
-$$
-
-For a $\sigma=1$ off-policy sampled backup, the principled control-variate target is not:
-
-$$
-\mathrm{target}(p) = r(p) + \pi_1 \cdot G(c_1)
-$$
-
-That omits the sibling baseline and would systematically lose value from unconstructed branches. The corrected target is:
-
-$$
-\begin{aligned}
-\mathrm{target}(p)
-  &= r(p) + V_\pi(p) + \rho \cdot [G(c_1) - Q(c_1)] \\
-V_\pi(p) &= \pi_1 \cdot Q(c_1) + \pi_2 \cdot Q(c_2) \\
-\rho &= \pi_1
-\end{aligned}
-$$
-
-which simplifies to:
+1. Add a backup mode/config option rather than replacing the current greedy backup immediately.
+2. In ancestor backup, identify the constructed child $c_1$ as the child equal to the current node in the upward backup loop; the sibling is $c_2$.
+3. If both children are active, use tree backup:
 
 $$
 \mathrm{target}(p) = r(p) + \pi_1 \cdot G(c_1) + \pi_2 \cdot Q(c_2)
 $$
 
-Under this artificial-history interpretation, the corrected $\sigma=1$ backup has the same local form as tree backup: update the constructed branch with its improved return, and keep siblings as expected bootstrapped values.
-
-## Policy Choice
-
-Use the same target policy as the internal movement policy:
+4. If only $c_1$ is active, choose one of:
 
 $$
-\pi(c \mid p) = \mathrm{softmax\_epsilon}(Q(c), \beta_{\mathrm{move}}, \epsilon_{\mathrm{move}})
+\mathrm{target}(p) = r(p) + G(c_1)
 $$
 
-This makes backup values consistent with `_expected_move_reward` and `_sample_move_path`.
+for a WM-restricted target policy, or:
 
-## Implementation Direction
+$$
+Q(p) \leftarrow Q(p) + \alpha \cdot w \cdot \rho_1 \cdot [r(p) + G(c_1) - Q(p)]
+$$
 
-1. Add a backup type/config option rather than replacing the current greedy backup immediately.
-2. Implement a tree-backup target first, equivalent to $\sigma = 0$.
-3. Reuse the existing ancestor loop in `_update_q`; replace the ancestor target computation.
-4. Keep `backup_steps` as the n-step horizon.
-5. Decide whether $\lambda_{\mathrm{backup}}$ remains a learning-rate decay or is replaced by $\sigma_{\mathrm{backup}}$.
-6. Preserve `wm_backup` as a gate on whether ancestors and sibling $Q$ values are available in working memory.
-7. Add focused tests for a parent $p$ with two children $c_1$, $c_2$, checking greedy, tree-backup, and off-policy corrected $\sigma=1$ targets.
+for a full-policy sampled backup with importance weighting.
+
+5. Do not use the control-variate target for the one-child case unless we explicitly define how to access or impute $Q(c_2)$.
+6. Keep `backup_steps` as the n-step horizon.
+7. Decide whether $\lambda_{\mathrm{backup}}$ remains a learning-rate decay for ancestor depth.
+8. Add focused tests for:
+
+- both children active -> expected/tree backup;
+- only constructed child active -> sampled backup;
+- inactive sibling with positive $Q(c_2)$ does not affect the one-child sampled target;
+- current greedy mode remains available for comparison.
 
 ## Open Decisions
 
-- Is $Q$ meant to estimate optimal path value or expected value under the stochastic movement policy?
-- Should inactive children be treated as unavailable, as $Q = 0$, or as current stored values unavailable to the backup?
-- Should $\sigma_{\mathrm{backup}}$ be a global parameter, a function of activation, or a function of recency/visit confidence?
-- Should we keep $\lambda_{\mathrm{backup}}$ in addition to $\sigma_{\mathrm{backup}}$, or treat the $Q(\sigma)$ target as the replacement for lambda-style depth weighting?
-- Should unvisited children contribute $0$, their current initialized $Q$ value, or a prior based on visible point information?
+- Should the one-child case estimate the value of the WM-restricted cognitive state, or the full tree MDP under the full movement policy?
+- If using full-policy importance sampling, how do we define or estimate $b(c_1 \mid p)$ from the look policy?
+- Should inactive siblings be completely unavailable, or can their stored Q values be used even when they are not in working memory?
+- Should $\lambda_{\mathrm{backup}}$ remain as ancestor-depth learning-rate decay?
+- Should unvisited active children contribute their initialized $Q$ value, a prior, or zero?
 
 ## Recommended First Experiment
 
-Implement a new backup mode:
+Implement a new backup mode with two explicit WM cases:
 
-$$
-\begin{aligned}
-\mathrm{backup\_type} &= \text{"tree"} \\
-\sigma_{\mathrm{backup}} &= 0.0 \\
-\pi &= \text{movement softmax/epsilon policy}
-\end{aligned}
-$$
+1. Both children active: tree backup under the movement softmax/epsilon policy.
+2. Only constructed child active: WM-restricted sampled target, $r(p) + G(c_1)$.
 
-Then compare against the current greedy backup. If the expected backup behaves sensibly, sweep:
-
-$$
-\sigma_{\mathrm{backup}} \in \{0.0, 0.5, 1.0\}
-$$
-
-and consider a cognitive variant:
-
-$$
-\sigma_{\mathrm{backup}} = \mathrm{activation}(c_1)
-$$
-
-so the backup interpolates between sampled branch propagation and expected sibling-aware propagation based on working-memory availability.
+This avoids the unresolved behavior-policy denominator and makes the cognitive interpretation clear. Then compare against current greedy backup before adding full-policy importance sampling.
