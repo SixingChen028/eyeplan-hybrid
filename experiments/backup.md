@@ -55,4 +55,21 @@ Branch-target update with a policy-derived learning-rate weight. The weight can 
 
 ## Results
 
-TBD.
+commit: 15dbe9f
+config: pareto_backup
+```py
+backup_mode = ["full", "wm_both", "wm_zero", "wm_partial"]
+wm_decay = [0.0, 0.5, 0.75, 1.0]
+cost = [0.001, 0.01, 0.02, 0.04, 0.08, 0.16]
+```
+
+### Performance
+
+All methods should perform the same when wm_decay is 1. Do they?
+
+full and wm_both should perform better when decay < 1. Do they?
+
+How do wm_zero and wm_partial compare?
+
+### Fit to human data
+
