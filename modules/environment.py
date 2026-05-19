@@ -219,82 +219,31 @@ class JaxDecisionTreeEnv:
 
         return jax.lax.fori_loop(0, math.ceil(self.num_nodes / 2), body_fn, g_values)
 
-    def _bellman_target(self, q_values, child_nodes, points, node, activation=None):
-        children = child_nodes[node]
-        child_q = safe_get(q_values, children, fill_value=0.0)
-        if activation is not None:
-            child_active = safe_get(activation, children, fill_value=0.0)
-            # NOTE: inactive nodes are treated as having Q=0 rather than not existing (Q=-inf)
-            # this is an assumption; maybe it should be optimized over
-            child_q = jnp.where(child_active > 0.0, child_q, 0.0)
-        return points[node] + jnp.max(child_q)
+    def _backup_target(self, state, node, params: JaxDecisionTreeParams):
+        children = state.child_nodes[node]
+        child_q = safe_get(state.q_values, children, fill_value=0.0)
+        child_active = safe_get(state.activation, children, fill_value=0.0) > 0.0
 
-    def _policy_tree_target(self, q_values, child_nodes, points, node, params: JaxDecisionTreeParams):
-        children = child_nodes[node]
-        child_q = safe_get(q_values, children, fill_value=0.0)
-        probs = self._softmax(child_q, params)
-        return points[node] + jnp.sum(probs * child_q)
-
-    def _active_policy_tree_target(
-        self,
-        q_values,
-        child_nodes,
-        points,
-        activation,
-        node,
-        params: JaxDecisionTreeParams,
-    ):
-        children = child_nodes[node]
-        child_q = safe_get(q_values, children, fill_value=0.0)
-        child_active = safe_get(activation, children, fill_value=0.0) > 0.0
-        child_q = jnp.where(child_active, child_q, 0.0)
-        probs = self._softmax(child_q, params)
-        return points[node] + jnp.sum(probs * child_q)
-
-    def _partial_policy_tree_target(
-        self,
-        q_values,
-        child_nodes,
-        points,
-        activation,
-        node,
-        params: JaxDecisionTreeParams,
-    ):
-        children = child_nodes[node]
-        child_q = safe_get(q_values, children, fill_value=0.0)
-        child_active = safe_get(activation, children, fill_value=0.0) > 0.0
-        probs = self._softmax(child_q, params) * child_active.astype(jnp.float32)
-        active_prob = jnp.sum(probs)
-        probs = jnp.where(active_prob > 0.0, probs / active_prob, 0.0)
-        return points[node] + jnp.sum(probs * child_q)
-
-    def _ancestor_backup_target(self, q_values, state, ancestor, params: JaxDecisionTreeParams):
-        if self.backup_mode in {BACKUP_MODE_FULL, BACKUP_MODE_WM_BOTH}:
-            return self._policy_tree_target(q_values, state.child_nodes, state.points, ancestor, params)
         if self.backup_mode == BACKUP_MODE_WM_ZERO:
-            return self._active_policy_tree_target(
-                q_values,
-                state.child_nodes,
-                state.points,
-                state.activation,
-                ancestor,
-                params,
-            )
-        if self.backup_mode == BACKUP_MODE_WM_PARTIAL:
-            return self._partial_policy_tree_target(
-                q_values,
-                state.child_nodes,
-                state.points,
-                state.activation,
-                ancestor,
-                params,
-            )
-        raise AssertionError(f"Unexpected backup_mode: {self.backup_mode}")
+            child_q = jnp.where(child_active, child_q, 0.0)
+            probs = self._softmax(child_q, params)
+        elif self.backup_mode == BACKUP_MODE_WM_PARTIAL:
+            probs = self._softmax(child_q, params) * child_active.astype(jnp.float32)
+            active_prob = jnp.sum(probs)
+            probs = jnp.where(active_prob > 0.0, probs / jnp.maximum(active_prob, 1e-20), 0.0)
+        elif self.backup_mode in {BACKUP_MODE_FULL, BACKUP_MODE_WM_BOTH}:
+            probs = self._softmax(child_q, params)
+        else:
+            raise AssertionError(f"Unexpected backup_mode: {self.backup_mode}")
+
+        return state.points[node] + jnp.sum(probs * child_q)
 
     def _update_q(self, state, params: JaxDecisionTreeParams):
         node = state.fixation_node
         q_values = state.q_values
-        target = self._bellman_target(state.q_values, state.child_nodes, state.points, node)
+        children = state.child_nodes[node]
+        child_q = safe_get(q_values, children, fill_value=0.0)
+        target = state.points[node] + jnp.max(child_q)
         node_step = params.learning_rate * (target - q_values[node])
         q_values = q_values.at[node].add(node_step)
 
@@ -310,7 +259,7 @@ class JaxDecisionTreeEnv:
         def body_fn(carry):
             current, weight, steps, q_values = carry
             ancestor = state.parent_nodes[current]
-            target = self._ancestor_backup_target(q_values, state, ancestor, params)
+            target = self._backup_target(state._replace(q_values=q_values), ancestor, params)
             step_size = params.learning_rate * weight
             new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
             q_values = q_values.at[ancestor].set(new_value)
