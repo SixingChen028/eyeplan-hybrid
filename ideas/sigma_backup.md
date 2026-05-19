@@ -5,7 +5,9 @@
 Make the value backup in the working-memory environment more principled using the two useful extremes from Sutton chapter 7:
 
 1. Tree backup when both children of a parent are available in working memory.
-2. Sampled n-step Sarsa-style backup, with importance sampling if needed, when only the constructed child branch is available in working memory.
+2. Sampled n-step Sarsa-style backup with importance sampling when only the constructed child branch is available in working memory.
+
+In both cases, the target quantity is the full movement-policy value under \(\pi\). Working memory limits which information the agent can use to form the backup; it does not change the quantity the agent is trying to estimate.
 
 The relevant MDP is not the full fixation/look environment. It is the deterministic tree MDP induced by the decision tree represented in the current state. Because this MDP is tree-structured, we can represent \(Q(p, c)\) as \(Q(c)\): the value of taking the action from parent \(p\) to child \(c\) is stored on the child node.
 
@@ -22,7 +24,7 @@ G(c_1) &= \text{the improved downstream return for the constructed child branch}
 \end{aligned}
 $$
 
-Use the same target policy as the internal movement policy unless we intentionally define a working-memory-restricted policy:
+Use the same target policy as the internal movement policy:
 
 $$
 \pi(c \mid p) = \mathrm{softmax\_epsilon}(Q(c), \beta_{\mathrm{move}}, \epsilon_{\mathrm{move}})
@@ -90,33 +92,11 @@ $$
 
 but a single look usually improves only the constructed branch.
 
-## Case 2: One Child in WM -> Sampled Backup
+## Case 2: One Child in WM -> Sampled Off-Policy Backup
 
 When only the constructed child \(c_1\) is in working memory, the backup should not pretend that the sibling value is available.
 
-There are two coherent interpretations.
-
-### Option A: Working-Memory-Restricted Target Policy
-
-If the target policy is defined over WM-available children only, then:
-
-$$
-\pi_{\mathrm{WM}}(c_1 \mid p) = 1
-$$
-
-and the sampled target is:
-
-$$
-\mathrm{target}_{\mathrm{sample}}(p) = r(p) + G(c_1)
-$$
-
-No importance sampling is needed because the target policy and the constructed behavior both choose the only available child.
-
-This estimates the value of the cognitive architecture given the current WM contents, not the value of the full tree MDP under the full movement policy.
-
-### Option B: Full Target Policy With Importance Sampling
-
-If the target remains the full movement policy over both children, then the sampled branch should be corrected by an importance ratio:
+The target still remains the full movement policy over both children. Therefore the sampled branch should be corrected by an importance ratio:
 
 $$
 \rho_1 = \frac{\pi(c_1 \mid p)}{b(c_1 \mid p)}
@@ -132,7 +112,7 @@ $$
 
 This is only conditionally true after the look has already selected a branch. For statistical off-policy correction, \(b(c_1 \mid p)\) should be the probability that the behavior process constructs the \(c_1\) branch before conditioning on the observed look. That probability is induced by the look policy, not by the deterministic path reconstruction itself.
 
-If we intentionally define the constructed backup as a deterministic query rather than sampled data, then \(b = 1\) can be used as a modeling convention. In that convention, the one-child sampled update should be written as an importance-weighted update, not as a plain Bellman target:
+The one-child sampled update should be written as an importance-weighted update, not as a plain Bellman target:
 
 $$
 Q(p) \leftarrow Q(p) + \alpha \cdot w \cdot \rho_1 \cdot [r(p) + G(c_1) - Q(p)]
@@ -152,6 +132,8 @@ r(p) + \pi_1 \cdot G(c_1)
 $$
 
 which scales the continuation but drops the correct baseline against the current estimate.
+
+If \(b(c_1 \mid p)\) is not available, we need to choose an approximation or modeling convention. Setting \(b(c_1 \mid p) = 1\) treats the constructed path as a deterministic query, but then \(\rho_1 = \pi_1\) is not a statistical correction for the look policy. It is a heuristic partial-backup rule.
 
 ## Problem With the Control-Variate Sigma=1 Target
 
@@ -176,7 +158,7 @@ This is exactly the local tree-backup target.
 
 That is a problem for the intended WM split. The control-variate target requires \(Q(c_2)\), the sibling value. But the one-child-in-WM case is defined by \(c_2\) not being available. Therefore the control-variate sigma=1 rule does not give a distinct principled one-child backup. It collapses back to tree backup when the sibling is available, and it is not implementable without an assumption about the missing sibling when the sibling is unavailable.
 
-Actionable conclusion: use tree backup for the both-children-in-WM case, and use either a WM-restricted sampled target or a non-control-variate importance-weighted sampled update for the one-child-in-WM case.
+Actionable conclusion: use tree backup for the both-children-in-WM case, and use a non-control-variate importance-weighted sampled update for the one-child-in-WM case. Do not redefine the target policy to be WM-restricted; WM restricts the data available for the backup, not the movement-policy value being estimated.
 
 ## Implementation Direction
 
@@ -188,19 +170,13 @@ $$
 \mathrm{target}(p) = r(p) + \pi_1 \cdot G(c_1) + \pi_2 \cdot Q(c_2)
 $$
 
-4. If only \(c_1\) is active, choose one of:
-
-$$
-\mathrm{target}(p) = r(p) + G(c_1)
-$$
-
-for a WM-restricted target policy, or:
+4. If only \(c_1\) is active, use an importance-weighted sampled update:
 
 $$
 Q(p) \leftarrow Q(p) + \alpha \cdot w \cdot \rho_1 \cdot [r(p) + G(c_1) - Q(p)]
 $$
 
-for a full-policy sampled backup with importance weighting.
+where \(\rho_1 = \pi(c_1 \mid p) / b(c_1 \mid p)\).
 
 5. Do not use the control-variate target for the one-child case unless we explicitly define how to access or impute \(Q(c_2)\).
 6. Keep `backup_steps` as the n-step horizon.
@@ -208,13 +184,12 @@ for a full-policy sampled backup with importance weighting.
 8. Add focused tests for:
 
 - both children active -> expected/tree backup;
-- only constructed child active -> sampled backup;
+- only constructed child active -> importance-weighted sampled backup;
 - inactive sibling with positive \(Q(c_2)\) does not affect the one-child sampled target;
 - current greedy mode remains available for comparison.
 
 ## Open Decisions
 
-- Should the one-child case estimate the value of the WM-restricted cognitive state, or the full tree MDP under the full movement policy?
 - If using full-policy importance sampling, how do we define or estimate \(b(c_1 \mid p)\) from the look policy?
 - Should inactive siblings be completely unavailable, or can their stored Q values be used even when they are not in working memory?
 - Should \(\lambda_{\mathrm{backup}}\) remain as ancestor-depth learning-rate decay?
@@ -225,7 +200,6 @@ for a full-policy sampled backup with importance weighting.
 Implement a new backup mode with two explicit WM cases:
 
 1. Both children active: tree backup under the movement softmax/epsilon policy.
-2. Only constructed child active: WM-restricted sampled target, \(r(p) + G(c_1)\).
+2. Only constructed child active: sampled off-policy update targeting the same movement policy, with \(\rho_1 = \pi(c_1 \mid p) / b(c_1 \mid p)\).
 
-This avoids the unresolved behavior-policy denominator and makes the cognitive interpretation clear. Then compare against current greedy backup before adding full-policy importance sampling.\(
-\)
+The main unresolved implementation choice is how to define or approximate \(b(c_1 \mid p)\), the probability that the look policy constructs the \(c_1\) branch when backing up through \(p\). If that is too difficult initially, use an explicit heuristic convention such as \(b = 1\), but label it as a heuristic rather than a principled off-policy correction.
