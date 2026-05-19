@@ -146,6 +146,10 @@ REQUIRED_PARAM_KEYS = (
 
 SWEEP_KEYS = set(ENV_DYNAMIC_PARAM_KEYS) | set(TRAIN_SWEEP_KEYS)
 SWEEP_KEY_ORDER = ("seed", *ENV_DYNAMIC_PARAM_KEYS, *(key for key in TRAIN_SWEEP_KEYS if key != "seed"))
+# Shape/static arrays are valid in TOML configs for job generators such as
+# generate_sbatch.py, which lift them into separate Slurm-array tasks. They are
+# rejected only by train.py's in-process expand_sweep path because one compiled
+# vmapped run cannot vary static environment/model behavior.
 SHAPE_KEYS = set(ENV_STATIC_PARAM_KEYS) | set(MODEL_SHAPE_PARAM_KEYS)
 
 
