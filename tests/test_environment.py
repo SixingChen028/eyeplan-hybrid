@@ -813,6 +813,37 @@ def test_backup_modes_handle_inactive_child_differently():
         )
 
 
+def test_wm_partial_backup_keeps_negative_active_child_when_softmax_underflows():
+    child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
+    parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
+    points = jnp.array([0.0, -8.0, 0.0], dtype=jnp.float32)
+    activation = jnp.array([1.0, 1.0, 0.0], dtype=jnp.float32)
+
+    env = _env(num_nodes=3, shuffle_nodes=False, backup_mode="wm_partial")
+    params = _env_params(
+        env,
+        beta_move=40.0,
+        eps_move=0.0,
+        learning_rate=1.0,
+        lamda_backup=1.0,
+        backup_steps=1,
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(0), params)
+    state = state._replace(
+        q_values=jnp.array([0.0, 0.0, 0.0], dtype=jnp.float32),
+        child_nodes=child_nodes,
+        parent_nodes=parent_nodes,
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(1, dtype=jnp.int32),
+        points=points,
+        activation=activation,
+    )
+
+    updated = env._update_q(state, params=params)
+
+    np.testing.assert_allclose(float(updated.q_values[0]), -8.0, atol=1e-6)
+
+
 def test_full_backup_updates_inactive_parents_but_wm_both_does_not():
     child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
     parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
