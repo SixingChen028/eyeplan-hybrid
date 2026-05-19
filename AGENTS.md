@@ -63,6 +63,9 @@ full suite before committing when the change affects shared model behavior.
 
 - Write simple, concise, modular Python.
 - Prefer existing local patterns over new abstractions.
+- Factor shared control flow and data preparation into one path when cases only
+  differ in small decisions. Branch as close as possible to the actual
+  difference instead of duplicating whole helper functions or dispatch layers.
 - Keep JAX code compatible with JIT/vectorized execution where surrounding code
   expects it.
 - Treat configuration names as part of the experiment record. Rename or remove
