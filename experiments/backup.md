@@ -27,33 +27,14 @@ When only the constructed child \(c_1\) is active:
 | `wm_partial` | \(Q'_p = Q_p + \eta \left[r + G_1 - Q_p\right]\) | Keller-style partial backup; renormalizes over available working-memory children. |
 | `wm_weighted` | Deferred | Branch-target update with a policy or behavior-derived learning-rate weight; omitted until the weighting convention is specified. |
 
-## Implementation Sketch
 
-Add a backup mode parameter with three active values:
+## Implementation Notes
 
-```toml
-backup_mode = "wm_zero"  # one of "full", "wm_zero", "wm_partial"
-```
-
-`wm_zero` should reproduce the current behavior in the hard-policy limit where \(\beta_{\mathrm{move}}\) is large and \(\epsilon_{\mathrm{move}} = 0\). It should replace the existing greedy max target with a policy expectation over the zero-filled child values.
-
-The likely implementation path is:
-
-1. Add `backup_mode` to config defaults, config validation, sweep expansion, and environment construction.
-2. Keep `wm_backup` temporarily only if needed for backward compatibility with existing configs; otherwise replace it with `backup_mode`.
-3. Factor ancestor backup target computation into a helper that receives the parent, constructed child, current `q_values`, activation, points, and params.
-4. Use the existing async bottom-up ordering: update the fixation node first, then back up through ancestors using the latest `q_values`.
-5. For both-active children, call the common policy/tree target for every mode.
-6. For one-child-active parents:
-   - `full`: include the inactive sibling's stored \(Q_2\) in both the softmax and target.
-   - `wm_zero`: use zero for the inactive sibling in both the softmax and target.
-   - `wm_partial`: use only the constructed child target \(r + G_1\).
-7. Preserve `backup_steps` as the ancestor horizon and `lamda_backup` as the depth-dependent learning-rate decay.
-8. Add focused tests for the one-child case of each mode, plus a both-active test showing the modes agree.
-
-Open implementation decision:
-
-- Whether `backup_mode` should fully replace `wm_backup` now, or whether configs should temporarily map `wm_backup = false` to `full` and `wm_backup = true` to `wm_zero`.
+- `backup_mode` lives in the environment constructor and config static keys.
+- Ancestor target logic is centralized in `JaxDecisionTreeEnv._backup_target(state, node, params)`.
+- Ancestor parent eligibility is handled in `_update_q`: `full` ignores working-memory activation for parents; the working-memory modes require the parent to be active.
+- `backup_steps` remains the ancestor horizon and `lamda_backup` remains the depth-dependent learning-rate decay.
+- Existing configs were migrated from `wm_backup` to `backup_mode`. Former `wm_backup = false` configs use `backup_mode = "full"`; former `wm_backup = true` configs use `backup_mode = "wm_zero"`.
 
 ## Results
 
