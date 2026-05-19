@@ -17,6 +17,7 @@ from modules.config import (
 from modules.train_progress import StartupTrainingTimeout, log_jax_gpu_diagnostics, train_with_progress
 from modules.train_results import (
     env_from_args,
+    filter_pending_runs,
     log_run_dirs_preview,
     prepare_run_dirs,
     save_results,
@@ -34,6 +35,7 @@ def main() -> None:
     parser.add_argument("--path", help="Override output path from [meta].result_path.")
     parser.add_argument("--experiment", help="Override experiment name. Defaults to [meta].experiment or config stem.")
     parser.add_argument("--skipeval", action="store_true", help="Skip post-training policy evaluation.")
+    parser.add_argument("--skip-existing", action="store_true", help="Skip completed runs with matching metadata args.")
     args, override_tokens = parser.parse_known_args()
 
     config_path, config = load_config(args.config)
@@ -44,10 +46,25 @@ def main() -> None:
     fixed, runs, varied_keys = expand_sweep(params)
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or str(meta.get("experiment") or config_path.stem)
+    skip_existing = bool(meta.get("skip_existing", False)) or args.skip_existing
     results_dir_display = os.path.join(output_path, "runs", experiment, "")
     if results_dir_display.startswith("./"):
         results_dir_display = results_dir_display[2:]
     _log(f"writing results to {results_dir_display}")
+
+    if skip_existing:
+        runs, skipped_run_dirs = filter_pending_runs(
+            runs,
+            path=output_path,
+            experiment=experiment,
+            require_eval=not args.skipeval,
+        )
+        _log(f"skip_existing skipped={len(skipped_run_dirs)} pending={len(runs)}")
+        if skipped_run_dirs:
+            log_run_dirs_preview(skipped_run_dirs)
+        if not runs:
+            _log("skip_existing complete: no pending runs")
+            return
 
     startup_timeout = StartupTrainingTimeout(
         float(meta["startup_training_timeout_seconds"]),

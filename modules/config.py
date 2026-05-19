@@ -99,6 +99,8 @@ PARAM_DEFAULTS = {
         # Terminate if training has not started within this many seconds; non-positive disables.
         # On timeout, train.py prints JAX/GPU diagnostics before exiting.
         "startup_training_timeout_seconds": 300,
+        # Skip parameter combinations that already have complete outputs under the experiment.
+        "skip_existing": False,
     },
 }
 

@@ -23,6 +23,18 @@ def test_render_script_keeps_point_set_tuple_as_single_param():
     assert '--point_set="${POINT_SET_VALUE}"' not in script
 
 
+def test_render_script_passes_skip_existing_from_meta():
+    config = {
+        "meta": {
+            "skip_existing": True,
+        },
+    }
+
+    script = _render_script(config, config_path=Path("config/test.toml"))
+
+    assert "--skip-existing" in script
+
+
 def test_generated_script_executes_train_py_for_one_array_task(tmp_path: Path):
     config_path = tmp_path / "slurm_exec_test.toml"
     config_path.write_text(

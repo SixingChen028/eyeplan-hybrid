@@ -270,6 +270,8 @@ def _render_script(config: dict, config_path: Path) -> str:
     cmd_parts.append(shlex.quote(str(config_path)))
     cmd_parts.append('--path="${RESULT_PATH}"')
     cmd_parts.append('--experiment="${EXPERIMENT}"')
+    if bool(meta.get("skip_existing", False)):
+        cmd_parts.append("--skip-existing")
     for key in selected_axes:
         cmd_parts.append(f'--{key}="${{{_to_bash_name(key, "VALUE")}}}"')
 

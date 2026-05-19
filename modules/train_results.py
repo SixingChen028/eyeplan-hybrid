@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import pickle
 from argparse import Namespace
@@ -22,6 +23,7 @@ from modules.evaluation import (
 from modules.results_layout import create_run_dir, write_run_metadata
 
 TRAINING_DATA_NAME = "data_training_jax.p"
+PARAMS_NAME = "net_jax.p"
 
 
 def env_from_args(args: dict) -> JaxDecisionTreeEnv:
@@ -90,6 +92,84 @@ def log_run_dirs_preview(run_dirs: list[str]) -> None:
     print("...", flush=True)
     for run_dir in run_dirs[-5:]:
         print(run_dir, flush=True)
+
+
+def _values_equal(left, right) -> bool:
+    if isinstance(left, tuple):
+        left = list(left)
+    if isinstance(right, tuple):
+        right = list(right)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(_values_equal(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+def _run_matches_args(run: dict, args: dict) -> bool:
+    return all(key in args and _values_equal(value, args[key]) for key, value in run.items())
+
+
+def _read_run_args(run_dir: str) -> dict | None:
+    metadata_path = os.path.join(run_dir, "metadata.json")
+    try:
+        with open(metadata_path, "r") as file:
+            metadata = json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+    args = metadata.get("args")
+    if not isinstance(args, dict):
+        return None
+    return args
+
+
+def _run_outputs_complete(run_dir: str, *, require_eval: bool) -> bool:
+    required_names = [PARAMS_NAME, TRAINING_DATA_NAME]
+    if require_eval:
+        required_names.append(EVAL_SUMMARY_NAME)
+    return all(os.path.exists(os.path.join(run_dir, name)) for name in required_names)
+
+
+def find_completed_run_dir(run: dict, *, path: str, experiment: str, require_eval: bool) -> str | None:
+    runs_root = os.path.join(path, "runs", experiment)
+    if not os.path.isdir(runs_root):
+        return None
+
+    matches: list[str] = []
+    for entry in os.scandir(runs_root):
+        if not entry.is_dir():
+            continue
+        if not _run_outputs_complete(entry.path, require_eval=require_eval):
+            continue
+        args = _read_run_args(entry.path)
+        if args is not None and _run_matches_args(run, args):
+            matches.append(entry.path)
+
+    if not matches:
+        return None
+    return sorted(matches)[-1]
+
+
+def filter_pending_runs(
+    runs: list[dict],
+    *,
+    path: str,
+    experiment: str,
+    require_eval: bool,
+) -> tuple[list[dict], list[str]]:
+    pending: list[dict] = []
+    skipped: list[str] = []
+    for run in runs:
+        completed_run_dir = find_completed_run_dir(
+            run,
+            path=path,
+            experiment=experiment,
+            require_eval=require_eval,
+        )
+        if completed_run_dir is None:
+            pending.append(run)
+        else:
+            skipped.append(completed_run_dir)
+    return pending, skipped
 
 
 def prepare_run_dirs(
