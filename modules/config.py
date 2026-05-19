@@ -4,6 +4,7 @@ import itertools
 import tomllib
 from pathlib import Path
 
+BACKUP_MODES = ("full", "wm_both", "wm_zero", "wm_partial")
 PARAM_CLASSES = ("environment", "training", "network", "meta")
 PARAM_RUNTIME_CLASSES = ("environment", "training", "network")
 
@@ -23,8 +24,8 @@ PARAM_DEFAULTS = {
         "use_best_open_value_obs": True,
         # Whether observations include best-seen-terminal scalar value.
         "use_best_terminal_value_obs": True,
-        # Whether value backups use only active working-memory nodes.
-        "wm_backup": True,
+        # Policy backup mode for ancestor value updates.
+        "backup_mode": "wm_zero",
         # Inverse temperature for softmax move probabilities in environment dynamics.
         "beta_move": 40.0,
         # Uniform random-move mixture rate in environment dynamics.
@@ -265,6 +266,11 @@ def parse_unit_interval(value, *, name: str) -> float:
     return value
 
 
+def validate_backup_mode(value, *, name: str = "backup_mode") -> None:
+    if value not in BACKUP_MODES:
+        raise ValueError(f"{name} must be one of {BACKUP_MODES}.")
+
+
 def validate_params(params: dict) -> None:
     unknown_keys = sorted(set(params) - set(DEFAULT_PARAMS))
     if unknown_keys:
@@ -287,6 +293,8 @@ def validate_params(params: dict) -> None:
         values = value if is_list(value) else [value]
         for item in values:
             parse_unit_interval(item, name=key)
+
+    validate_backup_mode(params.get("backup_mode"), name="backup_mode")
 
 
 def expand_sweep(params: dict) -> tuple[dict, list[dict], list[str]]:

@@ -80,7 +80,7 @@ def test_simulate_reports_all_missing_env_dynamic_keys():
         "use_recency_obs": False,
         "use_best_open_value_obs": True,
         "use_best_terminal_value_obs": True,
-        "wm_backup": True,
+        "backup_mode": "wm_zero",
         "point_set": [-8, -4, -2, -1, 1, 2, 4, 8],
     }
     with pytest.raises(ValueError) as error:
@@ -105,7 +105,7 @@ def test_simulate_build_env_uses_point_set():
         "use_recency_obs": False,
         "use_best_open_value_obs": True,
         "use_best_terminal_value_obs": True,
-        "wm_backup": True,
+        "backup_mode": "wm_zero",
         "point_set": [-3, -1, 1, 3],
     }
     env = simulate._build_env_from_metadata_args(metadata_args)
@@ -199,7 +199,7 @@ def test_train_results_env_from_args_uses_point_set():
             "use_recency_obs": False,
             "use_best_open_value_obs": True,
             "use_best_terminal_value_obs": True,
-            "wm_backup": True,
+            "backup_mode": "wm_zero",
             "point_set": [-5, -2, 2, 5],
         }
     )

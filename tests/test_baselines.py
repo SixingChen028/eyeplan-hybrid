@@ -19,7 +19,7 @@ def _env(**overrides):
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
-        wm_backup=bool(params["wm_backup"]),
+        backup_mode=str(params["backup_mode"]),
         point_set=params["point_set"],
     )
 

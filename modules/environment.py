@@ -5,6 +5,12 @@ from typing import NamedTuple
 
 from modules.tree_generation import build_tree_templates
 
+BACKUP_MODES = ("full", "wm_both", "wm_zero", "wm_partial")
+BACKUP_MODE_FULL = "full"
+BACKUP_MODE_WM_BOTH = "wm_both"
+BACKUP_MODE_WM_ZERO = "wm_zero"
+BACKUP_MODE_WM_PARTIAL = "wm_partial"
+
 
 def safe_get(arr: jax.Array, idx: jax.Array, *, fill_value) -> jax.Array:
     return arr.at[idx].get(
@@ -80,7 +86,7 @@ class JaxDecisionTreeEnv:
         use_recency_obs: bool,
         use_best_open_value_obs: bool,
         use_best_terminal_value_obs: bool,
-        wm_backup: bool,
+        backup_mode: str,
         point_set: tuple,
     ):
         self.num_nodes = int(num_nodes)
@@ -90,7 +96,9 @@ class JaxDecisionTreeEnv:
         self.use_recency_obs = bool(use_recency_obs)
         self.use_best_open_value_obs = bool(use_best_open_value_obs)
         self.use_best_terminal_value_obs = bool(use_best_terminal_value_obs)
-        self.wm_backup = bool(wm_backup)
+        if backup_mode not in BACKUP_MODES:
+            raise ValueError(f"backup_mode must be one of {BACKUP_MODES}.")
+        self.backup_mode = backup_mode
 
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
         self.empty_path = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
@@ -221,6 +229,68 @@ class JaxDecisionTreeEnv:
             child_q = jnp.where(child_active > 0.0, child_q, 0.0)
         return points[node] + jnp.max(child_q)
 
+    def _policy_tree_target(self, q_values, child_nodes, points, node, params: JaxDecisionTreeParams):
+        children = child_nodes[node]
+        child_q = safe_get(q_values, children, fill_value=0.0)
+        probs = self._softmax(child_q, params)
+        return points[node] + jnp.sum(probs * child_q)
+
+    def _active_policy_tree_target(
+        self,
+        q_values,
+        child_nodes,
+        points,
+        activation,
+        node,
+        params: JaxDecisionTreeParams,
+    ):
+        children = child_nodes[node]
+        child_q = safe_get(q_values, children, fill_value=0.0)
+        child_active = safe_get(activation, children, fill_value=0.0) > 0.0
+        child_q = jnp.where(child_active, child_q, 0.0)
+        probs = self._softmax(child_q, params)
+        return points[node] + jnp.sum(probs * child_q)
+
+    def _partial_policy_tree_target(
+        self,
+        q_values,
+        child_nodes,
+        points,
+        activation,
+        node,
+        params: JaxDecisionTreeParams,
+    ):
+        children = child_nodes[node]
+        child_q = safe_get(q_values, children, fill_value=0.0)
+        child_active = safe_get(activation, children, fill_value=0.0) > 0.0
+        probs = self._softmax(child_q, params) * child_active.astype(jnp.float32)
+        active_prob = jnp.sum(probs)
+        probs = jnp.where(active_prob > 0.0, probs / active_prob, 0.0)
+        return points[node] + jnp.sum(probs * child_q)
+
+    def _ancestor_backup_target(self, q_values, state, ancestor, params: JaxDecisionTreeParams):
+        if self.backup_mode in {BACKUP_MODE_FULL, BACKUP_MODE_WM_BOTH}:
+            return self._policy_tree_target(q_values, state.child_nodes, state.points, ancestor, params)
+        if self.backup_mode == BACKUP_MODE_WM_ZERO:
+            return self._active_policy_tree_target(
+                q_values,
+                state.child_nodes,
+                state.points,
+                state.activation,
+                ancestor,
+                params,
+            )
+        if self.backup_mode == BACKUP_MODE_WM_PARTIAL:
+            return self._partial_policy_tree_target(
+                q_values,
+                state.child_nodes,
+                state.points,
+                state.activation,
+                ancestor,
+                params,
+            )
+        raise AssertionError(f"Unexpected backup_mode: {self.backup_mode}")
+
     def _update_q(self, state, params: JaxDecisionTreeParams):
         node = state.fixation_node
         q_values = state.q_values
@@ -234,27 +304,13 @@ class JaxDecisionTreeEnv:
             has_parent = parent >= 0
             has_budget = steps < params.backup_steps
             parent_active = safe_get(state.activation, parent, fill_value=0.0) > 0.0
-            wm_allows_backup = (not self.wm_backup) | parent_active
+            wm_allows_backup = (self.backup_mode == BACKUP_MODE_FULL) | parent_active
             return (weight > 1e-6) & (current != state.root_node) & has_parent & has_budget & wm_allows_backup
 
         def body_fn(carry):
             current, weight, steps, q_values = carry
             ancestor = state.parent_nodes[current]
-            if self.wm_backup:
-                target = self._bellman_target(
-                    q_values,
-                    state.child_nodes,
-                    state.points,
-                    ancestor,
-                    state.activation,
-                )
-            else:
-                target = self._bellman_target(
-                    q_values,
-                    state.child_nodes,
-                    state.points,
-                    ancestor,
-                )
+            target = self._ancestor_backup_target(q_values, state, ancestor, params)
             step_size = params.learning_rate * weight
             new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
             q_values = q_values.at[ancestor].set(new_value)
@@ -272,7 +328,12 @@ class JaxDecisionTreeEnv:
         )
         return state._replace(q_values=q_values)
 
-    def _look(self, state: JaxDecisionTreeState, node: jax.Array, params: JaxDecisionTreeParams) -> JaxDecisionTreeState:
+    def _look(
+        self,
+        state: JaxDecisionTreeState,
+        node: jax.Array,
+        params: JaxDecisionTreeParams,
+    ) -> JaxDecisionTreeState:
         state = state._replace(
             fixation_node=node,
             n_visits=state.n_visits.at[node].add(1),

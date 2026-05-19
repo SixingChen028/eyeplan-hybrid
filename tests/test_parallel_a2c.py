@@ -35,7 +35,7 @@ def _env(**overrides):
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
-        wm_backup=bool(params["wm_backup"]),
+        backup_mode=str(params["backup_mode"]),
         point_set=params["point_set"],
     )
 
@@ -427,7 +427,7 @@ env = JaxDecisionTreeEnv(
     use_recency_obs=False,
     use_best_open_value_obs=True,
     use_best_terminal_value_obs=True,
-    wm_backup=False,
+    backup_mode="full",
     point_set=(-8, -4, -2, -1, 1, 2, 4, 8),
 )
 trainer = JaxBatchMaskA2C(
@@ -489,13 +489,22 @@ def test_expand_sweep_rejects_shape_changing_arrays():
     assert False, "shape-changing arrays should be rejected"
 
 
-def test_expand_sweep_rejects_wm_backup_arrays():
+def test_expand_sweep_rejects_backup_mode_arrays():
     try:
-        expand_sweep(_small_params(wm_backup=[False, True]))
+        expand_sweep(_small_params(backup_mode=["full", "wm_zero"]))
     except ValueError as error:
         assert "changes compiled shapes" in str(error)
         return
-    assert False, "wm_backup arrays should be rejected"
+    assert False, "backup_mode arrays should be rejected"
+
+
+def test_expand_sweep_rejects_invalid_backup_mode():
+    try:
+        expand_sweep(_small_params(backup_mode="invalid"))
+    except ValueError as error:
+        assert "backup_mode must be one of" in str(error)
+        return
+    assert False, "invalid backup_mode should be rejected"
 
 
 def test_expand_sweep_rejects_unknown_params():

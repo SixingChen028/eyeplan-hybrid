@@ -21,7 +21,7 @@ def _env(**overrides):
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
-        wm_backup=bool(params["wm_backup"]),
+        backup_mode=str(params["backup_mode"]),
         point_set=params["point_set"],
     )
 
@@ -389,7 +389,11 @@ def test_q_drop_rate_zero_preserves_inactive_q_values():
     state = env._corrupt_q_values(state, params)
 
     inactive_mask = np.asarray(state.activation) == 0.0
-    np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], np.asarray(q_values)[inactive_mask], atol=1e-6)
+    np.testing.assert_allclose(
+        np.asarray(state.q_values)[inactive_mask],
+        np.asarray(q_values)[inactive_mask],
+        atol=1e-6,
+    )
 
 
 def test_q_decay_scales_inactive_q_values():
@@ -657,7 +661,7 @@ def test_backup_steps_limits_ancestor_depth():
 
 
 def test_wm_decay_zero_multi_step_backup_uses_refreshed_activation():
-    env = _env(num_nodes=7, shuffle_nodes=False, wm_backup=True)
+    env = _env(num_nodes=7, shuffle_nodes=False, backup_mode="wm_zero")
     params = _env_params(
         env,
         learning_rate=1.0,
@@ -693,7 +697,7 @@ def test_wm_decay_zero_multi_step_backup_uses_refreshed_activation():
     )
 
 
-def test_wm_backup_stops_at_inactive_ancestor():
+def test_working_memory_backup_modes_stop_at_inactive_ancestor():
     child_nodes = jnp.array(
         [
             [1, -1],
@@ -708,18 +712,18 @@ def test_wm_backup_stops_at_inactive_ancestor():
     points = jnp.array([0.0, 1.0, 10.0, 3.0, -8.0], dtype=jnp.float32)
     activation = jnp.array([1.0, 0.0, 1.0, 1.0, 0.0], dtype=jnp.float32)
 
-    env_no_wm_backup = _env(num_nodes=5, shuffle_nodes=False, wm_backup=False)
-    no_wm_params = _env_params(
-        env_no_wm_backup,
+    full_env = _env(num_nodes=5, shuffle_nodes=False, backup_mode="full")
+    full_params = _env_params(
+        full_env,
         learning_rate=1.0,
         lamda_backup=1.0,
         backup_steps=100,
     )
-    state_no_wm_backup, _, _ = env_no_wm_backup.reset(
+    full_state, _, _ = full_env.reset(
         jax.random.PRNGKey(0),
-        no_wm_params,
+        full_params,
     )
-    state_no_wm_backup = state_no_wm_backup._replace(
+    full_state = full_state._replace(
         q_values=jnp.zeros((5,), dtype=jnp.float32),
         child_nodes=child_nodes,
         parent_nodes=parent_nodes,
@@ -728,28 +732,28 @@ def test_wm_backup_stops_at_inactive_ancestor():
         points=points,
         activation=activation,
     )
-    updated_no_wm_backup = env_no_wm_backup._update_q(
-        state_no_wm_backup,
-        params=no_wm_params,
+    updated_full = full_env._update_q(
+        full_state,
+        params=full_params,
     )
     np.testing.assert_allclose(
-        np.asarray(updated_no_wm_backup.q_values),
+        np.asarray(updated_full.q_values),
         np.array([14.0, 14.0, 13.0, 3.0, 0.0], dtype=np.float32),
         atol=1e-6,
     )
 
-    env_wm_backup = _env(num_nodes=5, shuffle_nodes=False, wm_backup=True)
-    wm_params = _env_params(
-        env_wm_backup,
+    wm_zero_env = _env(num_nodes=5, shuffle_nodes=False, backup_mode="wm_zero")
+    wm_zero_params = _env_params(
+        wm_zero_env,
         learning_rate=1.0,
         lamda_backup=1.0,
         backup_steps=100,
     )
-    state_wm_backup, _, _ = env_wm_backup.reset(
+    wm_zero_state, _, _ = wm_zero_env.reset(
         jax.random.PRNGKey(0),
-        wm_params,
+        wm_zero_params,
     )
-    state_wm_backup = state_wm_backup._replace(
+    wm_zero_state = wm_zero_state._replace(
         q_values=jnp.zeros((5,), dtype=jnp.float32),
         child_nodes=child_nodes,
         parent_nodes=parent_nodes,
@@ -758,85 +762,112 @@ def test_wm_backup_stops_at_inactive_ancestor():
         points=points,
         activation=activation,
     )
-    updated_wm_backup = env_wm_backup._update_q(
-        state_wm_backup,
-        params=wm_params,
+    updated_wm_zero = wm_zero_env._update_q(
+        wm_zero_state,
+        params=wm_zero_params,
     )
     np.testing.assert_allclose(
-        np.asarray(updated_wm_backup.q_values),
+        np.asarray(updated_wm_zero.q_values),
         np.array([0.0, 0.0, 13.0, 3.0, 0.0], dtype=np.float32),
         atol=1e-6,
     )
 
 
-def test_wm_backup_ignores_inactive_child_q_during_ancestor_backup():
+def test_backup_modes_handle_inactive_child_differently():
     child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
     parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
     points = jnp.array([0.0, 5.0, 0.0], dtype=jnp.float32)
     activation = jnp.array([1.0, 1.0, 0.0], dtype=jnp.float32)
 
-    env_no_wm_backup = _env(
-        num_nodes=3,
-        shuffle_nodes=False,
-        wm_backup=False,
-    )
-    no_wm_params = _env_params(
-        env_no_wm_backup, learning_rate=1.0,
-        lamda_backup=1.0,
-        backup_steps=1,
-    )
-    state_no_wm_backup, _, _ = env_no_wm_backup.reset(
-        jax.random.PRNGKey(0),
-        no_wm_params,
-    )
-    state_no_wm_backup = state_no_wm_backup._replace(
-        q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),
-        child_nodes=child_nodes,
-        parent_nodes=parent_nodes,
-        root_node=jnp.asarray(0, dtype=jnp.int32),
-        fixation_node=jnp.asarray(1, dtype=jnp.int32),
-        points=points,
-        activation=activation,
-    )
-    updated_no_wm_backup = env_no_wm_backup._update_q(
-        state_no_wm_backup,
-        params=no_wm_params,
-    )
-    np.testing.assert_allclose(
-        np.asarray(updated_no_wm_backup.q_values),
-        np.array([10.0, 5.0, 10.0], dtype=np.float32),
-        atol=1e-6,
-    )
+    expected_roots = {
+        "full": 7.5,
+        "wm_both": 7.5,
+        "wm_zero": 2.5,
+        "wm_partial": 5.0,
+    }
+    for backup_mode, expected_root in expected_roots.items():
+        env = _env(num_nodes=3, shuffle_nodes=False, backup_mode=backup_mode)
+        params = _env_params(
+            env,
+            beta_move=0.0,
+            eps_move=0.0,
+            learning_rate=1.0,
+            lamda_backup=1.0,
+            backup_steps=1,
+        )
+        state, _, _ = env.reset(jax.random.PRNGKey(0), params)
+        state = state._replace(
+            q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),
+            child_nodes=child_nodes,
+            parent_nodes=parent_nodes,
+            root_node=jnp.asarray(0, dtype=jnp.int32),
+            fixation_node=jnp.asarray(1, dtype=jnp.int32),
+            points=points,
+            activation=activation,
+        )
+        updated = env._update_q(state, params=params)
+        np.testing.assert_allclose(
+            np.asarray(updated.q_values),
+            np.array([expected_root, 5.0, 10.0], dtype=np.float32),
+            atol=1e-6,
+        )
 
-    env_wm_backup = _env(
-        num_nodes=3,
-        shuffle_nodes=False,
-        wm_backup=True,
-    )
-    wm_params = _env_params(
-        env_wm_backup, learning_rate=1.0,
-        lamda_backup=1.0,
-        backup_steps=1,
-    )
-    state_wm_backup, _, _ = env_wm_backup.reset(
-        jax.random.PRNGKey(0),
-        wm_params,
-    )
-    state_wm_backup = state_wm_backup._replace(
-        q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),
-        child_nodes=child_nodes,
-        parent_nodes=parent_nodes,
-        root_node=jnp.asarray(0, dtype=jnp.int32),
-        fixation_node=jnp.asarray(1, dtype=jnp.int32),
-        points=points,
-        activation=activation,
-    )
-    updated_wm_backup = env_wm_backup._update_q(
-        state_wm_backup,
-        params=wm_params,
-    )
-    np.testing.assert_allclose(
-        np.asarray(updated_wm_backup.q_values),
-        np.array([5.0, 5.0, 10.0], dtype=np.float32),
-        atol=1e-6,
-    )
+
+def test_full_backup_updates_inactive_parents_but_wm_both_does_not():
+    child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
+    parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
+    points = jnp.array([0.0, 5.0, 0.0], dtype=jnp.float32)
+    activation = jnp.array([0.0, 1.0, 0.0], dtype=jnp.float32)
+
+    for backup_mode, expected_root in [("full", 7.5), ("wm_both", 0.0)]:
+        env = _env(num_nodes=3, shuffle_nodes=False, backup_mode=backup_mode)
+        params = _env_params(
+            env,
+            beta_move=0.0,
+            eps_move=0.0,
+            learning_rate=1.0,
+            lamda_backup=1.0,
+            backup_steps=1,
+        )
+        state, _, _ = env.reset(jax.random.PRNGKey(0), params)
+        state = state._replace(
+            q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),
+            child_nodes=child_nodes,
+            parent_nodes=parent_nodes,
+            root_node=jnp.asarray(0, dtype=jnp.int32),
+            fixation_node=jnp.asarray(1, dtype=jnp.int32),
+            points=points,
+            activation=activation,
+        )
+        updated = env._update_q(state, params=params)
+        np.testing.assert_allclose(float(updated.q_values[0]), expected_root, atol=1e-6)
+
+
+def test_backup_modes_agree_when_both_children_are_active():
+    child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
+    parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
+    points = jnp.array([0.0, 5.0, 0.0], dtype=jnp.float32)
+    activation = jnp.ones((3,), dtype=jnp.float32)
+
+    for backup_mode in ["full", "wm_both", "wm_zero", "wm_partial"]:
+        env = _env(num_nodes=3, shuffle_nodes=False, backup_mode=backup_mode)
+        params = _env_params(
+            env,
+            beta_move=0.0,
+            eps_move=0.0,
+            learning_rate=1.0,
+            lamda_backup=1.0,
+            backup_steps=1,
+        )
+        state, _, _ = env.reset(jax.random.PRNGKey(0), params)
+        state = state._replace(
+            q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),
+            child_nodes=child_nodes,
+            parent_nodes=parent_nodes,
+            root_node=jnp.asarray(0, dtype=jnp.int32),
+            fixation_node=jnp.asarray(1, dtype=jnp.int32),
+            points=points,
+            activation=activation,
+        )
+        updated = env._update_q(state, params=params)
+        np.testing.assert_allclose(float(updated.q_values[0]), 7.5, atol=1e-6)

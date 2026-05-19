@@ -2,7 +2,7 @@
 
 
 [environment]
-wm_backup = [false, true]
+backup_mode = "wm_zero"
 wm_decay = 0.5
 q_drift = [0.0, 0.5, 1.0, 2.0]
 q_decay = [0.0, 0.5, 0.9, 1.0]

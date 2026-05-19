@@ -51,7 +51,7 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
         use_recency_obs=bool(args["use_recency_obs"]),
         use_best_open_value_obs=bool(args["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(args["use_best_terminal_value_obs"]),
-        wm_backup=bool(args["wm_backup"]),
+        backup_mode=str(args["backup_mode"]),
         point_set=args["point_set"],
     )
 
