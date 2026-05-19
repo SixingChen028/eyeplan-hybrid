@@ -228,9 +228,18 @@ class JaxDecisionTreeEnv:
             child_q = jnp.where(child_active, child_q, 0.0)
             probs = self._softmax(child_q, params)
         elif self.backup_mode == BACKUP_MODE_WM_PARTIAL:
-            probs = self._softmax(child_q, params) * child_active.astype(jnp.float32)
-            active_prob = jnp.sum(probs)
-            probs = jnp.where(active_prob > 0.0, probs / jnp.maximum(active_prob, 1e-20), 0.0)
+            active = child_active.astype(jnp.float32)
+            active_count = jnp.sum(active)
+            max_q = jnp.max(jnp.where(child_active, child_q, -jnp.inf))
+            z = params.beta_move * jnp.where(child_active, child_q - max_q, 0.0)
+            exp_z = jnp.where(child_active, jnp.exp(z), 0.0)
+            softmax_probs = exp_z / jnp.maximum(jnp.sum(exp_z), 1e-20)
+            random_probs = active / jnp.maximum(active_count, 1.0)
+            probs = jnp.where(
+                active_count > 0.0,
+                (1.0 - params.eps_move) * softmax_probs + params.eps_move * random_probs,
+                0.0,
+            )
         elif self.backup_mode in {BACKUP_MODE_FULL, BACKUP_MODE_WM_BOTH}:
             probs = self._softmax(child_q, params)
         else:
