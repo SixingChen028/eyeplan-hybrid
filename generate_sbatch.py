@@ -272,8 +272,10 @@ def _render_script(config: dict, config_path: Path) -> str:
     cmd_parts.append('--experiment="${EXPERIMENT}"')
     if bool(meta.get("skip_existing", False)):
         cmd_parts.append("--skip-existing")
-    if bool(meta.get("skipeval", False)):
-        cmd_parts.append("--skipeval")
+    
+    # TODO: wire this up!
+    # if bool(meta.get("skipeval", False)):
+    cmd_parts.append("--skipeval")
     for key in selected_axes:
         cmd_parts.append(f'--{key}="${{{_to_bash_name(key, "VALUE")}}}"')
 

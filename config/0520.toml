@@ -1,5 +1,4 @@
 [meta]
-skipeval = true
 
 [environment]
 backup_mode = "wm_partial"
