@@ -1,0 +1,24 @@
+[meta]
+skipeval = true
+
+[environment]
+backup_mode = "wm_partial"
+wm_decay = [0.0, 0.5, 1.0]
+q_decay = [0.0, 0.5, 1.0]
+cost = [0.001, 0.005, 0.01, 0.015, 0.020]
+# cost = [0.001, 0.01, 0.02, 0.03, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24]
+
+[training]
+seed = [1,2]
+beta_e_final = 0.01
+num_envs = 64
+num_updates = 30_000
+
+[network]
+network_type = "node_shared"
+hidden_size = 64
+
+[sbatch]
+time = "2:00:00"
+mem_per_cpu = "4000M"
+gpu = true
