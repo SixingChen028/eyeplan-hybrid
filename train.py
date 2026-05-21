@@ -34,6 +34,7 @@ def main() -> None:
     parser.add_argument("config", help="TOML config path or config stem under ./config.")
     parser.add_argument("--path", help="Override output path from [meta].result_path.")
     parser.add_argument("--experiment", help="Override experiment name. Defaults to [meta].experiment or config stem.")
+    parser.add_argument("--label", help="Override run label. Defaults to [meta].label when provided.")
     parser.add_argument("--skipeval", action="store_true", help="Skip post-training policy evaluation.")
     parser.add_argument("--skip-existing", action="store_true", help="Skip completed runs with matching metadata args.")
     args, override_tokens = parser.parse_known_args()
@@ -46,6 +47,7 @@ def main() -> None:
     fixed, runs, varied_keys = expand_sweep(params)
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or str(meta.get("experiment") or config_path.stem)
+    label = args.label if args.label is not None else meta.get("label")
     skip_existing = bool(meta.get("skip_existing", False)) or args.skip_existing
     results_dir_display = os.path.join(output_path, "runs", experiment, "")
     if results_dir_display.startswith("./"):
@@ -106,6 +108,7 @@ def main() -> None:
             experiment=experiment,
             config_path=config_path,
             varied_keys=varied_keys,
+            label=label,
         )
         log_run_dirs_preview(run_dirs)
 

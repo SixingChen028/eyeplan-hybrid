@@ -37,6 +37,19 @@ def test_render_script_passes_skip_existing_from_meta():
     assert "--skip-existing" in script
 
 
+def test_render_script_passes_label_from_meta():
+    config = {
+        "meta": {
+            "label": "obs-basic",
+        },
+    }
+
+    script = _render_script(config, config_path=Path("config/test.toml"))
+
+    assert "LABEL=obs-basic" in script
+    assert '--label="${LABEL}"' in script
+
+
 def test_render_script_does_not_run_simulate_inside_training_job():
     script = _render_script({}, config_path=Path("config/test.toml"))
 

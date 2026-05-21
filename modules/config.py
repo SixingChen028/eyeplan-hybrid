@@ -100,6 +100,8 @@ PARAM_DEFAULTS = {
         "result_path": "./results",
         # Experiment name; defaults to the config file stem when omitted.
         "experiment": None,
+        # Optional human-readable run label written to run metadata for downstream analysis.
+        "label": None,
         # Optional sbatch array axes selected from sweep parameters.
         "array_vars": None,
         # Number of updates between progress prints.

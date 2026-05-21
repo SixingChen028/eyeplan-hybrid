@@ -6,6 +6,7 @@ from modules.train_results import (
     PARAMS_NAME,
     TRAINING_DATA_NAME,
     filter_pending_runs,
+    prepare_run_dirs,
 )
 
 
@@ -81,3 +82,18 @@ def test_filter_pending_runs_can_skip_without_eval_requirement(tmp_path: Path):
 
     assert pending == []
     assert len(skipped) == 1
+
+
+def test_prepare_run_dirs_writes_label_to_metadata(tmp_path: Path):
+    run_dirs = prepare_run_dirs(
+        [{"seed": 1, "wm_decay": 0.5}],
+        path=str(tmp_path),
+        experiment="labeled",
+        config_path=Path("config/test.toml"),
+        varied_keys=["seed"],
+        label="obs-basic",
+    )
+
+    metadata_path = Path(run_dirs[0]) / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["args"]["label"] == "obs-basic"

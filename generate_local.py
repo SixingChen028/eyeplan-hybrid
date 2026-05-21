@@ -106,6 +106,8 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
 
     lines.append(f"RESULT_PATH={shlex.quote(result_path)}")
     lines.append(f"EXPERIMENT={shlex.quote(experiment)}")
+    if meta.get("label") is not None:
+        lines.append(f"LABEL={shlex.quote(str(meta['label']))}")
     lines.append(f"LOG_DIR={shlex.quote(log_path)}")
     lines.append('mkdir -p "${RESULT_PATH}" "${LOG_DIR}"')
     lines.append("")
@@ -189,6 +191,8 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
     cmd_parts.append(shlex.quote(str(config_path)))
     cmd_parts.append('--path="${RESULT_PATH}"')
     cmd_parts.append('--experiment="${EXPERIMENT}"')
+    if meta.get("label") is not None:
+        cmd_parts.append('--label="${LABEL}"')
     if bool(meta.get("skip_existing", False)):
         cmd_parts.append("--skip-existing")
     if task_overrides:

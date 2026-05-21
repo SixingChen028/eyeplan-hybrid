@@ -20,6 +20,7 @@ def test_train_uses_canonical_defaults():
 
 def test_canonical_defaults_come_from_param_defaults():
     assert config.DEFAULT_META == config.PARAM_DEFAULTS["meta"]
+    assert "label" in config.DEFAULT_META
     assert config.DEFAULT_PARAMS["num_nodes"] == config.PARAM_DEFAULTS["environment"]["num_nodes"]
     assert config.DEFAULT_PARAMS["lr"] == config.PARAM_DEFAULTS["training"]["lr"]
     assert config.DEFAULT_PARAMS["network_type"] == config.PARAM_DEFAULTS["network"]["network_type"]

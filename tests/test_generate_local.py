@@ -67,6 +67,18 @@ def test_render_script_assigns_array_tasks_to_gpus():
     assert '--seed="${SEED_VALUE}"' in script
 
 
+def test_render_script_passes_label_from_meta():
+    config = {
+        "meta": {
+            "label": "obs-basic",
+        },
+    }
+
+    script = _render_script(config, config_path=Path("config/test.toml"))
+    assert "LABEL=obs-basic" in script
+    assert '--label="${LABEL}"' in script
+
+
 def test_render_script_expands_run_tables_for_local_grid():
     config = {
         "meta": {

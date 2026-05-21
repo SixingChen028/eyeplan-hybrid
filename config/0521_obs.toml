@@ -1,4 +1,5 @@
 [meta]
+label = "observation-ablation"
 
 [params]
 backup_mode = "wm_partial"
