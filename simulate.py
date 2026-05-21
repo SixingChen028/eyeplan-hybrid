@@ -182,7 +182,7 @@ def main() -> None:
         args.seed_filter = 1
     num_trials = args.num_trials
     if num_trials is None:
-        num_trials = 100 if args.detailed else 10_240
+        num_trials = 100 if args.detailed else 5000
 
     runs_to_simulate: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
