@@ -368,6 +368,24 @@ def _render_script(config: dict, config_path: Path) -> str:
 
     lines.append(" \\\n    ".join(cmd_parts))
     lines.append("")
+
+    simulate_cmd_parts = [
+        "JAX_PLATFORMS=cpu",
+        "JAX_PLATFORM_NAME=cpu",
+        'CUDA_VISIBLE_DEVICES=""',
+        '"${PYTHON_BIN}"',
+    ]
+    simulate_cmd_parts.extend(shlex.quote(arg) for arg in python_extra_args)
+    simulate_cmd_parts.extend(
+        [
+            "simulate.py",
+            '"${RESULT_PATH}/runs/${EXPERIMENT}"',
+            '--results_root="${RESULT_PATH}"',
+        ]
+    )
+    lines.append('echo "simulate_task target=${RESULT_PATH}/runs/${EXPERIMENT}"')
+    lines.append(" \\\n    ".join(simulate_cmd_parts))
+    lines.append("")
     return "\n".join(lines)
 
 

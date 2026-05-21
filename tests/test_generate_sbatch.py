@@ -37,6 +37,24 @@ def test_render_script_passes_skip_existing_from_meta():
     assert "--skip-existing" in script
 
 
+def test_render_script_runs_simulate_once_for_experiment_on_cpu():
+    config = {
+        "meta": {
+            "experiment": "sbatch-simulate",
+            "result_path": "./results",
+        },
+        "sbatch": {
+            "gpu": True,
+        },
+    }
+
+    script = _render_script(config, config_path=Path("config/test.toml"))
+
+    assert 'echo "simulate_task target=${RESULT_PATH}/runs/${EXPERIMENT}"' in script
+    assert "JAX_PLATFORMS=cpu \\\n    JAX_PLATFORM_NAME=cpu \\\n    CUDA_VISIBLE_DEVICES=\"\" \\" in script
+    assert 'simulate.py \\\n    "${RESULT_PATH}/runs/${EXPERIMENT}" \\\n    --results_root="${RESULT_PATH}"' in script
+
+
 def test_render_script_expands_run_tables_with_array_axes():
     config = {
         "meta": {
