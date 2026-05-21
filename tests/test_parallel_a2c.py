@@ -99,6 +99,7 @@ def _a2c_train_params(env, config):
     )
 
 
+@pytest.mark.slow
 def test_dynamic_env_params_match_default_env_for_same_values():
     env = _env(
         num_nodes=3,

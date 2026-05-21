@@ -114,6 +114,7 @@ def test_jax_train_step_runs_node_shared_network():
     assert np.isfinite(float(metrics.loss))
 
 
+@pytest.mark.slow
 def test_jax_simulator_runs_trials():
     env = _env(
         num_nodes=3,
@@ -152,6 +153,7 @@ def test_jax_simulator_runs_trials():
     assert all(len(seq) <= env.t_max + 1 for seq in data["actions"])
 
 
+@pytest.mark.slow
 def test_jax_simulator_runs_node_shared_trials():
     env = _env(
         num_nodes=3,
@@ -190,6 +192,7 @@ def test_jax_simulator_runs_node_shared_trials():
     assert len(data["actions"]) <= 5
 
 
+@pytest.mark.slow
 def test_jax_simulator_runs_detailed_trials():
     env = _env(
         num_nodes=3,
@@ -235,6 +238,7 @@ def test_jax_simulator_runs_detailed_trials():
     assert len(data["logits"][0][0]) == env.action_size
 
 
+@pytest.mark.slow
 def test_jax_simulator_records_forced_terminal_action():
     env = _env(
         num_nodes=3,
@@ -272,6 +276,7 @@ def test_jax_simulator_records_forced_terminal_action():
         assert actions[-1] == env.num_nodes
 
 
+@pytest.mark.slow
 def test_jax_simulator_evaluate_policy_returns_summary_stats():
     env = _env(
         num_nodes=3,

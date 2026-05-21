@@ -130,6 +130,7 @@ def test_make_params_validates_dynamic_ranges(overrides, message):
         env.make_params(**params)
 
 
+@pytest.mark.slow
 def test_reset_uses_raw_node_ids_by_default():
     env = _env(num_nodes=15, shuffle_nodes=True)
 
@@ -170,6 +171,7 @@ def test_shuffle_nodes_randomizes_sibling_order():
     assert any(diff > 0 for diff in descendant_diffs)
 
 
+@pytest.mark.slow
 def test_recency_observation_tracks_direct_fixations():
     num_nodes = 7
     jax_env = _env(
@@ -507,6 +509,7 @@ def test_move_reward_marginalizes_over_possible_paths():
     assert not hasattr(state, "chosen_path_len")
 
 
+@pytest.mark.slow
 def test_compiled_rollout_matches_eager_rollout():
     env = _env(
         num_nodes=7,
@@ -555,6 +558,7 @@ def test_compiled_rollout_matches_eager_rollout():
         ):
             np.testing.assert_allclose(np.asarray(compiled_leaf), np.asarray(eager_leaf), atol=1e-6)
 
+@pytest.mark.slow
 def test_move_path_is_not_stored_in_environment_state():
     env = _env(num_nodes=7, t_max=3, shuffle_nodes=False)
     params = _env_params(env)
@@ -577,6 +581,7 @@ def test_move_path_is_not_stored_in_environment_state():
     assert not hasattr(state, "chosen_path_len")
 
 
+@pytest.mark.slow
 def test_timeout_masks_to_move_action():
     env = _env(num_nodes=7, t_max=3, shuffle_nodes=False)
     params = _env_params(env)

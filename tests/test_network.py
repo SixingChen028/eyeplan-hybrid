@@ -117,6 +117,7 @@ def test_node_shared_forward_shape_with_optional_features():
             assert np.all(np.isfinite(np.asarray(values)))
 
 
+@pytest.mark.slow
 def test_node_shared_forward_shape_without_static_observation_features():
     env = _env(
         num_nodes=5,
@@ -144,6 +145,7 @@ def test_node_shared_forward_shape_without_static_observation_features():
     assert values.shape == (1,)
 
 
+@pytest.mark.slow
 def test_node_shared_forward_is_permutation_equivariant_for_node_logits():
     env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=True)
     _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
