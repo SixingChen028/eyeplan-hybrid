@@ -218,6 +218,7 @@ def save_results(
             config_path=config_path,
             varied_keys=[] if varied_keys is None else varied_keys,
         )
+    print(f"save_results runs={len(runs)} skip_eval={skip_eval}", flush=True)
     simulators: dict[tuple, object] = {}
     for run_index, run in enumerate(runs):
         run_dir = run_dirs[run_index]
@@ -278,4 +279,18 @@ def save_results(
                     f"n_steps_sd={eval_summary['n_steps_sd']:.3f}\n"
                 )
             file.write(f"training_log={log_path}\n")
+
+        if skip_eval:
+            print(
+                f"{run_index+1}/{len(runs)} {run_dir}",
+                flush=True,
+            )
+        else:
+            print(
+                f"{run_index+1}/{len(runs)} {run_dir}",
+                f"reward={eval_summary['reward_mean']:.3f}",
+                f"steps={eval_summary['n_steps_mean']:5.2f}",           
+                f"score={eval_summary['reward_no_cost_mean']:.3f}",
+                flush=True,
+            )
     return run_dirs
