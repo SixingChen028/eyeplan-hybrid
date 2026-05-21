@@ -62,4 +62,25 @@ Each run adds optional components on top of that base:
 
 ## Results
 
-TODO
+### 0521_obs
+
+http://localhost:5173/eyeplan/v10/ablations?minimal=true
+
+- performance
+  - everything is slightly better than basic
+  - value and mcts are substantially worse, especially for low cost
+  - value suffers a lot when wm is non-perfect
+- reward: only value gets it; basic is non-monotonic (BUT analysis might be wrong)
+- saccade types
+  - value and mcts (no g) miss siblings entirely
+  - basic overestimates parent, underestimates root (BUT check other wm values)
+  - **BIG** mcts and basic nail the reward effect, cross over at 0
+- action value
+  - only everything gets it; value gets action value but not future (interaction)
+  - basic is marginal
+- nfix and seen
+  - **BIG** value predicts strong positive effect but still gets seen vs unseen (quite close)
+
+Conclusions
+- taking out or weakening N might help a lot (from which_child/n_fix)
+- we should also explore space between basic and everything with better decay values
