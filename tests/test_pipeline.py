@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
@@ -46,6 +47,7 @@ def _train_params(env_params):
     )
 
 
+@pytest.mark.slow
 def test_jax_train_step_compiles_and_runs():
     env = _env(
         num_nodes=3,
@@ -79,6 +81,7 @@ def test_jax_train_step_compiles_and_runs():
     assert np.isfinite(float(metrics.episode_length))
 
 
+@pytest.mark.slow
 def test_jax_train_step_runs_node_shared_network():
     env = _env(
         num_nodes=3,

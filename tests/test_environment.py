@@ -146,6 +146,7 @@ def test_reset_uses_raw_node_ids_by_default():
     np.testing.assert_array_equal(np.asarray(info["mask"]), expected_mask)
 
 
+@pytest.mark.slow
 def test_shuffle_nodes_randomizes_sibling_order():
     env = _env(num_nodes=15, shuffle_nodes=True)
     params = _env_params(env)
@@ -593,6 +594,7 @@ def test_timeout_masks_to_move_action():
     assert not hasattr(state, "chosen_path_len")
 
 
+@pytest.mark.slow
 def test_visit_all_once_then_terminate_is_optimal_jax():
     env = _env(
         num_nodes=7,

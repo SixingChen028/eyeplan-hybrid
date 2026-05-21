@@ -1,5 +1,6 @@
 import jax
 import numpy as np
+import pytest
 
 from modules.baselines import evaluate_baseline_policies
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
@@ -35,6 +36,7 @@ def _env_params(env, **overrides):
     return env.make_params(**params)
 
 
+@pytest.mark.slow
 def test_baseline_policy_evaluation_runs():
     env = _env(
         num_nodes=3,
@@ -68,6 +70,7 @@ def test_baseline_policy_evaluation_runs():
         assert item.mean_episode_length > 0
 
 
+@pytest.mark.slow
 def test_visit_all_policy_has_bounded_length_after_fix():
     env = _env(
         num_nodes=7,

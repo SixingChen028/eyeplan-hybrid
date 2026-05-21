@@ -1,5 +1,6 @@
 import jax
 import numpy as np
+import pytest
 
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv
@@ -75,6 +76,7 @@ def test_mlp_forward_shape_is_unchanged():
     assert values.shape == (1,)
 
 
+@pytest.mark.slow
 def test_node_shared_forward_shape_with_optional_features():
     for use_recency_obs, recency_decay in [(False, 0.0), (True, 0.5)]:
         for use_best_open_value_obs, use_best_terminal_value_obs in [

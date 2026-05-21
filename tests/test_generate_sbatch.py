@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
 from generate_sbatch import _render_script
 
 
@@ -35,6 +37,7 @@ def test_render_script_passes_skip_existing_from_meta():
     assert "--skip-existing" in script
 
 
+@pytest.mark.slow
 def test_generated_script_executes_train_py_for_one_array_task(tmp_path: Path):
     config_path = tmp_path / "slurm_exec_test.toml"
     config_path.write_text(

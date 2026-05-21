@@ -6,6 +6,7 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
 from modules.a2c_sweep import VmappedA2CTrainer, build_hypers
@@ -143,6 +144,7 @@ def test_dynamic_env_params_match_default_env_for_same_values():
     assert bool(dynamic_step[3]) == bool(default_step[3])
 
 
+@pytest.mark.slow
 def test_parallel_sweep_compiles_and_returns_expected_shapes():
     fixed, runs, varied_keys = expand_sweep(_small_params())
     assert varied_keys == ["seed", "wm_decay"]
@@ -171,6 +173,7 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
     np.testing.assert_array_equal(np.asarray(result.states.optimizer.step), np.full((4,), 2))
 
 
+@pytest.mark.slow
 def test_parallel_sweep_compiles_node_shared_network():
     fixed, runs, _ = expand_sweep(
         _small_params(seed=[0], wm_decay=[1.0], network_type="node_shared")
@@ -280,6 +283,7 @@ def test_parallel_sweep_rejects_non_numeric_recency_decay_arrays():
         expand_sweep(_small_params(seed=0, recency_decay=["off", 0.5]))
 
 
+@pytest.mark.slow
 def test_train_with_progress_reports_numeric_rate(capsys):
     fixed, runs, _ = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
     env = _env(
@@ -318,6 +322,7 @@ def test_train_with_progress_reports_numeric_rate(capsys):
         assert rate > 0.0
 
 
+@pytest.mark.slow
 def test_train_with_progress_tracks_startup_timeout_compile_stages():
     class Timeout:
         def __init__(self):
@@ -358,6 +363,7 @@ def test_train_with_progress_tracks_startup_timeout_compile_stages():
     assert timeout.stages == ["init_sweep_states", "compile_train_sweep_chunk"]
 
 
+@pytest.mark.slow
 def test_parallel_single_combo_matches_existing_a2c():
     params = _small_params(seed=0, wm_decay=1.0)
     fixed, runs, _ = expand_sweep(params)
@@ -416,6 +422,7 @@ def test_parallel_single_combo_matches_existing_a2c():
     assert np.all(np.isfinite(np.asarray(result.metrics.episode_reward[0])))
 
 
+@pytest.mark.slow
 def test_default_shape_compiled_a2c_materializes_metrics():
     code = """
 import numpy as np
@@ -526,6 +533,7 @@ def test_expand_sweep_rejects_unknown_params():
     assert False, "unknown params should be rejected"
 
 
+@pytest.mark.slow
 def test_save_results_writes_existing_style_run_dirs(tmp_path):
     fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
     env = _env(
@@ -564,6 +572,7 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
     assert len(data["loss"]) == 2
 
 
+@pytest.mark.slow
 def test_save_results_can_skip_eval(tmp_path):
     fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
     env = _env(
@@ -599,6 +608,7 @@ def test_save_results_can_skip_eval(tmp_path):
     assert "eval_skipped=true" in (run_dir / "training.log").read_text()
 
 
+@pytest.mark.slow
 def test_evaluate_run_dir_writes_eval_summary_after_skip_eval(tmp_path):
     fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
     env = _env(

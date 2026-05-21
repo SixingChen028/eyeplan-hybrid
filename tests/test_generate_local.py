@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
 from generate_local import _render_script
 from modules.config import normalize_config
 
@@ -54,6 +56,7 @@ def test_render_script_defaults_to_four_cpus_and_one_process_per_gpu():
     assert "PROCESSES_PER_GPU=1" in script
 
 
+@pytest.mark.slow
 def test_generated_script_executes_train_py_for_local_grid_task(tmp_path: Path):
     config_path = tmp_path / "local_exec_test.toml"
     config_path.write_text(
