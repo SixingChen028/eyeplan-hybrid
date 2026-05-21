@@ -510,6 +510,12 @@ def train_with_progress(
             window_metrics = _concat_metric_chunks(window_metric_chunks)
             chunk_episode_count_total = float(np.sum(np.asarray(jax.device_get(window_metrics.episode_count))))
             cumulative_episode_count_total += chunk_episode_count_total
+
+            elapsed_seconds = time.time() - start
+            updates_done = update_end
+            updates_per_second = updates_done / elapsed_seconds
+            eta_seconds = (num_updates - updates_done) / updates_per_second
+
             if emit_progress and has_run_dirs:
                 _append_per_run_progress_logs(
                     run_dirs,
@@ -521,11 +527,6 @@ def train_with_progress(
                     cumulative_episode_counts=cumulative_episode_counts,
                     emit_stdout=emit_single_run_progress_to_stdout,
                 )
-
-            elapsed_seconds = time.time() - start
-            updates_done = update_end
-            updates_per_second = updates_done / elapsed_seconds
-            eta_seconds = (num_updates - updates_done) / updates_per_second
 
             gpu_stats = _summarize_chunk_gpu(gpu_sampler.snapshot_from(chunk_sample_start))
             if gpu_stats is not None:
