@@ -21,6 +21,24 @@ def test_normalize_config_allows_launcher_local_table():
     assert "params" in normalized
 
 
+def test_normalize_config_allows_run_tables():
+    normalized = normalize_config(
+        {
+            "params": {
+                "seed": [1, 2],
+            },
+            "runs": [
+                {
+                    "cost": 0.01,
+                    "wm_decay": 0.5,
+                }
+            ],
+        }
+    )
+
+    assert normalized["params"]["seed"] == [1, 2]
+
+
 def test_render_script_assigns_array_tasks_to_gpus():
     config = {
         "meta": {
@@ -47,6 +65,38 @@ def test_render_script_assigns_array_tasks_to_gpus():
     assert "TOTAL=2" in script
     assert 'CUDA_VISIBLE_DEVICES="${GPU}"' in script
     assert '--seed="${SEED_VALUE}"' in script
+
+
+def test_render_script_expands_run_tables_for_local_grid():
+    config = {
+        "meta": {
+            "array_vars": ["seed"],
+        },
+        "params": {
+            "seed": [7, 9],
+            "cost": [0.01, 0.02],
+        },
+        "runs": [
+            {
+                "wm_decay": 0.0,
+            },
+            {
+                "wm_decay": 0.5,
+                "seed": 11,
+            },
+        ],
+        "local": {
+            "gpus": [0],
+        },
+    }
+
+    script = _render_script(config, config_path=Path("config/test.toml"))
+
+    assert "TOTAL=3" in script
+    assert "--wm_decay=0.0 --seed=7" in script
+    assert "--wm_decay=0.0 --seed=9" in script
+    assert "--wm_decay=0.5 --seed=11" in script
+    assert "--cost=" not in script
 
 
 def test_render_script_defaults_to_four_cpus_and_one_process_per_gpu():

@@ -9,7 +9,10 @@ from generate_sbatch import (
     DEFAULT_META,
     _as_dict,
     _format_summary_value,
+    _format_cli_overrides,
+    _launcher_task_overrides,
     _resolve_config_path,
+    _run_overrides,
     _selected_array_axes,
     _split_params,
     _split_python_command,
@@ -55,6 +58,8 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
 
     _, array_params = _split_params(params)
     selected_axes = _selected_array_axes(meta, array_params)
+    run_overrides = _run_overrides(config)
+    task_overrides = _launcher_task_overrides(run_overrides, selected_axes, array_params)
 
     experiment = str(meta.get("experiment") or config_path.stem)
     python_exec, python_extra_args = _split_python_command(str(meta["python"]))
@@ -70,9 +75,11 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
     if len(local_gpus) == 0:
         raise ValueError("At least one GPU must be provided.")
 
-    task_count = 1
-    for key in selected_axes:
-        task_count *= len(array_params[key])
+    task_count = len(task_overrides)
+    if not run_overrides:
+        task_count = 1
+        for key in selected_axes:
+            task_count *= len(array_params[key])
 
     lines: list[str] = []
     lines.append("#!/bin/bash")
@@ -119,7 +126,14 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
     lines.append('echo "local_grid total=${TOTAL} gpus=${GPUS[*]} processes_per_gpu=${PROCESSES_PER_GPU}"')
     lines.append("")
 
-    if selected_axes:
+    if task_overrides:
+        lines.append("# Local-grid tasks from [[runs]].")
+        lines.append("TASK_ARGS=(")
+        for task in task_overrides:
+            lines.append(f"    {shlex.quote(_format_cli_overrides(task))}")
+        lines.append(")")
+        lines.append("")
+    elif selected_axes:
         lines.append("# Local-grid axes from config.")
         for key in selected_axes:
             array_name = _to_bash_name(key, "VALUES")
@@ -145,7 +159,9 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
     lines.append("for ((TASK_ID = 0; TASK_ID < TOTAL; TASK_ID++)); do")
     lines.append("    SLOT_INDEX=$((TASK_ID % MAX_PARALLEL))")
     lines.append("    GPU=${SLOTS[${SLOT_INDEX}]}")
-    if selected_axes:
+    if task_overrides:
+        lines.append("    TASK_ARGS_VALUE=${TASK_ARGS[${TASK_ID}]}")
+    elif selected_axes:
         lines.append("    idx=${TASK_ID}")
         for key in reversed(selected_axes):
             idx_name = _to_bash_name(key, "IDX").lower()
@@ -159,8 +175,11 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
     lines.append('    LOG_FILE="${LOG_DIR}/task_${TASK_ID}.log"')
 
     echo_parts = ['    echo "local_task task_id=${TASK_ID} gpu=${GPU}']
-    for key in selected_axes:
-        echo_parts.append(f" {key}=${{{_to_bash_name(key, 'VALUE')}}}")
+    if task_overrides:
+        echo_parts.append(' args=${TASK_ARGS_VALUE}')
+    else:
+        for key in selected_axes:
+            echo_parts.append(f" {key}=${{{_to_bash_name(key, 'VALUE')}}}")
     echo_parts.append(' log=${LOG_FILE}"')
     lines.append("".join(echo_parts))
 
@@ -172,7 +191,10 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
     cmd_parts.append('--experiment="${EXPERIMENT}"')
     if bool(meta.get("skip_existing", False)):
         cmd_parts.append("--skip-existing")
-    for key in selected_axes:
+    if task_overrides:
+        cmd_parts.append("${TASK_ARGS_VALUE}")
+    selected_axis_cmd_keys = [] if task_overrides else selected_axes
+    for key in selected_axis_cmd_keys:
         cmd_parts.append(f'--{key}="${{{_to_bash_name(key, "VALUE")}}}"')
     lines.append(" \\\n        ".join(cmd_parts) + ' >"${LOG_FILE}" 2>&1 &')
     lines.append('    PIDS+=("$!")')
@@ -200,10 +222,14 @@ def _build_local_summary_lines(config: dict, config_path: Path, gpus: list[str])
 
     _, array_params = _split_params(params)
     selected_axes = set(_selected_array_axes(meta, array_params))
+    run_overrides = _run_overrides(config)
+    task_overrides = _launcher_task_overrides(run_overrides, list(selected_axes), array_params)
 
     array_combination_count = 1
     for key in sorted(selected_axes):
         array_combination_count *= len(array_params[key])
+    if task_overrides:
+        array_combination_count = len(task_overrides)
 
     vmap_keys = sorted(key for key in array_params if key not in selected_axes)
     vmap_combination_count = 1
@@ -211,6 +237,8 @@ def _build_local_summary_lines(config: dict, config_path: Path, gpus: list[str])
         vmap_combination_count *= len(array_params[key])
 
     lines: list[str] = []
+    if run_overrides:
+        lines.append(f"Run tables: {len(run_overrides)}")
     lines.append(f"Local tasks: {array_combination_count} process launches")
     if selected_axes:
         for key in sorted(selected_axes):

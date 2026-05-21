@@ -37,6 +37,52 @@ def test_render_script_passes_skip_existing_from_meta():
     assert "--skip-existing" in script
 
 
+def test_render_script_expands_run_tables_with_array_axes():
+    config = {
+        "meta": {
+            "array_vars": ["seed", "cost"],
+        },
+        "params": {
+            "seed": [1, 2],
+            "cost": [0.01, 0.02],
+            "wm_decay": [0.0, 0.5],
+        },
+        "runs": [
+            {
+                "learning_rate": 0.3,
+            },
+            {
+                "learning_rate": 0.7,
+                "cost": 0.04,
+            },
+        ],
+    }
+
+    script = _render_script(config, config_path=Path("config/test.toml"))
+
+    assert "#SBATCH --array=0-5" in script
+    assert "--learning_rate=0.3 --seed=1 --cost=0.01" in script
+    assert "--learning_rate=0.3 --seed=2 --cost=0.02" in script
+    assert "--learning_rate=0.7 --cost=0.04 --seed=1" in script
+    assert "--learning_rate=0.7 --cost=0.04 --seed=2" in script
+    assert "--wm_decay=" not in script
+
+
+def test_render_script_rejects_unknown_run_key():
+    config = {
+        "runs": [
+            {
+                "num_episodes": 8,
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError) as error:
+        _render_script(config, config_path=Path("config/test.toml"))
+
+    assert "Unknown runs[0] keys: num_episodes" in str(error.value)
+
+
 @pytest.mark.slow
 def test_generated_script_executes_train_py_for_one_array_task(tmp_path: Path):
     config_path = tmp_path / "slurm_exec_test.toml"

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import itertools
 import math
 import re
 import shlex
@@ -7,7 +8,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-from modules.config import SHAPE_KEYS, normalize_config
+from modules.config import DEFAULT_PARAMS, SHAPE_KEYS, normalize_config
 
 DEFAULT_META = {
     "python": "python -u",
@@ -152,6 +153,71 @@ def _selected_array_axes(meta: dict, array_params: dict[str, list[object]]) -> l
     return axes
 
 
+def _run_overrides(config: dict) -> list[dict[str, object]]:
+    raw_runs = config.get("runs", [])
+    if raw_runs is None:
+        return []
+    if not isinstance(raw_runs, list):
+        raise ValueError("Expected [[runs]] to be an array of tables.")
+
+    runs: list[dict[str, object]] = []
+    for run_idx, raw_run in enumerate(raw_runs):
+        if not isinstance(raw_run, dict):
+            raise ValueError(f"runs[{run_idx}] must be a table.")
+        unknown_keys = sorted(set(raw_run) - set(DEFAULT_PARAMS))
+        if unknown_keys:
+            raise ValueError(f"Unknown runs[{run_idx}] keys: " + ", ".join(unknown_keys))
+        for key, value in raw_run.items():
+            if isinstance(value, list):
+                template = DEFAULT_PARAMS[key]
+                if not isinstance(template, tuple):
+                    raise ValueError(f"runs[{run_idx}].{key} must be scalar.")
+                for item_idx, item in enumerate(value):
+                    if not _is_scalar(item):
+                        raise ValueError(
+                            f"runs[{run_idx}].{key}[{item_idx}] must be scalar, got {type(item).__name__}."
+                        )
+                continue
+            if not _is_scalar(value):
+                raise ValueError(f"runs[{run_idx}].{key} must be scalar.")
+        runs.append(dict(raw_run))
+    return runs
+
+
+def _to_cli_scalar(key: str, value: object) -> str:
+    if isinstance(value, list):
+        return ",".join(_to_shell_scalar(item) for item in value)
+    return _to_shell_scalar(value)
+
+
+def _format_cli_overrides(overrides: dict[str, object]) -> str:
+    return " ".join(
+        shlex.quote(f"--{key}={_to_cli_scalar(key, value)}")
+        for key, value in overrides.items()
+    )
+
+
+def _launcher_task_overrides(
+    run_overrides: list[dict[str, object]],
+    selected_axes: list[str],
+    array_params: dict[str, list[object]],
+) -> list[dict[str, object]]:
+    if not run_overrides:
+        return []
+
+    tasks: list[dict[str, object]] = []
+    for run in run_overrides:
+        active_axes = [key for key in selected_axes if key not in run]
+        if active_axes:
+            for values in itertools.product(*(array_params[key] for key in active_axes)):
+                task = dict(run)
+                task.update(dict(zip(active_axes, values)))
+                tasks.append(task)
+        else:
+            tasks.append(dict(run))
+    return tasks
+
+
 def _render_script(config: dict, config_path: Path) -> str:
     normalized_config = normalize_config(config)
     meta = _as_dict(normalized_config.get("meta"), "meta", default=DEFAULT_META)
@@ -160,6 +226,8 @@ def _render_script(config: dict, config_path: Path) -> str:
 
     _, array_params = _split_params(params)
     selected_axes = _selected_array_axes(meta, array_params)
+    run_overrides = _run_overrides(config)
+    task_overrides = _launcher_task_overrides(run_overrides, selected_axes, array_params)
 
     experiment = str(meta.get("experiment") or config_path.stem)
     job_name = str(sbatch.get("job_name", experiment))
@@ -169,9 +237,11 @@ def _render_script(config: dict, config_path: Path) -> str:
     log_path = str(sbatch.get("log", "./log/%A_%a.log"))
     gpu_enabled = bool(sbatch.get("gpu", False))
 
-    array_size = 1
-    for key in selected_axes:
-        array_size *= len(array_params[key])
+    array_size = len(task_overrides)
+    if not run_overrides:
+        array_size = 1
+        for key in selected_axes:
+            array_size *= len(array_params[key])
 
     lines: list[str] = []
     lines.append("#!/bin/bash")
@@ -217,7 +287,21 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append('mkdir -p "${RESULT_PATH}"')
     lines.append("")
 
-    if selected_axes:
+    if task_overrides:
+        lines.append("# Slurm-array tasks from [[runs]].")
+        lines.append("TASK_ARGS=(")
+        for task in task_overrides:
+            lines.append(f"    {shlex.quote(_format_cli_overrides(task))}")
+        lines.append(")")
+        lines.append("")
+        lines.append("TASK_ID=${SLURM_ARRAY_TASK_ID}")
+        lines.append("TOTAL=${#TASK_ARGS[@]}")
+        lines.append("if ((TASK_ID < 0 || TASK_ID >= TOTAL)); then")
+        lines.append('    echo "Invalid SLURM_ARRAY_TASK_ID=${TASK_ID}; expected [0, $((TOTAL - 1))]"')
+        lines.append("    exit 1")
+        lines.append("fi")
+        lines.append('echo "grid_task task_id=${TASK_ID} args=${TASK_ARGS[${TASK_ID}]}"')
+    elif selected_axes:
         lines.append("# Slurm-array axes from config.")
         for key in selected_axes:
             array_name = _to_bash_name(key, "VALUES")
@@ -276,7 +360,10 @@ def _render_script(config: dict, config_path: Path) -> str:
     # TODO: wire this up!
     # if bool(meta.get("skipeval", False)):
     cmd_parts.append("--skipeval")
-    for key in selected_axes:
+    if task_overrides:
+        cmd_parts.append("${TASK_ARGS[${TASK_ID}]}")
+    selected_axis_cmd_keys = [] if task_overrides else selected_axes
+    for key in selected_axis_cmd_keys:
         cmd_parts.append(f'--{key}="${{{_to_bash_name(key, "VALUE")}}}"')
 
     lines.append(" \\\n    ".join(cmd_parts))
@@ -300,10 +387,14 @@ def _build_job_summary_lines(config: dict, config_path: Path) -> list[str]:
 
     _, array_params = _split_params(params)
     selected_axes = set(_selected_array_axes(meta, array_params))
+    run_overrides = _run_overrides(config)
+    task_overrides = _launcher_task_overrides(run_overrides, list(selected_axes), array_params)
 
     array_combination_count = 1
     for key in sorted(selected_axes):
         array_combination_count *= len(array_params[key])
+    if task_overrides:
+        array_combination_count = len(task_overrides)
 
     vmap_keys = sorted(key for key in array_params if key not in selected_axes)
     vmap_combination_count = 1
@@ -311,6 +402,8 @@ def _build_job_summary_lines(config: dict, config_path: Path) -> list[str]:
         vmap_combination_count *= len(array_params[key])
 
     lines: list[str] = []
+    if run_overrides:
+        lines.append(f"Run tables: {len(run_overrides)}")
     lines.append(f"Array parameters: {array_combination_count} combinations")
     if selected_axes:
         for key in sorted(selected_axes):
