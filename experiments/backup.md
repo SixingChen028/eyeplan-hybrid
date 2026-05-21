@@ -65,11 +65,38 @@ cost = [0.001, 0.01, 0.02, 0.04, 0.08, 0.16]
 
 ### Performance
 
-All methods should perform the same when wm_decay is 1. Do they?
+![](/Users/fred/projects/eyeplan/analysis/r/results/figs/misc/pareto/pareto_backup.png)
 
-full and wm_both should perform better when decay < 1. Do they?
+**All methods should perform the same when wm_decay is 1. Do they?**
 
-How do wm_zero and wm_partial compare?
+YES
+
+**full and wm_both should perform better when decay < 1. Do they?**
+
+YES. But the difference is not enormous.
+
+**How do wm_zero and wm_partial compare?**
+
+wm_zero is better, especially with fast decay and high cost
 
 ### Fit to human data
 
+pareto_backup results are unclear. `full` underpredicts parent saccades, but the others over-predict parent-parent and don't predict the negative slope for reward on parent
+
+http://localhost:5173/eyeplan/v10/backup_neigh100
+
+- partial doesn't get reward effect
+- full under-predicts parent
+- non-full barely captures negative slope for parent by reward
+- only partial gets action value
+  - uniquely captures rev fix interaction
+  - none of the models do very well on future value, but partial is best
+- partial gets last_look-reward best; both and zero do okay
+- partial almost gets flat n_fix in the both-seen case
+- partial does slightly worse on nfix-value
+- none of the models get reward-simple_type very well
+  - cross over is always far too low (-20 vs 0 in human)
+
+### Conclusion
+
+Use partial as default. However, keep in mind that it might be doing better primarily because it provides a source of noise and a reason to double check the path before committing to it. We shoult revisit the choice of backup rule when we add other sources of noise, e.g. q_decay.
