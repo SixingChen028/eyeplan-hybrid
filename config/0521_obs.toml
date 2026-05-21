@@ -1,0 +1,51 @@
+[meta]
+
+[params]
+backup_mode = "wm_partial"
+wm_decay = [0, 0.5, 1]
+cost = [0.005, 0.01, 0.02]
+seed = [1,2]
+beta_e_final = 0.01
+num_envs = 64
+num_updates = 30_000
+network_type = "node_shared"
+hidden_size = 64
+
+use_recency_obs = false
+use_best_open_value_obs = false
+use_best_terminal_value_obs = false
+use_g_values_obs = false
+use_q_values_obs = false
+use_n_visits_obs = false
+use_is_terminal_obs = false
+use_time_elapsed_obs = true  # note
+
+[[runs]]
+# value
+use_q_values_obs = true
+
+[[runs]]
+# mcts
+use_q_values_obs = true
+use_n_visits_obs = true
+
+[[runs]]
+# basic
+use_q_values_obs = true
+use_n_visits_obs = true
+use_g_values_obs = true
+
+[[runs]]
+# everything
+use_recency_obs = true
+use_best_open_value_obs = true
+use_best_terminal_value_obs = true
+use_g_values_obs = true
+use_q_values_obs = true
+use_n_visits_obs = true
+use_is_terminal_obs = true
+
+[sbatch]
+time = "1:00:00"
+mem_per_cpu = "4000M"
+gpu = true
