@@ -17,6 +17,8 @@ from modules.a2c_sweep import A2CHyperParams, A2CSweepResult, VmappedA2CTrainer
 
 RUN_LOG_COLUMNS = (
     ("update", 8),
+    ("ETA", 8),
+    ("upd/s", 8),
     ("ep_num", 10),
     ("ep_rew", 8),
     ("ep_len", 8),
@@ -368,11 +370,16 @@ def _append_per_run_progress_logs(
     chunk_metrics,
     *,
     update_end: int,
+    eta_seconds: float | None = None,
+    updates_per_second: float | None = None,
     env_steps_per_update: int = 1,
     cumulative_episode_counts: np.ndarray | None = None,
     emit_stdout: bool = False,
 ) -> None:
     metrics = jax.tree_util.tree_map(lambda x: np.asarray(jax.device_get(x)), chunk_metrics)
+
+    eta_text = _format_duration(eta_seconds) if eta_seconds is not None else "n/a"
+    updates_per_second_text = f"{updates_per_second:>8.3f}" if updates_per_second is not None else f"{'n/a':>8}"
 
     for run_index, run_dir in enumerate(run_dirs):
         log_path = os.path.join(run_dir, "training.log")
@@ -385,6 +392,8 @@ def _append_per_run_progress_logs(
         line = "   ".join(
             [
                 f"{update_end:>8d}",
+                f"{eta_text:>8}",
+                updates_per_second_text,
                 _fmt_ep_num(ep_num),
                 _fmt_num(float(np.mean(metrics.episode_reward[run_index]))),
                 _fmt_num(float(np.mean(metrics.episode_length[run_index]))),
@@ -459,17 +468,17 @@ def train_with_progress(
         compile_progress.stop()
     _log(f"  compilation done after {time.time() - compile_start:.1f} seconds")
 
+    start = time.time()
+    if startup_timeout is not None:
+        startup_timeout.cancel()
+    _log("parallel_train_started")
+
     if emit_progress and has_run_dirs:
         _init_per_run_training_logs(run_dirs)
         if emit_single_run_progress_to_stdout:
             run_header = _header(RUN_LOG_COLUMNS)
             _log(run_header)
             _log("-" * len(run_header))
-
-    start = time.time()
-    if startup_timeout is not None:
-        startup_timeout.cancel()
-    _log("parallel_train_started")
     metrics_chunks = []
     gpu_samples: list[dict[str, float]] = []
     cumulative_episode_counts = np.zeros((num_runs,), dtype=np.float64)
@@ -506,6 +515,8 @@ def train_with_progress(
                     run_dirs,
                     window_metrics,
                     update_end=update_end,
+                    eta_seconds=eta_seconds,
+                    updates_per_second=updates_per_second,
                     env_steps_per_update=env_steps_per_update,
                     cumulative_episode_counts=cumulative_episode_counts,
                     emit_stdout=emit_single_run_progress_to_stdout,
