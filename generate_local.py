@@ -195,6 +195,7 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
         cmd_parts.append('--label="${LABEL}"')
     if bool(meta.get("skip_existing", False)):
         cmd_parts.append("--skip-existing")
+    cmd_parts.append("--skipeval")
     if task_overrides:
         cmd_parts.append("${TASK_ARGS_VALUE}")
     selected_axis_cmd_keys = [] if task_overrides else selected_axes
