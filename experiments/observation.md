@@ -84,3 +84,19 @@ http://localhost:5173/eyeplan/v10/ablations?minimal=true
 Conclusions
 - taking out or weakening N might help a lot (from which_child/n_fix)
 - we should also explore space between basic and everything with better decay values
+
+### 0521_obs2
+
+difficulty with this one
+
+TODO: these runs need to have label: basic added
+
+/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.3_cost0.005_20260521_200137_ex4b
+/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.3_cost0.01_20260521_200137_70sb
+/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.3_cost0.02_20260521_200137_ql3d
+/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.5_cost0.005_20260521_200137_bvj8
+/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.5_cost0.01_20260521_200137_749p
+/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.5_cost0.02_20260521_200137_ly3q
+/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.7_cost0.005_20260521_200137_pkge
+/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.7_cost0.01_20260521_200137_9pnx
+/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.7_cost0.02_20260521_200137_5mnv
