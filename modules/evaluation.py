@@ -51,6 +51,11 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
         use_recency_obs=bool(args["use_recency_obs"]),
         use_best_open_value_obs=bool(args["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(args["use_best_terminal_value_obs"]),
+        use_g_values_obs=bool(args["use_g_values_obs"]),
+        use_q_values_obs=bool(args["use_q_values_obs"]),
+        use_n_visits_obs=bool(args["use_n_visits_obs"]),
+        use_is_terminal_obs=bool(args["use_is_terminal_obs"]),
+        use_time_elapsed_obs=bool(args["use_time_elapsed_obs"]),
         backup_mode=str(args["backup_mode"]),
         point_set=args["point_set"],
     )

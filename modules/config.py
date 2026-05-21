@@ -24,6 +24,16 @@ PARAM_DEFAULTS = {
         "use_best_open_value_obs": True,
         # Whether observations include best-seen-terminal scalar value.
         "use_best_terminal_value_obs": True,
+        # Whether observations include per-node path values.
+        "use_g_values_obs": True,
+        # Whether observations include per-node remembered value estimates.
+        "use_q_values_obs": True,
+        # Whether observations include per-node visit counts.
+        "use_n_visits_obs": True,
+        # Whether observations include per-node seen-terminal indicators.
+        "use_is_terminal_obs": True,
+        # Whether observations include elapsed time.
+        "use_time_elapsed_obs": True,
         # Policy backup mode for ancestor value updates.
         "backup_mode": "wm_zero",
         # Inverse temperature for softmax move probabilities in environment dynamics.

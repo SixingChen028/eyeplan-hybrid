@@ -25,6 +25,11 @@ def _env(**overrides):
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
+        use_g_values_obs=bool(params["use_g_values_obs"]),
+        use_q_values_obs=bool(params["use_q_values_obs"]),
+        use_n_visits_obs=bool(params["use_n_visits_obs"]),
+        use_is_terminal_obs=bool(params["use_is_terminal_obs"]),
+        use_time_elapsed_obs=bool(params["use_time_elapsed_obs"]),
         backup_mode=str(params["backup_mode"]),
         point_set=params["point_set"],
     )
@@ -70,7 +75,7 @@ def test_mlp_forward_shape_is_unchanged():
     assert values.shape == (1,)
 
 
-def test_node_shared_forward_shape_with_and_without_recency():
+def test_node_shared_forward_shape_with_optional_features():
     for use_recency_obs, recency_decay in [(False, 0.0), (True, 0.5)]:
         for use_best_open_value_obs, use_best_terminal_value_obs in [
             (False, False),
@@ -108,6 +113,33 @@ def test_node_shared_forward_shape_with_and_without_recency():
             assert values.shape == (1,)
             assert np.all(np.isfinite(np.asarray(logits)))
             assert np.all(np.isfinite(np.asarray(values)))
+
+
+def test_node_shared_forward_shape_without_static_observation_features():
+    env = _env(
+        num_nodes=5,
+        shuffle_nodes=False,
+        use_g_values_obs=False,
+        use_q_values_obs=False,
+        use_n_visits_obs=False,
+        use_is_terminal_obs=False,
+        use_time_elapsed_obs=False,
+    )
+    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
+    params = init_actor_critic_params(
+        jax.random.PRNGKey(1),
+        observation_template=env.observation_template,
+        action_size=env.action_size,
+        hidden_size=16,
+        network_type=NETWORK_NODE_SHARED,
+    )
+
+    logits, values = actor_critic_forward(params, _batch_obs(obs), info["mask"][None, :])
+
+    assert params["node_fc1"]["w"].shape == (6, 16)
+    assert params["global_fc"]["w"].shape == (16 * 2 + 3, 16)
+    assert logits.shape == (1, env.action_size)
+    assert values.shape == (1,)
 
 
 def test_node_shared_forward_is_permutation_equivariant_for_node_logits():

@@ -47,7 +47,12 @@ def _build_env(params: dict[str, Any]) -> JaxDecisionTreeEnv:
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
-        wm_backup=bool(params["wm_backup"]),
+        use_g_values_obs=bool(params["use_g_values_obs"]),
+        use_q_values_obs=bool(params["use_q_values_obs"]),
+        use_n_visits_obs=bool(params["use_n_visits_obs"]),
+        use_is_terminal_obs=bool(params["use_is_terminal_obs"]),
+        use_time_elapsed_obs=bool(params["use_time_elapsed_obs"]),
+        backup_mode=str(params["backup_mode"]),
         point_set=params["point_set"],
     )
 

@@ -53,18 +53,23 @@ def flatten_observation(obs: DecisionTreeObs) -> jax.Array:
         obs.parent,
         obs.child,
         obs.root,
-        obs.g_values,
-        obs.q_values,
-        obs.n_visits,
-        obs.is_terminal,
     ]
+    if obs.g_values is not None:
+        parts.append(obs.g_values)
+    if obs.q_values is not None:
+        parts.append(obs.q_values)
+    if obs.n_visits is not None:
+        parts.append(obs.n_visits)
+    if obs.is_terminal is not None:
+        parts.append(obs.is_terminal)
     if obs.best_open_value is not None:
         parts.append(obs.best_open_value)
     if obs.best_terminal_value is not None:
         parts.append(obs.best_terminal_value)
     if obs.recency is not None:
         parts.append(obs.recency)
-    parts.append(obs.time_elapsed)
+    if obs.time_elapsed is not None:
+        parts.append(obs.time_elapsed)
     return jnp.concatenate(parts, axis=-1)
 
 
@@ -73,8 +78,20 @@ def init_node_shared_actor_critic_params(
     observation_template: DecisionTreeObs,
     hidden_size: int = 128,
 ) -> Dict[str, Dict[str, jax.Array]]:
-    node_feature_size = 10 if observation_template.recency is not None else 9
-    global_feature_size = hidden_size * 2 + 2
+    node_feature_size = 5
+    for feature in (
+        observation_template.g_values,
+        observation_template.q_values,
+        observation_template.n_visits,
+        observation_template.is_terminal,
+        observation_template.recency,
+    ):
+        if feature is not None:
+            node_feature_size += 1
+
+    global_feature_size = hidden_size * 2 + 1
+    if observation_template.time_elapsed is not None:
+        global_feature_size += 1
     if observation_template.best_open_value is not None:
         global_feature_size += 1
     if observation_template.best_terminal_value is not None:
@@ -183,11 +200,15 @@ def _node_shared_forward(
         parent,
         child,
         root,
-        g_values,
-        q_values,
-        n_visits,
-        is_terminal,
     ]
+    if g_values is not None:
+        parts.append(g_values)
+    if q_values is not None:
+        parts.append(q_values)
+    if n_visits is not None:
+        parts.append(n_visits)
+    if is_terminal is not None:
+        parts.append(is_terminal)
     if recency is not None:
         parts.append(recency)
     parts.append(legal_feature)
@@ -200,7 +221,9 @@ def _node_shared_forward(
     legal_mean = _masked_mean(node_embeddings, legal_nodes)
     legal_max = _masked_max(node_embeddings, legal_nodes)
 
-    global_parts = [legal_mean, legal_max, fixation_point, time_elapsed]
+    global_parts = [legal_mean, legal_max, fixation_point]
+    if time_elapsed is not None:
+        global_parts.append(time_elapsed)
     if best_open_value is not None:
         global_parts.append(best_open_value)
     if best_terminal_value is not None:

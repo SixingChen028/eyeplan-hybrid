@@ -21,6 +21,11 @@ def _env(**overrides):
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
+        use_g_values_obs=bool(params["use_g_values_obs"]),
+        use_q_values_obs=bool(params["use_q_values_obs"]),
+        use_n_visits_obs=bool(params["use_n_visits_obs"]),
+        use_is_terminal_obs=bool(params["use_is_terminal_obs"]),
+        use_time_elapsed_obs=bool(params["use_time_elapsed_obs"]),
         backup_mode=str(params["backup_mode"]),
         point_set=params["point_set"],
     )
@@ -218,6 +223,24 @@ def test_best_value_observation_flags_control_feature_size():
     assert _obs_size(open_env) == _obs_size(base_env) + 1
     assert _obs_size(terminal_env) == _obs_size(base_env) + 1
     assert _obs_size(both_env) == _obs_size(base_env) + 2
+
+
+@pytest.mark.parametrize(
+    "flag, field, expected_delta",
+    [
+        ("use_g_values_obs", "g_values", 7),
+        ("use_q_values_obs", "q_values", 7),
+        ("use_n_visits_obs", "n_visits", 7),
+        ("use_is_terminal_obs", "is_terminal", 7),
+        ("use_time_elapsed_obs", "time_elapsed", 1),
+    ],
+)
+def test_static_observation_flags_control_feature_size(flag, field, expected_delta):
+    enabled_env = _env(num_nodes=7, **{flag: True})
+    disabled_env = _env(num_nodes=7, **{flag: False})
+
+    assert _obs_size(enabled_env) == _obs_size(disabled_env) + expected_delta
+    assert getattr(disabled_env.observation_template, field) is None
 
 
 def test_zero_recency_decay_keeps_only_current_fixation():

@@ -64,14 +64,14 @@ class DecisionTreeObs(NamedTuple):
     parent: jax.Array
     child: jax.Array
     root: jax.Array
-    g_values: jax.Array
-    q_values: jax.Array
-    n_visits: jax.Array
-    is_terminal: jax.Array
+    g_values: jax.Array | None
+    q_values: jax.Array | None
+    n_visits: jax.Array | None
+    is_terminal: jax.Array | None
     best_open_value: jax.Array | None
     best_terminal_value: jax.Array | None
     recency: jax.Array | None
-    time_elapsed: jax.Array
+    time_elapsed: jax.Array | None
 
 
 class JaxDecisionTreeEnv:
@@ -86,6 +86,11 @@ class JaxDecisionTreeEnv:
         use_recency_obs: bool,
         use_best_open_value_obs: bool,
         use_best_terminal_value_obs: bool,
+        use_g_values_obs: bool,
+        use_q_values_obs: bool,
+        use_n_visits_obs: bool,
+        use_is_terminal_obs: bool,
+        use_time_elapsed_obs: bool,
         backup_mode: str,
         point_set: tuple,
     ):
@@ -96,6 +101,11 @@ class JaxDecisionTreeEnv:
         self.use_recency_obs = bool(use_recency_obs)
         self.use_best_open_value_obs = bool(use_best_open_value_obs)
         self.use_best_terminal_value_obs = bool(use_best_terminal_value_obs)
+        self.use_g_values_obs = bool(use_g_values_obs)
+        self.use_q_values_obs = bool(use_q_values_obs)
+        self.use_n_visits_obs = bool(use_n_visits_obs)
+        self.use_is_terminal_obs = bool(use_is_terminal_obs)
+        self.use_time_elapsed_obs = bool(use_time_elapsed_obs)
         if backup_mode not in BACKUP_MODES:
             raise ValueError(f"backup_mode must be one of {BACKUP_MODES}.")
         self.backup_mode = backup_mode
@@ -380,14 +390,22 @@ class JaxDecisionTreeEnv:
             parent=self._one_hot(state.parent_nodes[state.fixation_node]),
             child=self._one_hot(child1) + self._one_hot(child2),
             root=self._one_hot(state.root_node),
-            g_values=jnp.where(known_mask, state.g_values, 0.0),
-            q_values=state.q_values,
-            n_visits=state.n_visits.astype(jnp.float32),
-            is_terminal=seen_terminal_mask.astype(jnp.float32),
+            g_values=(
+                jnp.where(known_mask, state.g_values, 0.0)
+                if self.use_g_values_obs
+                else None
+            ),
+            q_values=state.q_values if self.use_q_values_obs else None,
+            n_visits=state.n_visits.astype(jnp.float32) if self.use_n_visits_obs else None,
+            is_terminal=seen_terminal_mask.astype(jnp.float32) if self.use_is_terminal_obs else None,
             best_open_value=best_open_value,
             best_terminal_value=best_terminal_value,
             recency=state.fixation_recency if self.use_recency_obs else None,
-            time_elapsed=jnp.array([state.time_elapsed], dtype=jnp.float32),
+            time_elapsed=(
+                jnp.array([state.time_elapsed], dtype=jnp.float32)
+                if self.use_time_elapsed_obs
+                else None
+            ),
         )
 
     def _get_action_mask(self, state: JaxDecisionTreeState) -> jax.Array:
