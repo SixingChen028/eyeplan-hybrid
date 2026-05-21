@@ -180,6 +180,7 @@ def prepare_run_dirs(
     config_path: Path,
     varied_keys: list[str],
     label: str | None = None,
+    condition_index: int | None = None,
 ) -> list[str]:
     run_dirs: list[str] = []
     run_label = str(label).strip() if label is not None else ""
@@ -188,6 +189,8 @@ def prepare_run_dirs(
         run_args = dict(run)
         run_args["parallel_config"] = str(config_path)
         run_args["parallel_varied_keys"] = list(varied_keys)
+        if condition_index is not None:
+            run_args["parallel_condition_index"] = int(condition_index)
         if normalized_label is not None:
             run_args["label"] = normalized_label
 

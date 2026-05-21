@@ -216,7 +216,7 @@ def _split_legacy_params(params: dict) -> dict[str, dict]:
 
 
 def normalize_config(config: dict) -> dict:
-    allowed_top_level = set(PARAM_CLASSES) | {"params", "runs", "sbatch", "local"}
+    allowed_top_level = set(PARAM_CLASSES) | {"params", "conditions", "sbatch", "local"}
     unknown_tables = sorted(set(config) - allowed_top_level)
     if unknown_tables:
         raise ValueError("Unknown config tables: " + ", ".join(unknown_tables))
@@ -228,6 +228,7 @@ def normalize_config(config: dict) -> dict:
     if "params" in config:
         params = _ensure_table(config, "params")
         legacy_sections = _split_legacy_params(params)
+    conditions = normalize_conditions(config.get("conditions", []))
 
     normalized = {
         param_class: dict(PARAM_DEFAULTS[param_class])
@@ -252,6 +253,7 @@ def normalize_config(config: dict) -> dict:
         **normalized,
         "meta": meta,
         "params": params,
+        "conditions": conditions,
     }
 
 
@@ -270,6 +272,46 @@ def load_config(path: str) -> tuple[Path, dict]:
 
 def is_list(value) -> bool:
     return isinstance(value, list)
+
+
+def is_scalar(value) -> bool:
+    return isinstance(value, (bool, int, float, str))
+
+
+def normalize_conditions(raw_conditions) -> list[dict]:
+    if raw_conditions is None:
+        return []
+    if not isinstance(raw_conditions, list):
+        raise ValueError("Expected [[conditions]] to be an array of tables.")
+
+    conditions: list[dict] = []
+    allowed_condition_keys = set(DEFAULT_PARAMS) | {"label"}
+    for condition_idx, raw_condition in enumerate(raw_conditions):
+        if not isinstance(raw_condition, dict):
+            raise ValueError(f"conditions[{condition_idx}] must be a table.")
+        unknown_keys = sorted(set(raw_condition) - allowed_condition_keys)
+        if unknown_keys:
+            raise ValueError(f"Unknown conditions[{condition_idx}] keys: " + ", ".join(unknown_keys))
+
+        condition: dict = {}
+        for key, value in raw_condition.items():
+            if isinstance(value, list):
+                template = DEFAULT_PARAMS.get(key)
+                if not isinstance(template, tuple):
+                    raise ValueError(f"conditions[{condition_idx}].{key} must be scalar.")
+                for item_idx, item in enumerate(value):
+                    if not is_scalar(item):
+                        raise ValueError(
+                            f"conditions[{condition_idx}].{key}[{item_idx}] must be scalar, "
+                            f"got {type(item).__name__}."
+                        )
+                condition[key] = tuple(value)
+                continue
+            if not is_scalar(value):
+                raise ValueError(f"conditions[{condition_idx}].{key} must be scalar.")
+            condition[key] = value
+        conditions.append(condition)
+    return conditions
 
 
 def parse_unit_interval(value, *, name: str) -> float:
@@ -341,6 +383,43 @@ def expand_sweep(params: dict) -> tuple[dict, list[dict], list[str]]:
         combo.update(dict(zip(varied_keys, values)))
         combos.append(combo)
     return fixed, combos, varied_keys
+
+
+def select_condition_params(
+    params: dict,
+    conditions: list[dict],
+    condition_index: int | None,
+) -> tuple[dict, str | None, int | None]:
+    if conditions and condition_index is None:
+        raise ValueError("Config contains [[conditions]]; pass --condition <index>.")
+    if not conditions:
+        if condition_index is not None:
+            raise ValueError("--condition was provided, but the config has no [[conditions]].")
+        return dict(params), None, None
+    if condition_index is None or condition_index < 0 or condition_index >= len(conditions):
+        raise ValueError(f"condition index must be in [0, {len(conditions) - 1}], got {condition_index}.")
+
+    condition = conditions[condition_index]
+    selected_params = dict(params)
+    selected_params.update({key: value for key, value in condition.items() if key != "label"})
+    label = condition.get("label")
+    return selected_params, None if label is None else str(label), condition_index
+
+
+def expand_config_runs(
+    config: dict,
+    *,
+    condition_index: int | None = None,
+    override_tokens: list[str] | None = None,
+) -> tuple[dict, list[dict], list[str], str | None, int | None]:
+    params, condition_label, selected_condition_index = select_condition_params(
+        config.get("params", {}),
+        config.get("conditions", []),
+        condition_index,
+    )
+    params = apply_cli_param_overrides(params, [] if override_tokens is None else override_tokens)
+    fixed, runs, varied_keys = expand_sweep(params)
+    return fixed, runs, varied_keys, condition_label, selected_condition_index
 
 
 def resolve_training_geometry(params: dict) -> tuple[int, int, int]:

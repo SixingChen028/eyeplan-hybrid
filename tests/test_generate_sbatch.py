@@ -85,7 +85,7 @@ def test_parse_sbatch_job_id():
     assert _parse_sbatch_job_id("Submitted batch job 12345\n") == "12345"
 
 
-def test_render_script_expands_run_tables_with_array_axes():
+def test_render_script_expands_condition_tables_with_array_axes():
     config = {
         "meta": {
             "array_vars": ["seed", "cost"],
@@ -95,7 +95,7 @@ def test_render_script_expands_run_tables_with_array_axes():
             "cost": [0.01, 0.02],
             "wm_decay": [0.0, 0.5],
         },
-        "runs": [
+        "conditions": [
             {
                 "learning_rate": 0.3,
                 "label": "value",
@@ -111,16 +111,18 @@ def test_render_script_expands_run_tables_with_array_axes():
     script = _render_script(config, config_path=Path("config/test.toml"))
 
     assert "#SBATCH --array=0-5" in script
-    assert "--learning_rate=0.3 --label=value --seed=1 --cost=0.01" in script
-    assert "--learning_rate=0.3 --label=value --seed=2 --cost=0.02" in script
-    assert "--learning_rate=0.7 --cost=0.04 --label=mcts --seed=1" in script
-    assert "--learning_rate=0.7 --cost=0.04 --label=mcts --seed=2" in script
+    assert "--condition=0 --seed=1 --cost=0.01" in script
+    assert "--condition=0 --seed=2 --cost=0.02" in script
+    assert "--condition=1 --seed=1" in script
+    assert "--condition=1 --seed=2" in script
     assert "--wm_decay=" not in script
+    assert "--learning_rate=" not in script
+    assert "--label=" not in script
 
 
-def test_render_script_rejects_unknown_run_key():
+def test_render_script_rejects_unknown_condition_key():
     config = {
-        "runs": [
+        "conditions": [
             {
                 "num_episodes": 8,
             }
@@ -130,7 +132,7 @@ def test_render_script_rejects_unknown_run_key():
     with pytest.raises(ValueError) as error:
         _render_script(config, config_path=Path("config/test.toml"))
 
-    assert "Unknown runs[0] keys: num_episodes" in str(error.value)
+    assert "Unknown conditions[0] keys: num_episodes" in str(error.value)
 
 
 @pytest.mark.slow

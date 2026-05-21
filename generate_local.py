@@ -10,9 +10,8 @@ from generate_sbatch import (
     _as_dict,
     _format_summary_value,
     _format_cli_overrides,
-    _launcher_task_overrides,
+    _condition_task_overrides,
     _resolve_config_path,
-    _run_overrides,
     _selected_array_axes,
     _split_params,
     _split_python_command,
@@ -58,8 +57,8 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
 
     _, array_params = _split_params(params)
     selected_axes = _selected_array_axes(meta, array_params)
-    run_overrides = _run_overrides(config)
-    task_overrides = _launcher_task_overrides(run_overrides, selected_axes, array_params)
+    conditions = normalized_config.get("conditions", [])
+    task_overrides = _condition_task_overrides(conditions, selected_axes, array_params)
 
     experiment = str(meta.get("experiment") or config_path.stem)
     python_exec, python_extra_args = _split_python_command(str(meta["python"]))
@@ -76,7 +75,7 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
         raise ValueError("At least one GPU must be provided.")
 
     task_count = len(task_overrides)
-    if not run_overrides:
+    if not conditions:
         task_count = 1
         for key in selected_axes:
             task_count *= len(array_params[key])
@@ -129,7 +128,7 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
     lines.append("")
 
     if task_overrides:
-        lines.append("# Local-grid tasks from [[runs]].")
+        lines.append("# Local-grid tasks from [[conditions]].")
         lines.append("TASK_ARGS=(")
         for task in task_overrides:
             lines.append(f"    {shlex.quote(_format_cli_overrides(task))}")
@@ -227,8 +226,8 @@ def _build_local_summary_lines(config: dict, config_path: Path, gpus: list[str])
 
     _, array_params = _split_params(params)
     selected_axes = set(_selected_array_axes(meta, array_params))
-    run_overrides = _run_overrides(config)
-    task_overrides = _launcher_task_overrides(run_overrides, list(selected_axes), array_params)
+    conditions = normalized_config.get("conditions", [])
+    task_overrides = _condition_task_overrides(conditions, list(selected_axes), array_params)
 
     array_combination_count = 1
     for key in sorted(selected_axes):
@@ -242,8 +241,8 @@ def _build_local_summary_lines(config: dict, config_path: Path, gpus: list[str])
         vmap_combination_count *= len(array_params[key])
 
     lines: list[str] = []
-    if run_overrides:
-        lines.append(f"Run tables: {len(run_overrides)}")
+    if conditions:
+        lines.append(f"Condition tables: {len(conditions)}")
     lines.append(f"Local tasks: {array_combination_count} process launches")
     if selected_axes:
         for key in sorted(selected_axes):

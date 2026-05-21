@@ -20,25 +20,25 @@ use_n_visits_obs = false
 use_is_terminal_obs = false
 use_time_elapsed_obs = true  # note
 
-[[runs]]
+[[conditions]]
 # value
 label = "value"
 use_q_values_obs = true
 
-[[runs]]
+[[conditions]]
 # mcts
 label = "mcts"
 use_q_values_obs = true
 use_n_visits_obs = true
 
-[[runs]]
+[[conditions]]
 # basic
 label = "basic"
 use_q_values_obs = true
 use_n_visits_obs = true
 use_g_values_obs = true
 
-[[runs]]
+[[conditions]]
 # everything
 label = "everything"
 use_recency_obs = true

@@ -22,22 +22,22 @@ use_best_open_value_obs = false
 use_best_terminal_value_obs = false
 use_is_terminal_obs = false
 
-[[runs]]
+[[conditions]]
 label = "basic"
 
-[[runs]]
+[[conditions]]
 label = "+is_terminal"
 use_is_terminal_obs = true
 
-[[runs]]
+[[conditions]]
 label = "+recency"
 use_recency_obs = true
 
-[[runs]]
+[[conditions]]
 label = "+open_value"
 use_best_open_value_obs = true
 
-[[runs]]
+[[conditions]]
 label = "+terminal_value"
 use_best_terminal_value_obs = true
 

@@ -117,3 +117,110 @@ def test_train_integration_training_log_records_progress(train_test_config_run):
     assert "eval_summary episodes=1" in training_log
     assert "reward_mean=" in training_log
     assert "eval_skipped=true" not in training_log
+
+
+@pytest.fixture(scope="module")
+def train_condition_config_run(tmp_path_factory: pytest.TempPathFactory):
+    repo_root = Path(__file__).resolve().parents[1]
+    tmp_path = tmp_path_factory.mktemp("train-condition-integration")
+    config_path = tmp_path / "condition.toml"
+    result_path = tmp_path / "results"
+    experiment = "train-condition-integration"
+    config_path.write_text(
+        (
+            "[meta]\n"
+            f"result_path = {str(result_path)!r}\n"
+            f"experiment = {experiment!r}\n"
+            "\n"
+            "[params]\n"
+            "seed = [7, 9]\n"
+            "num_updates = 1\n"
+            "num_envs = 1\n"
+            "rollout_length = 1\n"
+            "eval_episodes = 1\n"
+            "wm_decay = 0.0\n"
+            "cost = 0.01\n"
+            "use_recency_obs = false\n"
+            "\n"
+            "[[conditions]]\n"
+            "label = 'recency'\n"
+            "use_recency_obs = true\n"
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "train.py",
+            str(config_path),
+            "--condition",
+            "0",
+            "--skipeval",
+        ],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env={**os.environ, "JAX_PLATFORMS": "cpu"},
+    )
+
+    run_root = result_path / "runs" / experiment
+    run_dirs = sorted(path for path in run_root.iterdir() if path.is_dir())
+    assert len(run_dirs) == 2
+    return {
+        "completed": completed,
+        "run_dirs": run_dirs,
+    }
+
+
+def test_train_condition_config_expands_selected_condition(train_condition_config_run):
+    stdout = train_condition_config_run["completed"].stdout
+    assert "parallel_run_config runs=2 num_updates=1 num_envs=1" in stdout
+    assert "varied_keys=seed" in stdout
+
+    seeds = []
+    for run_dir in train_condition_config_run["run_dirs"]:
+        metadata = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))
+        args = metadata["args"]
+        seeds.append(args["seed"])
+        assert args["label"] == "recency"
+        assert args["parallel_condition_index"] == 0
+        assert args["use_recency_obs"] is True
+        assert args["parallel_varied_keys"] == ["seed"]
+    assert seeds == [7, 9]
+
+
+def test_train_condition_config_requires_condition_index(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    config_path = tmp_path / "condition.toml"
+    config_path.write_text(
+        (
+            "[params]\n"
+            "num_updates = 1\n"
+            "num_envs = 1\n"
+            "rollout_length = 1\n"
+            "\n"
+            "[[conditions]]\n"
+            "label = 'basic'\n"
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "train.py",
+            str(config_path),
+        ],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env={**os.environ, "JAX_PLATFORMS": "cpu"},
+    )
+
+    assert completed.returncode != 0
+    assert "pass --condition <index>" in completed.stderr

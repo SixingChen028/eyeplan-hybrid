@@ -21,13 +21,13 @@ def test_normalize_config_allows_launcher_local_table():
     assert "params" in normalized
 
 
-def test_normalize_config_allows_run_tables():
+def test_normalize_config_allows_condition_tables():
     normalized = normalize_config(
         {
             "params": {
                 "seed": [1, 2],
             },
-            "runs": [
+            "conditions": [
                 {
                     "cost": 0.01,
                     "wm_decay": 0.5,
@@ -37,6 +37,7 @@ def test_normalize_config_allows_run_tables():
     )
 
     assert normalized["params"]["seed"] == [1, 2]
+    assert len(normalized["conditions"]) == 1
 
 
 def test_render_script_assigns_array_tasks_to_gpus():
@@ -79,7 +80,7 @@ def test_render_script_passes_label_from_meta():
     assert '--label="${LABEL}"' in script
 
 
-def test_render_script_expands_run_tables_for_local_grid():
+def test_render_script_expands_condition_tables_for_local_grid():
     config = {
         "meta": {
             "array_vars": ["seed"],
@@ -88,7 +89,7 @@ def test_render_script_expands_run_tables_for_local_grid():
             "seed": [7, 9],
             "cost": [0.01, 0.02],
         },
-        "runs": [
+        "conditions": [
             {
                 "wm_decay": 0.0,
                 "label": "value",
@@ -107,10 +108,12 @@ def test_render_script_expands_run_tables_for_local_grid():
     script = _render_script(config, config_path=Path("config/test.toml"))
 
     assert "TOTAL=3" in script
-    assert "--wm_decay=0.0 --label=value --seed=7" in script
-    assert "--wm_decay=0.0 --label=value --seed=9" in script
-    assert "--wm_decay=0.5 --seed=11 --label=mcts" in script
+    assert "--condition=0 --seed=7" in script
+    assert "--condition=0 --seed=9" in script
+    assert "--condition=1" in script
     assert "--cost=" not in script
+    assert "--wm_decay=" not in script
+    assert "--label=" not in script
 
 
 def test_render_script_defaults_to_four_cpus_and_one_process_per_gpu():

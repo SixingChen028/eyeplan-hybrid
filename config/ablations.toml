@@ -20,35 +20,35 @@ use_n_visits_obs = true
 use_is_terminal_obs = true
 use_time_elapsed_obs = true
 
-[[runs]]
+[[conditions]]
 # no_g_values
 use_g_values_obs = false
 
-[[runs]]
+[[conditions]]
 # no_q_values
 use_q_values_obs = false
 
-[[runs]]
+[[conditions]]
 # no_n_visits
 use_n_visits_obs = false
 
-[[runs]]
+[[conditions]]
 # no_is_terminal
 use_is_terminal_obs = false
 
-[[runs]]
+[[conditions]]
 # no_recency
 use_recency_obs = false
 
-[[runs]]
+[[conditions]]
 # no_time_elapsed
 use_time_elapsed_obs = false
 
-[[runs]]
+[[conditions]]
 # no_best_open_value
 use_best_open_value_obs = false
 
-[[runs]]
+[[conditions]]
 # no_best_terminal_value
 use_best_terminal_value_obs = false
 

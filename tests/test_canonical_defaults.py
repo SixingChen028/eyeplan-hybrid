@@ -31,9 +31,58 @@ def test_normalize_config_rejects_unknown_section_key():
         config.normalize_config({"training": {"num_episodes": 8}})
 
 
+def test_normalize_config_rejects_unknown_condition_key():
+    with pytest.raises(ValueError, match=r"Unknown conditions\[0\] keys: num_episodes"):
+        config.normalize_config({"conditions": [{"num_episodes": 8}]})
+
+
 def test_normalize_config_converts_point_set_list_to_tuple():
     normalized = config.normalize_config({"environment": {"point_set": [1, 3, 9]}})
     assert normalized["params"]["point_set"] == (1, 3, 9)
+
+
+def test_normalize_config_converts_condition_point_set_list_to_tuple():
+    normalized = config.normalize_config({"conditions": [{"point_set": [1, 3, 9]}]})
+    assert normalized["conditions"][0]["point_set"] == (1, 3, 9)
+
+
+def test_expand_config_runs_selects_condition_before_sweep_expansion():
+    normalized = config.normalize_config(
+        {
+            "params": {
+                "seed": [1, 2],
+                "cost": [0.01, 0.02],
+                "use_recency_obs": False,
+            },
+            "conditions": [
+                {
+                    "label": "recency",
+                    "cost": 0.03,
+                    "use_recency_obs": True,
+                }
+            ],
+        }
+    )
+
+    fixed, runs, varied_keys, label, condition_index = config.expand_config_runs(
+        normalized,
+        condition_index=0,
+    )
+
+    assert fixed["cost"] == 0.03
+    assert fixed["use_recency_obs"] is True
+    assert varied_keys == ["seed"]
+    assert [run["seed"] for run in runs] == [1, 2]
+    assert all(run["cost"] == 0.03 for run in runs)
+    assert label == "recency"
+    assert condition_index == 0
+
+
+def test_expand_config_runs_requires_condition_index_when_conditions_exist():
+    normalized = config.normalize_config({"conditions": [{"label": "basic"}]})
+
+    with pytest.raises(ValueError, match=r"pass --condition <index>"):
+        config.expand_config_runs(normalized)
 
 
 def test_cli_override_uses_array_element_type():

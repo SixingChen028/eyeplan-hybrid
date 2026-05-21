@@ -9,8 +9,7 @@ jax.config.update("jax_compiler_enable_remat_pass", False)
 from modules.a2c_sweep import VmappedA2CTrainer, build_hypers
 from modules.config import (
     DEFAULT_META,
-    apply_cli_param_overrides,
-    expand_sweep,
+    expand_config_runs,
     load_config,
     resolve_training_geometry,
 )
@@ -35,6 +34,7 @@ def main() -> None:
     parser.add_argument("--path", help="Override output path from [meta].result_path.")
     parser.add_argument("--experiment", help="Override experiment name. Defaults to [meta].experiment or config stem.")
     parser.add_argument("--label", help="Override run label. Defaults to [meta].label when provided.")
+    parser.add_argument("--condition", type=int, help="0-based [[conditions]] table index to train.")
     parser.add_argument("--skipeval", action="store_true", help="Skip post-training policy evaluation.")
     parser.add_argument("--skip-existing", action="store_true", help="Skip completed runs with matching metadata args.")
     args, override_tokens = parser.parse_known_args()
@@ -42,12 +42,19 @@ def main() -> None:
     config_path, config = load_config(args.config)
     meta = dict(DEFAULT_META)
     meta.update(config.get("meta", {}))
-    params = apply_cli_param_overrides(config.get("params", {}), override_tokens)
 
-    fixed, runs, varied_keys = expand_sweep(params)
+    fixed, runs, varied_keys, condition_label, condition_index = expand_config_runs(
+        config,
+        condition_index=args.condition,
+        override_tokens=override_tokens,
+    )
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or str(meta.get("experiment") or config_path.stem)
-    label = args.label if args.label is not None else meta.get("label")
+    label = meta.get("label")
+    if condition_label is not None:
+        label = condition_label
+    if args.label is not None:
+        label = args.label
     skip_existing = bool(meta.get("skip_existing", False)) or args.skip_existing
     results_dir_display = os.path.join(output_path, "runs", experiment, "")
     if results_dir_display.startswith("./"):
@@ -109,6 +116,7 @@ def main() -> None:
             config_path=config_path,
             varied_keys=varied_keys,
             label=label,
+            condition_index=condition_index,
         )
         log_run_dirs_preview(run_dirs)
 
