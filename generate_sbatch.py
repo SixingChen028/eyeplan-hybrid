@@ -164,7 +164,8 @@ def _run_overrides(config: dict) -> list[dict[str, object]]:
     for run_idx, raw_run in enumerate(raw_runs):
         if not isinstance(raw_run, dict):
             raise ValueError(f"runs[{run_idx}] must be a table.")
-        unknown_keys = sorted(set(raw_run) - set(DEFAULT_PARAMS))
+        allowed_run_keys = set(DEFAULT_PARAMS) | {"label"}
+        unknown_keys = sorted(set(raw_run) - allowed_run_keys)
         if unknown_keys:
             raise ValueError(f"Unknown runs[{run_idx}] keys: " + ", ".join(unknown_keys))
         for key, value in raw_run.items():

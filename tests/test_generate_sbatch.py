@@ -98,10 +98,12 @@ def test_render_script_expands_run_tables_with_array_axes():
         "runs": [
             {
                 "learning_rate": 0.3,
+                "label": "value",
             },
             {
                 "learning_rate": 0.7,
                 "cost": 0.04,
+                "label": "mcts",
             },
         ],
     }
@@ -109,10 +111,10 @@ def test_render_script_expands_run_tables_with_array_axes():
     script = _render_script(config, config_path=Path("config/test.toml"))
 
     assert "#SBATCH --array=0-5" in script
-    assert "--learning_rate=0.3 --seed=1 --cost=0.01" in script
-    assert "--learning_rate=0.3 --seed=2 --cost=0.02" in script
-    assert "--learning_rate=0.7 --cost=0.04 --seed=1" in script
-    assert "--learning_rate=0.7 --cost=0.04 --seed=2" in script
+    assert "--learning_rate=0.3 --label=value --seed=1 --cost=0.01" in script
+    assert "--learning_rate=0.3 --label=value --seed=2 --cost=0.02" in script
+    assert "--learning_rate=0.7 --cost=0.04 --label=mcts --seed=1" in script
+    assert "--learning_rate=0.7 --cost=0.04 --label=mcts --seed=2" in script
     assert "--wm_decay=" not in script
 
 

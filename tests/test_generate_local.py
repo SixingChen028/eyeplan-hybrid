@@ -91,10 +91,12 @@ def test_render_script_expands_run_tables_for_local_grid():
         "runs": [
             {
                 "wm_decay": 0.0,
+                "label": "value",
             },
             {
                 "wm_decay": 0.5,
                 "seed": 11,
+                "label": "mcts",
             },
         ],
         "local": {
@@ -105,9 +107,9 @@ def test_render_script_expands_run_tables_for_local_grid():
     script = _render_script(config, config_path=Path("config/test.toml"))
 
     assert "TOTAL=3" in script
-    assert "--wm_decay=0.0 --seed=7" in script
-    assert "--wm_decay=0.0 --seed=9" in script
-    assert "--wm_decay=0.5 --seed=11" in script
+    assert "--wm_decay=0.0 --label=value --seed=7" in script
+    assert "--wm_decay=0.0 --label=value --seed=9" in script
+    assert "--wm_decay=0.5 --seed=11 --label=mcts" in script
     assert "--cost=" not in script
 
 

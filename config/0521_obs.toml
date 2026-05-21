@@ -1,5 +1,4 @@
 [meta]
-label = "observation-ablation"
 
 [params]
 backup_mode = "wm_partial"
@@ -23,21 +22,25 @@ use_time_elapsed_obs = true  # note
 
 [[runs]]
 # value
+label = "value"
 use_q_values_obs = true
 
 [[runs]]
 # mcts
+label = "mcts"
 use_q_values_obs = true
 use_n_visits_obs = true
 
 [[runs]]
 # basic
+label = "basic"
 use_q_values_obs = true
 use_n_visits_obs = true
 use_g_values_obs = true
 
 [[runs]]
 # everything
+label = "everything"
 use_recency_obs = true
 use_best_open_value_obs = true
 use_best_terminal_value_obs = true
