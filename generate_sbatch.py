@@ -369,28 +369,88 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append(" \\\n    ".join(cmd_parts))
     lines.append("")
 
-    simulate_cmd_parts = [
-        "JAX_PLATFORMS=cpu",
-        "JAX_PLATFORM_NAME=cpu",
-        'CUDA_VISIBLE_DEVICES=""',
-        '"${PYTHON_BIN}"',
-    ]
-    simulate_cmd_parts.extend(shlex.quote(arg) for arg in python_extra_args)
-    simulate_cmd_parts.extend(
+    return "\n".join(lines)
+
+
+def _render_simulate_script(config: dict, config_path: Path) -> str:
+    normalized_config = normalize_config(config)
+    meta = _as_dict(normalized_config.get("meta"), "meta", default=DEFAULT_META)
+    sbatch = _as_dict(config.get("sbatch"), "sbatch", default=DEFAULT_SBATCH)
+
+    experiment = str(meta.get("experiment") or config_path.stem)
+    job_name = str(sbatch.get("job_name", experiment))
+    python_exec, python_extra_args = _split_python_command(str(meta["python"]))
+    result_path = str(meta["result_path"])
+    log_path = str(sbatch.get("log", "./log/%A_%a.log"))
+
+    lines: list[str] = []
+    lines.append("#!/bin/bash")
+    lines.append(f"#SBATCH --job-name={job_name}-simulate")
+    lines.append(f"#SBATCH --cpus-per-task={sbatch['cpus_per_task']}")
+    lines.append(f"#SBATCH --time={sbatch['time']}")
+    lines.append(f"#SBATCH --mem-per-cpu={sbatch['mem_per_cpu']}")
+    lines.append(f"#SBATCH -e {log_path}")
+    lines.append(f"#SBATCH -o {log_path}")
+    for directive in sbatch.get("extra_directives", []):
+        lines.append(f"#SBATCH {directive}")
+    lines.append("")
+
+    lines.append("set -euo pipefail")
+    lines.append("")
+
+    lines.append(f"PYTHON_BIN={shlex.quote(python_exec)}")
+    lines.append('if [[ -x ".venv/bin/python" ]]; then')
+    lines.append('    if [[ -f ".venv/bin/activate" ]]; then')
+    lines.append('        source ".venv/bin/activate"')
+    lines.append("    fi")
+    lines.append('    PYTHON_BIN=".venv/bin/python"')
+    lines.append("fi")
+    lines.append("")
+
+    lines.append("# Force CPU execution for JAX and prevent inherited GPU visibility.")
+    lines.append("export JAX_PLATFORMS=cpu")
+    lines.append("export JAX_PLATFORM_NAME=cpu")
+    lines.append('export CUDA_VISIBLE_DEVICES=""')
+    lines.append("THREADS=${SLURM_CPUS_PER_TASK:-1}")
+    lines.append("export OMP_NUM_THREADS=${THREADS}")
+    lines.append("export MKL_NUM_THREADS=${THREADS}")
+    lines.append("export OPENBLAS_NUM_THREADS=${THREADS}")
+    lines.append("export VECLIB_MAXIMUM_THREADS=${THREADS}")
+    lines.append("export NUMEXPR_NUM_THREADS=${THREADS}")
+    lines.append('export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=${THREADS}"')
+    lines.append("")
+
+    lines.append(f"RESULT_PATH={shlex.quote(result_path)}")
+    lines.append(f"EXPERIMENT={shlex.quote(experiment)}")
+    lines.append('echo "simulate_task target=${RESULT_PATH}/runs/${EXPERIMENT}"')
+
+    cmd_parts = ['"${PYTHON_BIN}"']
+    cmd_parts.extend(shlex.quote(arg) for arg in python_extra_args)
+    cmd_parts.extend(
         [
             "simulate.py",
             '"${RESULT_PATH}/runs/${EXPERIMENT}"',
             '--results_root="${RESULT_PATH}"',
         ]
     )
-    lines.append('echo "simulate_task target=${RESULT_PATH}/runs/${EXPERIMENT}"')
-    lines.append(" \\\n    ".join(simulate_cmd_parts))
+    lines.append(" \\\n    ".join(cmd_parts))
     lines.append("")
     return "\n".join(lines)
 
 
 def _default_output_path(config_path: Path) -> Path:
     return Path("sbatch") / f"{config_path.stem}.sbatch"
+
+
+def _default_simulate_output_path(output_path: Path) -> Path:
+    return output_path.with_name(f"{output_path.stem}_simulate{output_path.suffix}")
+
+
+def _parse_sbatch_job_id(stdout: str) -> str:
+    match = re.search(r"\bSubmitted batch job\s+(\d+)\b", stdout)
+    if match is None:
+        raise ValueError(f"Could not parse sbatch job id from output: {stdout!r}")
+    return match.group(1)
 
 
 def _format_summary_value(values: list[object]) -> str:
@@ -462,11 +522,17 @@ def main() -> None:
     output_path.chmod(0o755)
     print(f"Wrote {output_path}")
 
+    simulate_output_path = _default_simulate_output_path(output_path)
+    simulate_script_text = _render_simulate_script(config, config_path=config_path)
+    simulate_output_path.write_text(simulate_script_text, encoding="utf-8")
+    simulate_output_path.chmod(0o755)
+    print(f"Wrote {simulate_output_path}")
+
     if args.submit:
         for line in _build_job_summary_lines(config, config_path):
             print(line)
         submit_cmd = ["sbatch", str(output_path)]
-        confirm = input("Submit job? [y/N] ").strip().lower()
+        confirm = input("Submit training job and dependent CPU simulation job? [y/N] ").strip().lower()
         if confirm != "y":
             print("Cancelled.")
             return
@@ -480,6 +546,22 @@ def main() -> None:
         stdout = result.stdout.strip()
         if stdout:
             print(stdout)
+        train_job_id = _parse_sbatch_job_id(stdout)
+
+        simulate_submit_cmd = [
+            "sbatch",
+            f"--dependency=afterok:{train_job_id}",
+            str(simulate_output_path),
+        ]
+        simulate_result = subprocess.run(
+            simulate_submit_cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        simulate_stdout = simulate_result.stdout.strip()
+        if simulate_stdout:
+            print(simulate_stdout)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from generate_sbatch import _render_script
+from generate_sbatch import _default_simulate_output_path, _parse_sbatch_job_id, _render_script, _render_simulate_script
 
 
 def test_render_script_keeps_point_set_tuple_as_single_param():
@@ -37,7 +37,13 @@ def test_render_script_passes_skip_existing_from_meta():
     assert "--skip-existing" in script
 
 
-def test_render_script_runs_simulate_once_for_experiment_on_cpu():
+def test_render_script_does_not_run_simulate_inside_training_job():
+    script = _render_script({}, config_path=Path("config/test.toml"))
+
+    assert "simulate.py" not in script
+
+
+def test_render_simulate_script_runs_once_for_experiment_on_cpu():
     config = {
         "meta": {
             "experiment": "sbatch-simulate",
@@ -48,11 +54,22 @@ def test_render_script_runs_simulate_once_for_experiment_on_cpu():
         },
     }
 
-    script = _render_script(config, config_path=Path("config/test.toml"))
+    script = _render_simulate_script(config, config_path=Path("config/test.toml"))
 
+    assert "#SBATCH --gres=gpu:1" not in script
     assert 'echo "simulate_task target=${RESULT_PATH}/runs/${EXPERIMENT}"' in script
-    assert "JAX_PLATFORMS=cpu \\\n    JAX_PLATFORM_NAME=cpu \\\n    CUDA_VISIBLE_DEVICES=\"\" \\" in script
+    assert "export JAX_PLATFORMS=cpu" in script
+    assert "export JAX_PLATFORM_NAME=cpu" in script
+    assert 'export CUDA_VISIBLE_DEVICES=""' in script
     assert 'simulate.py \\\n    "${RESULT_PATH}/runs/${EXPERIMENT}" \\\n    --results_root="${RESULT_PATH}"' in script
+
+
+def test_default_simulate_output_path_adds_simulate_suffix():
+    assert _default_simulate_output_path(Path("sbatch/test.sbatch")) == Path("sbatch/test_simulate.sbatch")
+
+
+def test_parse_sbatch_job_id():
+    assert _parse_sbatch_job_id("Submitted batch job 12345\n") == "12345"
 
 
 def test_render_script_expands_run_tables_with_array_axes():
