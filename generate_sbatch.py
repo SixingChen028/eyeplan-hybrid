@@ -136,12 +136,15 @@ def _split_params(params: dict) -> tuple[dict[str, object], dict[str, list[objec
 
 
 def _selected_array_axes(meta: dict, array_params: dict[str, list[object]]) -> list[str]:
+    array_vars_raw = meta.get("array_vars")
+    if array_vars_raw == "ALL":
+        return list(array_params.keys())
+
     axes: list[str] = [key for key in array_params if key in SHAPE_KEYS]
 
-    array_vars_raw = meta.get("array_vars")
     if array_vars_raw is not None:
         if not isinstance(array_vars_raw, list):
-            raise ValueError("meta.array_vars must be an array when provided.")
+            raise ValueError('meta.array_vars must be an array, "ALL", or omitted.')
         for item in array_vars_raw:
             if not isinstance(item, str):
                 raise ValueError("meta.array_vars entries must be strings.")

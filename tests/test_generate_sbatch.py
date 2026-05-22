@@ -4,7 +4,14 @@ import subprocess
 
 import pytest
 
-from generate_sbatch import _default_simulate_output_path, _parse_sbatch_job_id, _render_script, _render_simulate_script
+from generate_sbatch import (
+    _default_simulate_output_path,
+    _parse_sbatch_job_id,
+    _render_script,
+    _render_simulate_script,
+    _selected_array_axes,
+    _split_params,
+)
 
 
 def test_render_script_keeps_point_set_tuple_as_single_param():
@@ -83,6 +90,18 @@ def test_default_simulate_output_path_adds_simulate_suffix():
 
 def test_parse_sbatch_job_id():
     assert _parse_sbatch_job_id("Submitted batch job 12345\n") == "12345"
+
+
+def test_selected_array_axes_all_uses_every_sweep_array():
+    params = {
+        "wm_decay": [0.3, 0.5],
+        "cost": [0.01, 0.02],
+        "seed": [1, 2],
+        "num_envs": [64],
+    }
+    _, array_params = _split_params(params)
+    axes = _selected_array_axes({"array_vars": "ALL"}, array_params)
+    assert axes == ["wm_decay", "cost", "seed", "num_envs"]
 
 
 def test_render_script_expands_condition_tables_with_array_axes():

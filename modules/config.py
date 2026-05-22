@@ -102,7 +102,7 @@ PARAM_DEFAULTS = {
         "experiment": None,
         # Optional human-readable run label written to run metadata for downstream analysis.
         "label": None,
-        # Optional sbatch array axes selected from sweep parameters.
+        # Optional sbatch array axes: param name list, "ALL" for every sweep array, or None for shape keys only.
         "array_vars": None,
         # Number of updates between progress prints.
         "print_frequency": 100,
