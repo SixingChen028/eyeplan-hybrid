@@ -1,10 +1,16 @@
 [meta]
+array_vars = ["wm_decay", "cost", "seed"]
+
+[sbatch]
+time = "1:00:00"
+mem_per_cpu = "2000M"
+gpu = false
 
 [params]
 backup_mode = "wm_partial"
 wm_decay = [0.3, 0.5, 0.7]
 cost = [0.005, 0.01, 0.02]
-seed = 1
+seed = 2
 beta_e_final = 0.01
 num_envs = 64
 num_updates = 30_000
@@ -40,8 +46,3 @@ use_best_open_value_obs = true
 [[conditions]]
 label = "+terminal_value"
 use_best_terminal_value_obs = true
-
-[sbatch]
-time = "1:00:00"
-mem_per_cpu = "4000M"
-gpu = true
