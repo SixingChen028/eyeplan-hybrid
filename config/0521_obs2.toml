@@ -1,5 +1,5 @@
 [meta]
-array_vars = ["wm_decay", "cost", "seed"]
+array_vars = ["wm_decay", "cost"]
 
 [sbatch]
 time = "1:00:00"
