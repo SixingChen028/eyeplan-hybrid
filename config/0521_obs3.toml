@@ -1,10 +1,9 @@
 [meta]
-array_vars = ["wm_decay", "cost", "seed"]
 
 [sbatch]
 time = "1:00:00"
-mem_per_cpu = "2000M"
-gpu = false
+mem_per_cpu = "4000M"
+gpu = true
 
 [params]
 backup_mode = "wm_partial"
@@ -28,24 +27,10 @@ use_best_terminal_value_obs = true
 use_is_terminal_obs = true
 
 [[conditions]]
-label = "everything"
-
-[[conditions]]
-label = "-is_terminal"
-use_is_terminal_obs = false
-
-[[conditions]]
-label = "-recency"
-use_recency_obs = false
-
-[[conditions]]
-label = "-open_value"
+label = "-best_values"
 use_best_open_value_obs = false
-
-[[conditions]]
-label = "-terminal_value"
 use_best_terminal_value_obs = false
 
 [[conditions]]
-label = "-n_visits"
-use_n_visits_obs = false
+label = "-g_values"
+use_g_values_obs = false
