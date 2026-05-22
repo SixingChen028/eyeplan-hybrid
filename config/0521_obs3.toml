@@ -2,8 +2,8 @@
 array_vars = ["wm_decay", "cost", "seed"]
 
 [sbatch]
-time = "2:00:00"
-mem_per_cpu = "3000M"
+time = "1:00:00"
+mem_per_cpu = "2000M"
 gpu = false
 
 [params]
