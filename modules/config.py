@@ -18,6 +18,8 @@ PARAM_DEFAULTS = {
         "scale_factor": 0.125,
         # Whether to randomly permute node labels for each generated tree.
         "shuffle_nodes": True,
+        # Whether inactive nodes retain no node-specific information.
+        "wm_only": False,
         # Whether observations include per-node fixation recency values.
         "use_recency_obs": True,
         # Whether observations include best-open-path scalar value.
@@ -348,11 +350,18 @@ def validate_params(params: dict) -> None:
         if key not in SWEEP_KEYS:
             raise ValueError(f"params.{key} is not a supported parallel sweep parameter.")
 
-    for key in ("recency_decay", "q_decay", "wm_neighbor_activation"):
+    for key in ("recency_decay", "q_decay"):
         value = params.get(key, 0.0)
         values = value if is_list(value) else [value]
         for item in values:
             parse_unit_interval(item, name=key)
+
+    value = params.get("wm_neighbor_activation", 1.0)
+    values = value if is_list(value) else [value]
+    for item in values:
+        parsed = parse_unit_interval(item, name="wm_neighbor_activation")
+        if parsed == 0.0:
+            raise ValueError("wm_neighbor_activation numeric values must satisfy 0 < wm_neighbor_activation <= 1.")
 
     validate_backup_mode(params.get("backup_mode"), name="backup_mode")
 

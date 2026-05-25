@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from modules.a2c import load_jax_params
-from modules.config import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
+from modules.config import DEFAULT_PARAMS, ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from modules.simulation import JaxSimulator
 
@@ -41,13 +41,15 @@ def require_metadata_keys(metadata_args: dict, keys: tuple[str, ...], section_na
 
 
 def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
-    require_metadata_keys(args, ENV_STATIC_PARAM_KEYS, "environment static")
+    required_keys = tuple(key for key in ENV_STATIC_PARAM_KEYS if key != "wm_only")
+    require_metadata_keys(args, required_keys, "environment static")
 
     return JaxDecisionTreeEnv(
         num_nodes=int(args["num_nodes"]),
         t_max=int(args["t_max"]),
         scale_factor=float(args["scale_factor"]),
         shuffle_nodes=bool(args["shuffle_nodes"]),
+        wm_only=bool(args.get("wm_only", DEFAULT_PARAMS["wm_only"])),
         use_recency_obs=bool(args["use_recency_obs"]),
         use_best_open_value_obs=bool(args["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(args["use_best_terminal_value_obs"]),

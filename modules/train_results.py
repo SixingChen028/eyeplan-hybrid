@@ -10,7 +10,7 @@ import jax
 import numpy as np
 
 from modules.a2c import save_jax_params
-from modules.config import ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
+from modules.config import DEFAULT_PARAMS, ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from modules.evaluation import (
     EVAL_SUMMARY_NAME,
@@ -35,7 +35,7 @@ def env_params_from_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecisionTree
 
 
 def env_cache_key(args: dict) -> tuple:
-    return tuple(args[key] for key in (*ENV_STATIC_PARAM_KEYS, *ENV_DYNAMIC_PARAM_KEYS))
+    return tuple(args.get(key, DEFAULT_PARAMS[key]) for key in (*ENV_STATIC_PARAM_KEYS, *ENV_DYNAMIC_PARAM_KEYS))
 
 
 def metric_data(
@@ -105,7 +105,7 @@ def _values_equal(left, right) -> bool:
 
 
 def _run_matches_args(run: dict, args: dict) -> bool:
-    return all(key in args and _values_equal(value, args[key]) for key, value in run.items())
+    return all(_values_equal(value, args.get(key, DEFAULT_PARAMS.get(key))) for key, value in run.items())
 
 
 def _read_run_args(run_dir: str) -> dict | None:

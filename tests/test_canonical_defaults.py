@@ -106,6 +106,15 @@ def test_cli_override_parses_tuple_values():
 
     assert updated["point_set"] == (-2, 2)
 
+
+def test_validate_params_rejects_zero_wm_neighbor_activation():
+    params = dict(config.DEFAULT_PARAMS)
+    params["wm_neighbor_activation"] = 0.0
+
+    with pytest.raises(ValueError, match="wm_neighbor_activation"):
+        config.validate_params(params)
+
+
 def test_simulate_skips_existing_output_by_default(tmp_path, monkeypatch, capsys):
     run_dir = _make_simulate_run_dir(tmp_path)
     output_path = run_dir / "data_simulation.json"
