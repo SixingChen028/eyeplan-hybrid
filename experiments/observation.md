@@ -85,18 +85,22 @@ Conclusions
 - taking out or weakening N might help a lot (from which_child/n_fix)
 - we should also explore space between basic and everything with better decay values
 
+Remaining questions:
+1. which "extra" components in everything (vs. basic) have any impact?
+2. which ones are important for the reward/crossover effect
+3. how to explain value wins? can we just take out n_visits?
+
 ### 0521_obs2
 
-difficulty with this one
+We explore the space between basic and everything by adding one at a time. This targets questions 1 and 2 above.
 
-TODO: these runs need to have label: basic added
+Very little was learned here.
 
-/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.3_cost0.005_20260521_200137_ex4b
-/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.3_cost0.01_20260521_200137_70sb
-/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.3_cost0.02_20260521_200137_ql3d
-/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.5_cost0.005_20260521_200137_bvj8
-/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.5_cost0.01_20260521_200137_749p
-/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.5_cost0.02_20260521_200137_ly3q
-/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.7_cost0.005_20260521_200137_pkge
-/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.7_cost0.01_20260521_200137_9pnx
-/home/ubuntu/eyeplan-hybrid/results/runs/0521_obs2/wm_decay0.7_cost0.02_20260521_200137_5mnv
+### 0521_obs3
+
+Opposite approach: start with everything and *remove* one at a time.
+
+drop open_value
+drop terminal_value
+mb keep recency ; dropping recency hurdes type~reward plot
+dropping is_terminal hurts nfix-seen a lot; also future value
