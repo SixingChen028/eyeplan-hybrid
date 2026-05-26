@@ -157,3 +157,106 @@ def test_simulate_overwrite_reruns_existing_output(tmp_path, monkeypatch):
 
     assert len(calls) == 1
     assert calls[0]["output_path"] == str(output_path)
+    assert calls[0]["num_nodes"] is None
+    assert calls[0]["t_max"] is None
+
+
+def test_simulate_default_output_name_includes_environment_size_overrides(tmp_path, monkeypatch):
+    run_dir = _make_simulate_run_dir(tmp_path)
+    calls = []
+
+    def fake_simulate_run(**kwargs):
+        calls.append(kwargs)
+        return "params.p", 15, 10, 10
+
+    monkeypatch.setattr(simulate, "_simulate_run", fake_simulate_run)
+    monkeypatch.setattr(simulate, "_read_metadata_args", lambda run_dir: {"seed": 1})
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "simulate.py",
+            str(run_dir),
+            "--results_root",
+            str(tmp_path / "results"),
+            "--num_nodes",
+            "31",
+            "--t_max",
+            "80",
+        ],
+    )
+
+    simulate.main()
+
+    assert len(calls) == 1
+    assert calls[0]["output_path"] == str(run_dir / "data_simulation_num_nodes31_t_max80.json")
+
+
+def test_simulate_detailed_default_output_name_includes_environment_size_overrides(tmp_path, monkeypatch):
+    run_dir = _make_simulate_run_dir(tmp_path)
+    calls = []
+
+    def fake_simulate_run(**kwargs):
+        calls.append(kwargs)
+        return "params.p", 15, 10, 10
+
+    monkeypatch.setattr(simulate, "_simulate_run", fake_simulate_run)
+    monkeypatch.setattr(simulate, "_read_metadata_args", lambda run_dir: {"seed": 1})
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "simulate.py",
+            str(run_dir),
+            "--results_root",
+            str(tmp_path / "results"),
+            "--detailed",
+            "--num_nodes",
+            "31",
+            "--t_max",
+            "80",
+        ],
+    )
+
+    simulate.main()
+
+    assert len(calls) == 1
+    assert calls[0]["output_path"] == str(run_dir / "data_simulation_detailed_num_nodes31_t_max80.json")
+
+
+def test_simulate_passes_environment_size_overrides(tmp_path, monkeypatch):
+    run_dir = _make_simulate_run_dir(tmp_path)
+    calls = []
+
+    def fake_simulate_run(**kwargs):
+        calls.append(kwargs)
+        return "params.p", 15, 10, 10
+
+    monkeypatch.setattr(simulate, "_simulate_run", fake_simulate_run)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "simulate.py",
+            str(run_dir),
+            "--results_root",
+            str(tmp_path / "results"),
+            "--num_nodes",
+            "31",
+            "--t_max",
+            "80",
+        ],
+    )
+
+    simulate.main()
+
+    assert len(calls) == 1
+    assert calls[0]["num_nodes"] == 31
+    assert calls[0]["t_max"] == 80
+
+
+def test_simulate_num_nodes_override_requires_node_shared_params():
+    with pytest.raises(ValueError, match="node_shared"):
+        simulate._metadata_args_with_simulation_overrides(
+            {},
+            {"fc1": {}},
+            num_nodes=31,
+            t_max=None,
+        )

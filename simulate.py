@@ -30,6 +30,49 @@ from modules.results_layout import resolve_analysis_target
 from modules.simulation import JaxSimulator
 
 
+def _uses_node_shared_network(params) -> bool:
+    return isinstance(params, dict) and "node_fc1" in params
+
+
+def _metadata_args_with_simulation_overrides(
+    metadata_args: dict,
+    params,
+    *,
+    num_nodes: int | None,
+    t_max: int | None,
+) -> dict:
+    args = dict(metadata_args)
+
+    if num_nodes is not None:
+        if num_nodes <= 0:
+            raise ValueError("num_nodes must be positive")
+        if not _uses_node_shared_network(params):
+            raise ValueError(
+                "--num_nodes can only be used with node_shared network parameters. "
+                "Dense MLP parameters include environment-size-dependent input and action dimensions."
+            )
+        args["num_nodes"] = int(num_nodes)
+
+    if t_max is not None:
+        if t_max <= 0:
+            raise ValueError("t_max must be positive")
+        args["t_max"] = int(t_max)
+
+    return args
+
+
+def _default_output_name(*, detailed: bool, num_nodes: int | None, t_max: int | None) -> str:
+    stem = "data_simulation_detailed" if detailed else "data_simulation"
+    suffix_parts = []
+    if num_nodes is not None:
+        suffix_parts.append(f"num_nodes{num_nodes}")
+    if t_max is not None:
+        suffix_parts.append(f"t_max{t_max}")
+    if suffix_parts:
+        stem = f"{stem}_{'_'.join(suffix_parts)}"
+    return f"{stem}.json"
+
+
 def _round_floats(value):
     if isinstance(value, float):
         return round(value, 3)
@@ -126,6 +169,8 @@ def _simulate_run(
     *,
     output_path: str,
     num_trials: int,
+    num_nodes: int | None,
+    t_max: int | None,
     greedy: bool,
     skip_timeout_trials: bool,
     detailed: bool,
@@ -133,11 +178,17 @@ def _simulate_run(
 
     metadata = _read_metadata(run_dir)
     metadata_args = _read_metadata_args(run_dir)
-    env = _build_env_from_metadata_args(metadata_args)
-    env_params = _build_env_params_from_metadata_args(env, metadata_args)
-
     params_path = _resolve_params_path_from_metadata(run_dir, metadata)
     params = load_jax_params(params_path)
+
+    metadata_args = _metadata_args_with_simulation_overrides(
+        metadata_args,
+        params,
+        num_nodes=num_nodes,
+        t_max=t_max,
+    )
+    env = _build_env_from_metadata_args(metadata_args)
+    env_params = _build_env_params_from_metadata_args(env, metadata_args)
 
     seed = int(metadata_args.get("seed", 15))
     simulator = JaxSimulator(env, env_params=env_params)
@@ -167,6 +218,8 @@ def main() -> None:
     )
     parser.add_argument("--results_root", type=str, default=os.path.join(os.getcwd(), "results"))
     parser.add_argument("--num_trials", type=int, default=None)
+    parser.add_argument("--num_nodes", type=int, default=None)
+    parser.add_argument("--t_max", type=int, default=None)
     parser.add_argument("--greedy", action="store_true")
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--skip_timeout_trials", action="store_true")
@@ -233,7 +286,11 @@ def main() -> None:
         try:
             output_path = args.output
             if output_path == "":
-                output_name = "data_simulation_detailed.json" if args.detailed else "data_simulation.json"
+                output_name = _default_output_name(
+                    detailed=args.detailed,
+                    num_nodes=args.num_nodes,
+                    t_max=args.t_max,
+                )
                 output_path = os.path.join(run_dir, output_name)
             output_path = os.path.abspath(os.path.expanduser(output_path))
 
@@ -245,6 +302,8 @@ def main() -> None:
                 run_dir=run_dir,
                 output_path=output_path,
                 num_trials=num_trials,
+                num_nodes=args.num_nodes,
+                t_max=args.t_max,
                 greedy=args.greedy,
                 skip_timeout_trials=args.skip_timeout_trials,
                 detailed=args.detailed,
