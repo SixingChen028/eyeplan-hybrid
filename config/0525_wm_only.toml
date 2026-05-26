@@ -1,0 +1,34 @@
+[meta]
+array_vars = ["wm_decay", "cost", "seed"]
+
+[sbatch]
+time = "1:00:00"
+mem_per_cpu = "2000M"
+gpu = false
+
+[params]
+backup_mode = "wm_partial"
+wm_decay = [0.3, 0.5, 0.7]
+cost = [0.005, 0.01, 0.02]
+seed = [1, 2]
+beta_e_final = 0.01
+num_envs = 64
+num_updates = 30_000
+network_type = "node_shared"
+hidden_size = 64
+
+# everything
+use_q_values_obs = true
+use_n_visits_obs = true
+use_g_values_obs = true
+use_time_elapsed_obs = true
+use_recency_obs = true
+use_best_open_value_obs = true
+use_best_terminal_value_obs = true
+use_is_terminal_obs = true
+
+[[conditions]]
+label = "wm_only"
+wm_only = true
+
+
