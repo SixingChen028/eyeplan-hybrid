@@ -1,6 +1,7 @@
 [meta]
 array_vars = ["cost"]
 print_frequency = 100
+eval_episodes = 16
 
 [environment]
 num_nodes = 7
@@ -23,7 +24,6 @@ max_grad_norm = 2.0
 num_updates = 1000
 num_envs = [4, 8]
 rollout_length = 4
-eval_episodes = 16
 seed = 5
 
 [network]

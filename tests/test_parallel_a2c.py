@@ -61,7 +61,6 @@ def _small_params(**overrides):
         "num_updates": 2,
         "num_envs": 4,
         "rollout_length": 4,
-        "eval_episodes": 3,
         "seed": [0, 1],
         "beta_move": 4.0,
         "eps_move": 0.0,
@@ -561,6 +560,8 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
         config_path=tmp_path / "config.toml",
         varied_keys=varied_keys,
         elapsed_seconds=0.25,
+        run_eval=True,
+        eval_episodes=3,
     )
 
     assert len(run_dirs) == 1
@@ -575,7 +576,7 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
 
 
 @pytest.mark.slow
-def test_save_results_can_skip_eval(tmp_path):
+def test_save_results_skips_eval_by_default(tmp_path):
     fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
     env = _env(
         num_nodes=fixed["num_nodes"],
@@ -600,7 +601,6 @@ def test_save_results_can_skip_eval(tmp_path):
         config_path=tmp_path / "config.toml",
         varied_keys=varied_keys,
         elapsed_seconds=0.25,
-        skip_eval=True,
     )
 
     run_dir = Path(run_dirs[0])
@@ -611,7 +611,7 @@ def test_save_results_can_skip_eval(tmp_path):
 
 
 @pytest.mark.slow
-def test_evaluate_run_dir_writes_eval_summary_after_skip_eval(tmp_path):
+def test_evaluate_run_dir_uses_recorded_eval_episodes(tmp_path):
     fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
     env = _env(
         num_nodes=fixed["num_nodes"],
@@ -635,7 +635,7 @@ def test_evaluate_run_dir_writes_eval_summary_after_skip_eval(tmp_path):
         config_path=tmp_path / "config.toml",
         varied_keys=varied_keys,
         elapsed_seconds=0.25,
-        skip_eval=True,
+        eval_episodes=3,
     )
 
     path, summary = evaluate_run_dir(run_dirs[0])

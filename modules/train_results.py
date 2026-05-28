@@ -10,7 +10,7 @@ import jax
 import numpy as np
 
 from modules.a2c import save_jax_params
-from modules.config import DEFAULT_PARAMS, ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
+from modules.config import DEFAULT_META, DEFAULT_PARAMS, ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from modules.evaluation import (
     EVAL_SUMMARY_NAME,
@@ -181,6 +181,8 @@ def prepare_run_dirs(
     varied_keys: list[str],
     label: str | None = None,
     condition_index: int | None = None,
+    run_eval: bool | None = None,
+    eval_episodes: int | None = None,
 ) -> list[str]:
     run_dirs: list[str] = []
     run_label = str(label).strip() if label is not None else ""
@@ -193,6 +195,10 @@ def prepare_run_dirs(
             run_args["parallel_condition_index"] = int(condition_index)
         if normalized_label is not None:
             run_args["label"] = normalized_label
+        if run_eval is not None:
+            run_args["run_eval"] = bool(run_eval)
+        if eval_episodes is not None:
+            run_args["eval_episodes"] = int(eval_episodes)
 
         run_dir = create_run_dir(
             results_root=path,
@@ -214,7 +220,8 @@ def save_results(
     config_path: Path | None = None,
     varied_keys: list[str] | None = None,
     elapsed_seconds: float,
-    skip_eval: bool = False,
+    run_eval: bool = False,
+    eval_episodes: int | None = None,
 ) -> list[str]:
     if run_dirs is None:
         if path is None or experiment is None or config_path is None:
@@ -225,8 +232,11 @@ def save_results(
             experiment=experiment,
             config_path=config_path,
             varied_keys=[] if varied_keys is None else varied_keys,
+            run_eval=run_eval,
+            eval_episodes=eval_episodes,
         )
-    print(f"save_results runs={len(runs)} skip_eval={skip_eval}", flush=True)
+    eval_episode_count = int(DEFAULT_META["eval_episodes"] if eval_episodes is None else eval_episodes)
+    print(f"save_results runs={len(runs)} run_eval={run_eval}", flush=True)
     simulators: dict[tuple, object] = {}
     for run_index, run in enumerate(runs):
         run_dir = run_dirs[run_index]
@@ -242,7 +252,7 @@ def save_results(
             pickle.dump(data, file)
         save_jax_params(state.params, os.path.join(run_dir, "net_jax.p"))
 
-        if not skip_eval:
+        if run_eval:
             env_key = env_cache_key(run)
             if env_key not in simulators:
                 simulators[env_key] = build_simulator(run)
@@ -252,7 +262,8 @@ def save_results(
                 state.params,
                 run,
                 train_elapsed_seconds=elapsed_seconds,
-                batch_size=int(run["eval_episodes"]),
+                eval_episodes=eval_episode_count,
+                batch_size=eval_episode_count,
                 simulator=simulator,
             )
             write_eval_summary(run_dir, eval_summary)
@@ -260,7 +271,7 @@ def save_results(
         log_path = os.path.join(run_dir, "training.log")
         with open(log_path, "a") as file:
             file.write("\n")
-            if skip_eval:
+            if not run_eval:
                 file.write(
                     "run_summary "
                     f"run_index={run_index} "
@@ -288,7 +299,7 @@ def save_results(
                 )
             file.write(f"training_log={log_path}\n")
 
-        if skip_eval:
+        if not run_eval:
             print(
                 f"{run_index+1}/{len(runs)} {run_dir}",
                 flush=True,
@@ -297,7 +308,7 @@ def save_results(
             print(
                 f"{run_index+1}/{len(runs)} {run_dir}",
                 f"reward={eval_summary['reward_mean']:.3f}",
-                f"steps={eval_summary['n_steps_mean']:5.2f}",           
+                f"steps={eval_summary['n_steps_mean']:5.2f}",
                 f"score={eval_summary['reward_no_cost_mean']:.3f}",
                 flush=True,
             )

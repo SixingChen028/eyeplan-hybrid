@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from modules.a2c import load_jax_params
-from modules.config import DEFAULT_PARAMS, ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
+from modules.config import DEFAULT_META, DEFAULT_PARAMS, ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from modules.simulation import JaxSimulator
 
@@ -136,7 +136,8 @@ def evaluate_params(
 ) -> dict:
     if simulator is None:
         simulator = build_simulator(args)
-    num_trials = int(args["eval_episodes"] if eval_episodes is None else eval_episodes)
+    default_eval_episodes = args.get("eval_episodes", DEFAULT_META["eval_episodes"])
+    num_trials = int(default_eval_episodes if eval_episodes is None else eval_episodes)
     if batch_size is None:
         batch_size = num_trials
 

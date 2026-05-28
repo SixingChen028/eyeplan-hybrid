@@ -169,7 +169,6 @@ def test_generated_script_executes_train_py_for_one_array_task(tmp_path: Path):
             "num_updates = 1\n"
             "num_envs = 1\n"
             "rollout_length = 1\n"
-            "eval_episodes = 1\n"
             "\n"
             "[sbatch]\n"
             "cpus_per_task = 1\n"
@@ -190,7 +189,6 @@ def test_generated_script_executes_train_py_for_one_array_task(tmp_path: Path):
             "num_updates": 1,
             "num_envs": 1,
             "rollout_length": 1,
-            "eval_episodes": 1,
         },
         "sbatch": {
             "cpus_per_task": 1,

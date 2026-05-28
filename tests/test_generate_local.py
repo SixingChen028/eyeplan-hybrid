@@ -52,7 +52,6 @@ def test_render_script_assigns_array_tasks_to_gpus():
             "num_updates": 1,
             "num_envs": 1,
             "rollout_length": 1,
-            "eval_episodes": 1,
         },
         "local": {
             "gpus": [0, 1],
@@ -138,7 +137,6 @@ def test_generated_script_executes_train_py_for_local_grid_task(tmp_path: Path):
             "num_updates = 1\n"
             "num_envs = 1\n"
             "rollout_length = 1\n"
-            "eval_episodes = 1\n"
             "\n"
             "[local]\n"
             f"log = {str(tmp_path / 'logs')!r}\n"
@@ -160,7 +158,6 @@ def test_generated_script_executes_train_py_for_local_grid_task(tmp_path: Path):
             "num_updates": 1,
             "num_envs": 1,
             "rollout_length": 1,
-            "eval_episodes": 1,
         },
         "local": {
             "log": str(tmp_path / "logs"),

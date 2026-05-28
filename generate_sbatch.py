@@ -335,10 +335,6 @@ def _render_script(config: dict, config_path: Path) -> str:
         cmd_parts.append('--label="${LABEL}"')
     if bool(meta.get("skip_existing", False)):
         cmd_parts.append("--skip-existing")
-    
-    # TODO: wire this up!
-    # if bool(meta.get("skipeval", False)):
-    cmd_parts.append("--skipeval")
     if task_overrides:
         cmd_parts.append("${TASK_ARGS[${TASK_ID}]}")
     selected_axis_cmd_keys = [] if task_overrides else selected_axes
@@ -365,9 +361,9 @@ def _render_simulate_script(config: dict, config_path: Path) -> str:
     lines: list[str] = []
     lines.append("#!/bin/bash")
     lines.append(f"#SBATCH --job-name={job_name}-simulate")
-    lines.append(f"#SBATCH --cpus-per-task={sbatch['cpus_per_task']}")
-    lines.append(f"#SBATCH --time={sbatch['time']}")
-    lines.append(f"#SBATCH --mem-per-cpu={sbatch['mem_per_cpu']}")
+    lines.append("#SBATCH --cpus-per-task=4")
+    lines.append("#SBATCH --time=00:30:00")
+    lines.append("#SBATCH --mem-per-cpu=2000M")
     lines.append(f"#SBATCH -e {log_path}")
     lines.append(f"#SBATCH -o {log_path}")
     for directive in sbatch.get("extra_directives", []):

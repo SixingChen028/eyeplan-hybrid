@@ -22,6 +22,7 @@ from modules.simulation import append_simulation_trial, empty_simulation_data
 
 
 WM_DECAYS = (0.0, 0.25, 0.5, 0.75, 1.0)
+WM_ONLY_VALUES = (False, True)
 DEFAULT_NAME = "wm_decay_backtrack_rollouts"
 DEFAULT_TREE_VIEWER = Path("/Users/fred/projects/eyeplan/tree-viewer")
 
@@ -44,6 +45,7 @@ def _build_env(params: dict[str, Any]) -> JaxDecisionTreeEnv:
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
+        wm_only=bool(params["wm_only"]),
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
@@ -198,6 +200,7 @@ def _simulate_decay(
     *,
     base_params: dict[str, Any],
     experiment_name: str,
+    wm_only: bool,
     wm_decay: float,
     seed: int,
     num_trials: int,
@@ -208,6 +211,7 @@ def _simulate_decay(
     params.update(
         {
             "wm_decay": wm_decay,
+            "wm_only": wm_only,
             "experiment": experiment_name,
             "seed": seed,
         }
@@ -231,7 +235,7 @@ def _simulate_decay(
 
     data = empty_simulation_data(detailed=True)
     key = jax.random.PRNGKey(seed)
-    rng = np.random.default_rng(seed + int(round(wm_decay * 1000)))
+    rng = np.random.default_rng(seed + int(round(wm_decay * 1000)) + int(wm_only) * 100_000)
     exported = 0
 
     for trial_idx in range(num_trials):
@@ -270,8 +274,9 @@ def _simulate_decay(
     return exported
 
 
-def _decay_slug(wm_decay: float) -> str:
-    return f"wm_decay{wm_decay:g}".replace(".", "p")
+def _decay_slug(wm_only: bool, wm_decay: float) -> str:
+    decay_text = f"{wm_decay:g}".replace(".", "p")
+    return f"wm_only_{str(wm_only).lower()}_decay{decay_text}"
 
 
 def _read_viewer_index(index_path: Path) -> dict[str, Any]:
@@ -320,23 +325,25 @@ def main() -> None:
         shutil.rmtree(source_dir)
     source_dir.mkdir(parents=True)
 
-    for wm_decay in WM_DECAYS:
-        run_dir = source_dir / _decay_slug(wm_decay)
-        exported = _simulate_decay(
-            run_dir,
-            base_params=base_params,
-            experiment_name=args.name,
-            wm_decay=wm_decay,
-            seed=args.seed,
-            num_trials=args.num_trials,
-            backtrack_prob=args.backtrack_prob,
-            min_steps_before_terminate=args.min_steps_before_terminate,
-        )
-        print(f"{run_dir}: wrote {exported} trials", flush=True)
+    for wm_only in WM_ONLY_VALUES:
+        for wm_decay in WM_DECAYS:
+            run_dir = source_dir / _decay_slug(wm_only, wm_decay)
+            exported = _simulate_decay(
+                run_dir,
+                base_params=base_params,
+                experiment_name=args.name,
+                wm_only=wm_only,
+                wm_decay=wm_decay,
+                seed=args.seed,
+                num_trials=args.num_trials,
+                backtrack_prob=args.backtrack_prob,
+                min_steps_before_terminate=args.min_steps_before_terminate,
+            )
+            print(f"{run_dir}: wrote {exported} trials", flush=True)
 
     viewer_index_path = args.tree_viewer / "assets/simulations/index.json"
     previous_viewer_index = _read_viewer_index(viewer_index_path)
-    command = ["bun", "scripts/reformat-sim15.mjs", str(source_dir)]
+    command = ["bun", "register", str(source_dir)]
     print(f"Running in {args.tree_viewer}: {' '.join(command)}", flush=True)
     subprocess.run(command, cwd=args.tree_viewer, check=True)
     _restore_viewer_index(viewer_index_path, previous_viewer_index, args.name)

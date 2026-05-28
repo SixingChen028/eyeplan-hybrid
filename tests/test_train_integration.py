@@ -12,28 +12,33 @@ import pytest
 def train_test_config_run(tmp_path_factory: pytest.TempPathFactory):
     repo_root = Path(__file__).resolve().parents[1]
     tmp_path = tmp_path_factory.mktemp("train-integration")
+    config_path = tmp_path / "train.toml"
     result_path = tmp_path / "results"
     experiment = "train-integration"
+    config_path.write_text(
+        (
+            "[meta]\n"
+            f"result_path = {str(result_path)!r}\n"
+            f"experiment = {experiment!r}\n"
+            "run_eval = true\n"
+            "eval_episodes = 1\n"
+            "\n"
+            "[params]\n"
+            "seed = 5\n"
+            "num_envs = 4\n"
+            "num_updates = 1\n"
+            "rollout_length = 4\n"
+            "wm_decay = 0.0\n"
+            "cost = 0.01\n"
+        ),
+        encoding="utf-8",
+    )
 
     completed = subprocess.run(
         [
             sys.executable,
             "train.py",
-            "config/test.toml",
-            "--path",
-            str(result_path),
-            "--experiment",
-            experiment,
-            "--num_envs",
-            "4",
-            "--num_updates",
-            "1",
-            "--eval_episodes",
-            "1",
-            "--wm_decay",
-            "0.0",
-            "--cost",
-            "0.01",
+            str(config_path),
         ],
         cwd=repo_root,
         check=True,
@@ -50,6 +55,7 @@ def train_test_config_run(tmp_path_factory: pytest.TempPathFactory):
     return {
         "completed": completed,
         "run_dir": run_dirs[0],
+        "config_path": config_path,
     }
 
 
@@ -60,7 +66,7 @@ def test_train_py_runs_test_config_with_small_training_geometry(train_test_confi
     assert "jax_backend=cpu" in stdout
     assert "parallel_run_config runs=1 num_updates=1 num_envs=4" in stdout
     assert "parallel_train_started" in stdout
-    assert "save_results runs=1 skip_eval=False" in stdout
+    assert "save_results runs=1 run_eval=True" in stdout
 
 
 def test_train_integration_writes_expected_artifacts(train_test_config_run):
@@ -77,11 +83,12 @@ def test_train_integration_metadata_records_overrides(train_test_config_run):
     run_dir = train_test_config_run["run_dir"]
     metadata = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))
 
-    assert metadata["args"]["parallel_config"] == "config/test.toml"
+    assert metadata["args"]["parallel_config"] == str(train_test_config_run["config_path"])
     assert metadata["args"]["parallel_varied_keys"] == []
     assert metadata["args"]["num_envs"] == 4
     assert metadata["args"]["num_updates"] == 1
     assert metadata["args"]["eval_episodes"] == 1
+    assert metadata["args"]["run_eval"] is True
     assert metadata["args"]["wm_decay"] == 0.0
     assert metadata["args"]["cost"] == 0.01
     assert metadata["args"]["network_type"] == "node_shared"
@@ -131,13 +138,13 @@ def train_condition_config_run(tmp_path_factory: pytest.TempPathFactory):
             "[meta]\n"
             f"result_path = {str(result_path)!r}\n"
             f"experiment = {experiment!r}\n"
+            "eval_episodes = 1\n"
             "\n"
             "[params]\n"
             "seed = [7, 9]\n"
             "num_updates = 1\n"
             "num_envs = 1\n"
             "rollout_length = 1\n"
-            "eval_episodes = 1\n"
             "wm_decay = 0.0\n"
             "cost = 0.01\n"
             "use_recency_obs = false\n"
@@ -156,7 +163,6 @@ def train_condition_config_run(tmp_path_factory: pytest.TempPathFactory):
             str(config_path),
             "--condition",
             "0",
-            "--skipeval",
         ],
         cwd=repo_root,
         check=True,

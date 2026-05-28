@@ -37,7 +37,7 @@ PARAM_DEFAULTS = {
         # Whether observations include elapsed time.
         "use_time_elapsed_obs": True,
         # Policy backup mode for ancestor value updates.
-        "backup_mode": "wm_zero",
+        "backup_mode": "wm_partial",
         # Inverse temperature for softmax move probabilities in environment dynamics.
         "beta_move": 40.0,
         # Uniform random-move mixture rate in environment dynamics.
@@ -86,8 +86,6 @@ PARAM_DEFAULTS = {
         "num_envs": 128,
         # Number of environment steps collected per update.
         "rollout_length": 50,
-        # Number of evaluation episodes run after training.
-        "eval_episodes": 102400,
         # Random seed for a training run.
         "seed": 1,
     },
@@ -115,6 +113,10 @@ PARAM_DEFAULTS = {
         "startup_training_timeout_seconds": 300,
         # Skip parameter combinations that already have complete outputs under the experiment.
         "skip_existing": False,
+        # Whether to run post-training policy evaluation.
+        "run_eval": False,
+        # Number of evaluation episodes to run when evaluation is requested.
+        "eval_episodes": 102400,
     },
 }
 
@@ -151,7 +153,6 @@ MODEL_SHAPE_PARAM_KEYS = (
     "num_updates",
     "num_envs",
     "rollout_length",
-    "eval_episodes",
 )
 REQUIRED_PARAM_KEYS = (
     *ENV_STATIC_PARAM_KEYS,

@@ -35,7 +35,6 @@ def main() -> None:
     parser.add_argument("--experiment", help="Override experiment name. Defaults to [meta].experiment or config stem.")
     parser.add_argument("--label", help="Override run label. Defaults to [meta].label when provided.")
     parser.add_argument("--condition", type=int, help="0-based [[conditions]] table index to train.")
-    parser.add_argument("--skipeval", action="store_true", help="Skip post-training policy evaluation.")
     parser.add_argument("--skip-existing", action="store_true", help="Skip completed runs with matching metadata args.")
     args, override_tokens = parser.parse_known_args()
 
@@ -66,7 +65,7 @@ def main() -> None:
             runs,
             path=output_path,
             experiment=experiment,
-            require_eval=not args.skipeval,
+            require_eval=bool(meta["run_eval"]),
         )
         _log(f"skip_existing skipped={len(skipped_run_dirs)} pending={len(runs)}")
         if skipped_run_dirs:
@@ -117,6 +116,8 @@ def main() -> None:
             varied_keys=varied_keys,
             label=label,
             condition_index=condition_index,
+            run_eval=bool(meta["run_eval"]),
+            eval_episodes=int(meta["eval_episodes"]),
         )
         log_run_dirs_preview(run_dirs)
 
@@ -142,7 +143,8 @@ def main() -> None:
         runs,
         run_dirs,
         elapsed_seconds=elapsed_seconds,
-        skip_eval=args.skipeval,
+        run_eval=bool(meta["run_eval"]),
+        eval_episodes=int(meta["eval_episodes"]),
     )
 
 
