@@ -3,7 +3,7 @@
 [sbatch]
 gpu = true
 time = "2:00:00"
-mem_per_cpu = "6000M"
+mem_per_cpu = "4000M"
 
 [params]
 forget_rate = [0.0, 0.25, 0.5, 0.75, 1.0]
