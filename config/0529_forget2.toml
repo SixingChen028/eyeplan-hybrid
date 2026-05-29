@@ -1,4 +1,5 @@
 [meta]
+array_vars = "ALL"
 
 # [sbatch]
 # gpu = true
