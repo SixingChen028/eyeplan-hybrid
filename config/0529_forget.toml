@@ -1,0 +1,22 @@
+[meta]
+# array_vars = "ALL"
+
+[sbatch]
+gpu = true
+
+[params]
+forget_rate = [0.1, 0.2, 0.3, 0.4]
+wm_decay = [0.3, 0.5, 0.7]
+# cost = [0.005, 0.01, 0.02]
+cost = 0.01
+seed = [1, 2]
+beta_e_final = 0.01
+
+use_q_values_obs = true
+use_n_visits_obs = true
+use_g_values_obs = true
+use_time_elapsed_obs = true
+use_recency_obs = false
+use_best_open_value_obs = false
+use_best_terminal_value_obs = false
+use_is_terminal_obs = false
