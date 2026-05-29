@@ -332,7 +332,7 @@ def main() -> None:
             for experiment in sorted(simulated_experiments)
         ]
         subprocess.run(
-            ["bun", "scripts/reformat-sim15.mjs", *experiment_dirs],
+            ["bun", "register", *experiment_dirs],
             cwd=viewer_root,
             check=True,
         )
