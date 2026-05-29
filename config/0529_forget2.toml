@@ -1,0 +1,23 @@
+[meta]
+
+[sbatch]
+gpu = true
+time = "2:00:00"
+mem_per_cpu = "6000M"
+
+[params]
+forget_rate = [0.0, 0.25, 0.5, 0.75, 1.0]
+wm_decay = [0.3, 0.5, 0.7]
+cost = [0.005, 0.01, 0.02]
+seed = [1,2]
+beta_e_final = 0.01
+num_envs = 64
+
+use_q_values_obs = true
+use_n_visits_obs = true
+use_g_values_obs = true
+use_time_elapsed_obs = true
+use_recency_obs = false
+use_best_open_value_obs = false
+use_best_terminal_value_obs = false
+use_is_terminal_obs = false
