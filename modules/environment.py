@@ -41,7 +41,7 @@ class JaxDecisionTreeState(NamedTuple):
     n_visits: jax.Array
     fixation_recency: jax.Array
     activation: jax.Array
-
+    is_terminal: jax.Array
 
 class JaxDecisionTreeParams(NamedTuple):
     beta_move: jax.Array
@@ -56,7 +56,6 @@ class JaxDecisionTreeParams(NamedTuple):
     q_decay: jax.Array
     recency_decay: jax.Array
     cost: jax.Array
-
 
 class DecisionTreeObs(NamedTuple):
     fixation: jax.Array
@@ -232,10 +231,13 @@ class JaxDecisionTreeEnv:
         return jax.lax.fori_loop(0, math.ceil(self.num_nodes / 2), body_fn, g_values)
 
     def _clear_inactive_memory(self, state: JaxDecisionTreeState):
+        active = state.activation > 0.0
+        # Knowledge of terminality never persists outside working memory.
+        state = state._replace(is_terminal=state.is_terminal & active)
+
         if not self.wm_only:
             return state
 
-        active = state.activation > 0.0
         return state._replace(
             q_values=jnp.where(active, state.q_values, 0.0),
             n_visits=jnp.where(active, state.n_visits, 0),
@@ -320,6 +322,7 @@ class JaxDecisionTreeEnv:
             fixation_node=node,
             n_visits=state.n_visits.at[node].add(1),
             fixation_recency=state.fixation_recency.at[node].set(1.0),
+            is_terminal=state.is_terminal.at[node].set(state.child_nodes[node, 0] < 0),
         )
         state = self._update_activation(state, params)
         state = self._clear_inactive_memory(state)
@@ -386,7 +389,6 @@ class JaxDecisionTreeEnv:
         active_mask = state.activation > 0.0
         known_mask = safe_get(state.n_visits > 0, state.parent_nodes, fill_value=True)
         g_value_mask = active_mask if self.wm_only else known_mask
-        seen_terminal_mask = (state.child_nodes[:, 0] < 0) & (state.n_visits > 0)
 
         best_open_value = None
         if self.use_best_open_value_obs:
@@ -398,7 +400,7 @@ class JaxDecisionTreeEnv:
         best_terminal_value = None
         if self.use_best_terminal_value_obs:
             total_values = state.g_values + state.points
-            best_terminal_obs = jnp.max(jnp.where(seen_terminal_mask, total_values, self.min_path_value))
+            best_terminal_obs = jnp.max(jnp.where(state.is_terminal, total_values, self.min_path_value))
             best_terminal_value = jnp.array([best_terminal_obs], dtype=jnp.float32)
 
         child1, child2 = state.child_nodes[state.fixation_node]
@@ -415,7 +417,7 @@ class JaxDecisionTreeEnv:
             ),
             q_values=state.q_values if self.use_q_values_obs else None,
             n_visits=state.n_visits.astype(jnp.float32) if self.use_n_visits_obs else None,
-            is_terminal=seen_terminal_mask.astype(jnp.float32) if self.use_is_terminal_obs else None,
+            is_terminal=state.is_terminal.astype(jnp.float32) if self.use_is_terminal_obs else None,
             best_open_value=best_open_value,
             best_terminal_value=best_terminal_value,
             recency=state.fixation_recency if self.use_recency_obs else None,
@@ -512,6 +514,7 @@ class JaxDecisionTreeEnv:
             n_visits=self._zeros(jnp.int32),
             fixation_recency=self._zeros(),
             activation=self._zeros(),
+            is_terminal=self._zeros(jnp.bool_),
         )
 
     def reset(self, key: jax.Array, params: JaxDecisionTreeParams):

@@ -346,6 +346,7 @@ def test_wm_only_observation_keeps_active_g_values():
         g_values=jnp.array([0.0, 4.0, 2.0, 12.0, 5.0, 6.0, 7.0], dtype=jnp.float32),
         n_visits=jnp.array([1, 1, 0, 1, 0, 0, 0], dtype=jnp.int32),
         activation=jnp.array([1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=jnp.float32),
+        is_terminal=jnp.array([False, False, False, True, False, False, False], dtype=jnp.bool_),
     )
 
     obs = env._get_obs(state)
@@ -375,6 +376,7 @@ def test_wm_only_best_value_observations_ignore_inactive_nodes():
         g_values=jnp.array([0.0, 1.0, 2.0, 100.0, 5.0, 80.0, 6.0], dtype=jnp.float32),
         n_visits=jnp.array([1, 0, 1, 0, 0, 0, 1], dtype=jnp.int32),
         activation=jnp.array([1.0, 0.0, 1.0, 1.0, 0.0, 0.25, 1.0], dtype=jnp.float32),
+        is_terminal=jnp.array([False, False, False, False, False, False, True], dtype=jnp.bool_),
     )
 
     obs = env._get_obs(state)
