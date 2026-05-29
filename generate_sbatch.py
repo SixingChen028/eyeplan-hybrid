@@ -504,11 +504,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate a lightweight sbatch script for train.py sweeps.")
     parser.add_argument("config", nargs="?", help="Config file path or config stem (e.g. wm_cost). Defaults to the most recently modified file in config/.")
     parser.add_argument("-o", "--output", help="Optional output sbatch path.")
-    parser.add_argument(
-        "--submit",
-        action="store_true",
-        help="Submit the generated sbatch script with `sbatch`.",
-    )
     args = parser.parse_args()
 
     config_path = _resolve_config_path(args.config)
@@ -528,40 +523,37 @@ def main() -> None:
     simulate_output_path.chmod(0o755)
     print(f"Wrote {simulate_output_path}")
 
-    if args.submit:
-        for line in _build_job_summary_lines(config, config_path):
-            print(line)
-        submit_cmd = ["sbatch", str(output_path)]
-        confirm = input("Submit training job and dependent CPU simulation job? [y/N] ").strip().lower()
-        if confirm != "y":
-            print("Cancelled.")
-            return
+    for line in _build_job_summary_lines(config, config_path):
+        print(line)
+    confirm = input("Submit training job and dependent CPU simulation job? [y/N] ").strip().lower()
+    if confirm != "y":
+        print("Cancelled.")
+        return
 
-        result = subprocess.run(
-            submit_cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        stdout = result.stdout.strip()
-        if stdout:
-            print(stdout)
-        train_job_id = _parse_sbatch_job_id(stdout)
+    result = subprocess.run(
+        ["sbatch", str(output_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    stdout = result.stdout.strip()
+    if stdout:
+        print(stdout)
+    train_job_id = _parse_sbatch_job_id(stdout)
 
-        simulate_submit_cmd = [
+    simulate_result = subprocess.run(
+        [
             "sbatch",
             f"--dependency=afterok:{train_job_id}",
             str(simulate_output_path),
-        ]
-        simulate_result = subprocess.run(
-            simulate_submit_cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        simulate_stdout = simulate_result.stdout.strip()
-        if simulate_stdout:
-            print(simulate_stdout)
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    simulate_stdout = simulate_result.stdout.strip()
+    if simulate_stdout:
+        print(simulate_stdout)
 
 
 if __name__ == "__main__":
