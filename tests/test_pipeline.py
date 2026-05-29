@@ -228,13 +228,23 @@ def test_jax_simulator_runs_detailed_trials():
         skip_timeout_trials=False,
     )
 
-    for key in ["activations", "counts", "gs", "qs", "logits"]:
+    for key in [
+        "activations",
+        "counts",
+        "gs",
+        "qs",
+        "logits",
+        "fixation_recency",
+        "is_terminal",
+    ]:
         assert len(data[key]) == 5
         assert len(data[key][0]) == len(data["actions"][0]) - 1
     assert len(data["activations"][0][0]) == env.num_nodes
     assert len(data["counts"][0][0]) == env.num_nodes
     assert len(data["gs"][0][0]) == env.num_nodes
     assert len(data["qs"][0][0]) == env.num_nodes
+    assert len(data["fixation_recency"][0][0]) == env.num_nodes
+    assert len(data["is_terminal"][0][0]) == env.num_nodes
     assert len(data["logits"][0]) == len(data["actions"][0]) - 1
     assert len(data["logits"][0][0]) == env.action_size
 
@@ -351,6 +361,8 @@ def test_append_simulation_trial_includes_details():
         "gs": [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 2.0]],
         "qs": [[0.0, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.5, 1.0]],
         "logits": [[0.0, 0.1, 0.2, 0.3], [0.0, 0.2, 0.1, 0.3], [0.0, 0.3, 0.2, 0.1]],
+        "fixation_recency": [[1.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.25, 0.25, 0.5]],
+        "is_terminal": [[False, False, False], [False, True, False], [False, False, True]],
     }
     append_simulation_trial(
         data,
@@ -376,12 +388,16 @@ def test_append_simulation_trial_includes_details():
         "gs",
         "qs",
         "logits",
+        "fixation_recency",
+        "is_terminal",
     ]
     assert data["activations"] == [details["activations"]]
     assert data["counts"] == [details["counts"]]
     assert data["gs"] == [details["gs"]]
     assert data["qs"] == [details["qs"]]
     assert data["logits"] == [details["logits"]]
+    assert data["fixation_recency"] == [details["fixation_recency"]]
+    assert data["is_terminal"] == [details["is_terminal"]]
     assert data["actions"] == [[0, 1, 2, 3]]
     assert data["chosen_paths"] == [[2, 1]]
 

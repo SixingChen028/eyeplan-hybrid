@@ -8,7 +8,15 @@ from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
 from .network import actor_critic_forward, apply_action_mask, sample_actions
 
 
-DETAIL_KEYS = ["activations", "counts", "gs", "qs", "logits"]
+DETAIL_KEYS = [
+    "activations",
+    "counts",
+    "gs",
+    "qs",
+    "logits",
+    "fixation_recency",
+    "is_terminal",
+]
 
 
 def _batch_obs(obs):
@@ -89,6 +97,8 @@ class JaxSimulator:
         g_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
         q_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
         logits_seq = jnp.zeros((self.env.t_max, self.env.action_size), dtype=jnp.float32)
+        fixation_recency_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
+        is_terminal_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.bool_)
 
         carry = (
             state,
@@ -100,13 +110,15 @@ class JaxSimulator:
             g_seq,
             q_seq,
             logits_seq,
+            fixation_recency_seq,
+            is_terminal_seq,
             jnp.array(0, dtype=jnp.int32),
             jnp.array(False),
             rng_key,
         )
 
         def cond_fn(carry):
-            _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
+            _, _, _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
@@ -120,6 +132,8 @@ class JaxSimulator:
                 g_seq,
                 q_seq,
                 logits_seq,
+                fixation_recency_seq,
+                is_terminal_seq,
                 step_count,
                 _,
                 rng_key,
@@ -129,6 +143,8 @@ class JaxSimulator:
             count_seq = count_seq.at[step_count].set(state.n_visits)
             g_seq = g_seq.at[step_count].set(state.g_values)
             q_seq = q_seq.at[step_count].set(state.q_values)
+            fixation_recency_seq = fixation_recency_seq.at[step_count].set(state.fixation_recency)
+            is_terminal_seq = is_terminal_seq.at[step_count].set(state.is_terminal)
             logits, _ = actor_critic_forward(params, _batch_obs(obs), action_mask[None, :])
             logits = logits[0]
             logits_seq = logits_seq.at[step_count].set(logits)
@@ -162,6 +178,8 @@ class JaxSimulator:
                 g_seq,
                 q_seq,
                 logits_seq,
+                fixation_recency_seq,
+                is_terminal_seq,
                 step_count,
                 done,
                 rng_key,
@@ -177,6 +195,8 @@ class JaxSimulator:
             g_seq,
             q_seq,
             logits_seq,
+            fixation_recency_seq,
+            is_terminal_seq,
             action_len,
             _,
             rng_key,
@@ -211,6 +231,8 @@ class JaxSimulator:
             g_seq,
             q_seq,
             logits_seq,
+            fixation_recency_seq,
+            is_terminal_seq,
             action_len,
             choice_path_len,
             rng_key,
@@ -293,6 +315,8 @@ class JaxSimulator:
             g_seqs,
             q_seqs,
             logits_seqs,
+            fixation_recency_seqs,
+            is_terminal_seqs,
             action_lens,
             choice_path_lens,
             _,
@@ -308,6 +332,8 @@ class JaxSimulator:
             g_seqs,
             q_seqs,
             logits_seqs,
+            fixation_recency_seqs,
+            is_terminal_seqs,
             action_lens,
             choice_path_lens,
         )
@@ -344,6 +370,8 @@ class JaxSimulator:
                 g_seqs,
                 q_seqs,
                 logits_seqs,
+                fixation_recency_seqs,
+                is_terminal_seqs,
                 action_lens,
                 choice_path_lens,
             ) = self._trial_batch_jit(params, trial_keys, greedy=greedy)
@@ -359,6 +387,8 @@ class JaxSimulator:
                 g_seqs = np.asarray(g_seqs)
                 q_seqs = np.asarray(q_seqs)
                 logits_seqs = np.asarray(logits_seqs)
+                fixation_recency_seqs = np.asarray(fixation_recency_seqs)
+                is_terminal_seqs = np.asarray(is_terminal_seqs)
 
             child_nodes_batch = np.asarray(states.child_nodes)
             points_batch = np.asarray(states.points)
@@ -385,9 +415,13 @@ class JaxSimulator:
                         "counts": count_seqs[trial_idx, :action_len].tolist(),
                         "gs": g_seqs[trial_idx, :action_len].tolist(),
                         "qs": q_seqs[trial_idx, :action_len].tolist(),
+                        "logits": np.asarray(
+                            logits_seqs[trial_idx, :action_len],
+                            dtype=np.float32,
+                        ).tolist(),
+                        "fixation_recency": fixation_recency_seqs[trial_idx, :action_len].tolist(),
+                        "is_terminal": is_terminal_seqs[trial_idx, :action_len].tolist(),
                     }
-                    logits_seq = np.asarray(logits_seqs[trial_idx, :action_len], dtype=np.float32).tolist()
-                    details["logits"] = logits_seq
 
                 append_simulation_trial(
                     data,
