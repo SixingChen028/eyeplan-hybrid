@@ -242,16 +242,16 @@ def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
     assert _obs_size(env) == _obs_size(no_recency_env) + fixed["num_nodes"]
 
 
-def test_parallel_sweep_allows_q_drop_rate_arrays():
+def test_parallel_sweep_allows_forget_rate_arrays():
     fixed, runs, varied_keys = expand_sweep(
-        _small_params(seed=0, wm_decay=0.5, q_drop_rate=[0.0, 0.25])
+        _small_params(seed=0, wm_decay=0.5, forget_rate=[0.0, 0.25])
     )
 
-    assert varied_keys == ["q_drop_rate"]
+    assert varied_keys == ["forget_rate"]
     assert len(runs) == 2
 
     hypers = build_hypers(runs)
-    np.testing.assert_allclose(np.asarray(hypers.env.q_drop_rate), np.array([0.0, 0.25], dtype=np.float32))
+    np.testing.assert_allclose(np.asarray(hypers.env.forget_rate), np.array([0.0, 0.25], dtype=np.float32))
 
 
 def test_parallel_sweep_allows_q_drift_arrays():
@@ -467,7 +467,7 @@ env_params = env.make_params(
     backup_steps=100,
     wm_decay=1.0,
     wm_neighbor_activation=1.0,
-    q_drop_rate=0.0,
+    forget_rate=0.0,
     q_drift=0.0,
     q_decay=0.0,
     recency_decay=0.0,

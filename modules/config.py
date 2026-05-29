@@ -52,8 +52,8 @@ PARAM_DEFAULTS = {
         "wm_decay": 1.0,
         # Activation assigned to the fixated node's parent and children.
         "wm_neighbor_activation": 1.0,
-        # Probability of clearing inactive Q-values after each step.
-        "q_drop_rate": 0.0,
+        # Probability of clearing inactive Q-values, visit counts, and fixation recency after each step.
+        "forget_rate": 0.0,
         # Standard deviation of Gaussian drift added to inactive Q-values.
         "q_drift": 0.0,
         # Per-step decay applied to inactive Q-values.
@@ -128,7 +128,7 @@ ENV_DYNAMIC_PARAM_KEYS = (
     "backup_steps",
     "wm_decay",
     "wm_neighbor_activation",
-    "q_drop_rate",
+    "forget_rate",
     "q_drift",
     "q_decay",
     "recency_decay",

@@ -48,7 +48,7 @@ The update can then back up along ancestors. The first ancestor backup has weigh
 
 When `wm_backup` is enabled, inactive children contribute `Q = 0` in ancestor backup targets. When it is disabled, ancestor backups use all stored child Q-values.
 
-After fixation and backup, Q-values for inactive nodes can degrade. Inactive values are multiplied by `q_decay`, perturbed by Gaussian noise with standard deviation `q_drift`, and independently reset to zero with probability `q_drop_rate`. Active Q-values are not degraded by this step.
+After fixation and backup, Q-values for inactive nodes can degrade. Inactive Q-values are multiplied by `q_decay` and perturbed by Gaussian noise with standard deviation `q_drift`. Inactive Q-values, visit counts, and fixation recency traces are independently reset to zero with probability `forget_rate`. Active node memory is not degraded by this step.
 
 ## Observations
 
@@ -117,7 +117,7 @@ learning_rate = 1.0
 lamda_backup = 1.0
 backup_steps = 100
 wm_decay = 1.0
-q_drop_rate = 0.0
+forget_rate = 0.0
 q_drift = 0.0
 q_decay = 1.0
 recency_decay = 0.5

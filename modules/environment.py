@@ -51,7 +51,7 @@ class JaxDecisionTreeParams(NamedTuple):
     backup_steps: jax.Array
     wm_decay: jax.Array
     wm_neighbor_activation: jax.Array
-    q_drop_rate: jax.Array
+    forget_rate: jax.Array
     q_drift: jax.Array
     q_decay: jax.Array
     recency_decay: jax.Array
@@ -137,7 +137,7 @@ class JaxDecisionTreeEnv:
         backup_steps: int,
         wm_decay: float,
         wm_neighbor_activation: float,
-        q_drop_rate: float,
+        forget_rate: float,
         q_drift: float,
         q_decay,
         recency_decay,
@@ -151,7 +151,7 @@ class JaxDecisionTreeEnv:
         assert backup_steps >= 0, "backup_steps must be non-negative."
         assert 0.0 <= wm_decay <= 1.0, "wm_decay must be between 0 and 1."
         assert 0.0 < wm_neighbor_activation <= 1.0, "wm_neighbor_activation must be positive and at most 1."
-        assert 0.0 <= q_drop_rate <= 1.0, "q_drop_rate must be between 0 and 1."
+        assert 0.0 <= forget_rate <= 1.0, "forget_rate must be between 0 and 1."
         assert q_drift >= 0.0, "q_drift must be non-negative."
         assert 0.0 <= q_decay <= 1.0, "q_decay must be between 0 and 1."
         assert 0.0 <= recency_decay <= 1.0, "recency_decay must be between 0 and 1."
@@ -165,7 +165,7 @@ class JaxDecisionTreeEnv:
             backup_steps=jnp.asarray(backup_steps, dtype=jnp.int32),
             wm_decay=jnp.asarray(wm_decay, dtype=jnp.float32),
             wm_neighbor_activation=jnp.asarray(wm_neighbor_activation, dtype=jnp.float32),
-            q_drop_rate=jnp.asarray(q_drop_rate, dtype=jnp.float32),
+            forget_rate=jnp.asarray(forget_rate, dtype=jnp.float32),
             q_drift=jnp.asarray(q_drift, dtype=jnp.float32),
             q_decay=jnp.asarray(q_decay, dtype=jnp.float32),
             recency_decay=jnp.asarray(recency_decay, dtype=jnp.float32),
@@ -328,7 +328,7 @@ class JaxDecisionTreeEnv:
         state = self._clear_inactive_memory(state)
         state = self._update_q(state, params)
         if not self.wm_only:
-            state = self._corrupt_q_values(state, params)
+            state = self._corrupt_memory(state, params)
         return state
 
     def _update_activation(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams) -> JaxDecisionTreeState:
@@ -365,8 +365,8 @@ class JaxDecisionTreeEnv:
             activation=activation,
         )
 
-    def _corrupt_q_values(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
-        key, q_drift_key, q_drop_key = jax.random.split(state.rng_key, 3)
+    def _corrupt_memory(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
+        key, q_drift_key, forget_key = jax.random.split(state.rng_key, 3)
         inactive = state.activation == 0.0
 
         # add noise/drift to q values outside of WM
@@ -374,14 +374,18 @@ class JaxDecisionTreeEnv:
         q_noise = jax.random.normal(q_drift_key, shape=(self.num_nodes,)) * params.q_drift
         q_values = jnp.where(inactive, q_values + q_noise, q_values)
 
-        # stochastically drop q values outside of WM
-        q_drop_mask = inactive & (
-            jax.random.uniform(q_drop_key, shape=(self.num_nodes,)) < params.q_drop_rate
+        # stochastically forget node-specific memory outside of WM
+        forget_mask = inactive & (
+            jax.random.uniform(forget_key, shape=(self.num_nodes,)) < params.forget_rate
         )
-        q_values = jnp.where(q_drop_mask, 0.0, q_values)
+        q_values = jnp.where(forget_mask, 0.0, q_values)
+        n_visits = jnp.where(forget_mask, 0, state.n_visits)
+        fixation_recency = jnp.where(forget_mask, 0.0, state.fixation_recency)
 
         return state._replace(
             q_values=q_values,
+            n_visits=n_visits,
+            fixation_recency=fixation_recency,
             rng_key=key,
         )
 

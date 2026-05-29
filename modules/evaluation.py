@@ -75,7 +75,7 @@ def env_params_from_run_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecision
         backup_steps=int(args["backup_steps"]),
         wm_decay=float(args["wm_decay"]),
         wm_neighbor_activation=float(args.get("wm_neighbor_activation", 1.0)),
-        q_drop_rate=float(args["q_drop_rate"]),
+        forget_rate=float(args["forget_rate"]),
         q_drift=float(args["q_drift"]),
         q_decay=float(args["q_decay"]),
         recency_decay=float(args["recency_decay"]),
