@@ -14,6 +14,18 @@ from generate_sbatch import (
 )
 
 
+def test_sbatch_defaults_depend_on_gpu_flag():
+    cpu_script = _render_script({}, config_path=Path("config/test.toml"))
+    assert "#SBATCH --time=2:00:00" in cpu_script
+    assert "#SBATCH --mem-per-cpu=2000M" in cpu_script
+    assert "#SBATCH --gres=gpu:1" not in cpu_script
+
+    gpu_script = _render_script({"sbatch": {"gpu": True}}, config_path=Path("config/test.toml"))
+    assert "#SBATCH --time=1:00:00" in gpu_script
+    assert "#SBATCH --mem-per-cpu=4000M" in gpu_script
+    assert "#SBATCH --gres=gpu:1" in gpu_script
+
+
 def test_render_script_keeps_point_set_tuple_as_single_param():
     config = {
         "meta": {

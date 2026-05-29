@@ -16,12 +16,37 @@ DEFAULT_META = {
     "result_path": "./results",
 }
 
-DEFAULT_SBATCH = {
+DEFAULT_SBATCH_BASE = {
     "cpus_per_task": 1,
-    "time": "08:00:00",
-    "mem_per_cpu": "1G",
     "log": "./log/%A_%a",
 }
+
+_SBATCH_GPU_DEFAULTS = {
+    "time": "1:00:00",
+    "mem_per_cpu": "4000M",
+    "gpu": True,
+}
+
+_SBATCH_CPU_DEFAULTS = {
+    "time": "2:00:00",
+    "mem_per_cpu": "2000M",
+    "gpu": False,
+}
+
+
+def _merge_sbatch(value) -> dict:
+    if value is None:
+        raw = {}
+    elif not isinstance(value, dict):
+        raise ValueError("Expected [sbatch] to be a table.")
+    else:
+        raw = value
+    gpu = bool(raw.get("gpu", False))
+    defaults = {**DEFAULT_SBATCH_BASE, **(_SBATCH_GPU_DEFAULTS if gpu else _SBATCH_CPU_DEFAULTS)}
+    merged = dict(defaults)
+    merged.update(raw)
+    return merged
+
 
 def _as_dict(value, name: str, default: dict | None = None) -> dict:
     if value is None:
@@ -196,7 +221,7 @@ def _condition_task_overrides(
 def _render_script(config: dict, config_path: Path) -> str:
     normalized_config = normalize_config(config)
     meta = _as_dict(normalized_config.get("meta"), "meta", default=DEFAULT_META)
-    sbatch = _as_dict(config.get("sbatch"), "sbatch", default=DEFAULT_SBATCH)
+    sbatch = _merge_sbatch(config.get("sbatch"))
     params = _as_dict(normalized_config.get("params"), "params")
 
     _, array_params = _split_params(params)
@@ -350,7 +375,7 @@ def _render_script(config: dict, config_path: Path) -> str:
 def _render_simulate_script(config: dict, config_path: Path) -> str:
     normalized_config = normalize_config(config)
     meta = _as_dict(normalized_config.get("meta"), "meta", default=DEFAULT_META)
-    sbatch = _as_dict(config.get("sbatch"), "sbatch", default=DEFAULT_SBATCH)
+    sbatch = _merge_sbatch(config.get("sbatch"))
 
     experiment = str(meta.get("experiment") or config_path.stem)
     job_name = str(sbatch.get("job_name", experiment))
@@ -435,7 +460,7 @@ def _format_summary_value(values: list[object]) -> str:
 def _build_job_summary_lines(config: dict, config_path: Path) -> list[str]:
     normalized_config = normalize_config(config)
     meta = _as_dict(normalized_config.get("meta"), "meta", default=DEFAULT_META)
-    sbatch = _as_dict(config.get("sbatch"), "sbatch", default=DEFAULT_SBATCH)
+    sbatch = _merge_sbatch(config.get("sbatch"))
     params = _as_dict(normalized_config.get("params"), "params")
 
     _, array_params = _split_params(params)
