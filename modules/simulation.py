@@ -112,13 +112,14 @@ class JaxSimulator:
             logits_seq,
             fixation_recency_seq,
             is_terminal_seq,
+            self.env.empty_path,
             jnp.array(0, dtype=jnp.int32),
             jnp.array(False),
             rng_key,
         )
 
         def cond_fn(carry):
-            _, _, _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
+            _, _, _, _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
@@ -134,6 +135,7 @@ class JaxSimulator:
                 logits_seq,
                 fixation_recency_seq,
                 is_terminal_seq,
+                choice_path,
                 step_count,
                 _,
                 rng_key,
@@ -165,6 +167,7 @@ class JaxSimulator:
             raw_action = action
             state, obs, _, done, info = self.env.step(state, action, env_params)
             action_mask = info["mask"]
+            choice_path = jnp.where(raw_action == self.env.num_nodes, info["choice_path"], choice_path)
             action_seq = action_seq.at[step_count].set(raw_action)
             step_count = step_count + 1
 
@@ -180,6 +183,7 @@ class JaxSimulator:
                 logits_seq,
                 fixation_recency_seq,
                 is_terminal_seq,
+                choice_path,
                 step_count,
                 done,
                 rng_key,
@@ -197,30 +201,11 @@ class JaxSimulator:
             logits_seq,
             fixation_recency_seq,
             is_terminal_seq,
+            choice_path,
             action_len,
             _,
             rng_key,
         ) = jax.lax.while_loop(cond_fn, body_fn, carry)
-
-        final_action_index = jnp.maximum(action_len - 1, 0)
-        final_action = action_seq[final_action_index]
-
-        def sample_choice_path(payload):
-            state, rng_key = payload
-            sample_state = state._replace(rng_key=rng_key)
-            _, path, path_len, rng_key = self.env._sample_move_path(sample_state, env_params)
-            return path, path_len, rng_key
-
-        def empty_choice_path(payload):
-            _, rng_key = payload
-            return self.env.empty_path, jnp.int32(0), rng_key
-
-        choice_path, choice_path_len, rng_key = jax.lax.cond(
-            final_action == self.env.num_nodes,
-            sample_choice_path,
-            empty_choice_path,
-            (state, rng_key),
-        )
 
         return (
             state,
@@ -234,7 +219,6 @@ class JaxSimulator:
             fixation_recency_seq,
             is_terminal_seq,
             action_len,
-            choice_path_len,
             rng_key,
         )
 
@@ -249,17 +233,18 @@ class JaxSimulator:
             action_mask,
             jnp.array(0, dtype=jnp.int32),
             jnp.array(0.0, dtype=jnp.float32),
+            jnp.array(0.0, dtype=jnp.float32),
             jnp.array(False),
             jnp.array(False),
             rng_key,
         )
 
         def cond_fn(carry):
-            _, _, _, step_count, _, _, done, _ = carry
+            _, _, _, step_count, _, _, _, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
-            state, obs, action_mask, step_count, episode_reward, moved, _, rng_key = carry
+            state, obs, action_mask, step_count, episode_reward, no_cost_reward, moved, _, rng_key = carry
 
             logits, _ = actor_critic_forward(params, _batch_obs(obs), action_mask[None, :])
             logits = logits[0]
@@ -285,16 +270,14 @@ class JaxSimulator:
             step_count = step_count + 1
             episode_reward = episode_reward + reward
             moved = action == self.env.num_nodes
+            no_cost_reward = jnp.where(moved, reward, no_cost_reward)
 
-            return state, obs, action_mask, step_count, episode_reward, moved, done, rng_key
+            return state, obs, action_mask, step_count, episode_reward, no_cost_reward, moved, done, rng_key
 
-        state, _, _, step_count, episode_reward, moved, _, rng_key = jax.lax.while_loop(cond_fn, body_fn, carry)
-
-        no_cost_reward = jax.lax.cond(
-            moved,
-            lambda _: self.env._expected_move_reward(state, env_params) * self.env.scale_factor,
-            lambda _: jnp.array(0.0, dtype=jnp.float32),
-            operand=None,
+        state, _, _, step_count, episode_reward, no_cost_reward, _, _, rng_key = jax.lax.while_loop(
+            cond_fn,
+            body_fn,
+            carry,
         )
 
         return episode_reward, no_cost_reward, step_count, rng_key
@@ -318,7 +301,6 @@ class JaxSimulator:
             fixation_recency_seqs,
             is_terminal_seqs,
             action_lens,
-            choice_path_lens,
             _,
         ) = jax.vmap(
             lambda key: self._run_trial(params, key, greedy=greedy)
@@ -335,7 +317,6 @@ class JaxSimulator:
             fixation_recency_seqs,
             is_terminal_seqs,
             action_lens,
-            choice_path_lens,
         )
 
     def simulate(
@@ -373,14 +354,12 @@ class JaxSimulator:
                 fixation_recency_seqs,
                 is_terminal_seqs,
                 action_lens,
-                choice_path_lens,
             ) = self._trial_batch_jit(params, trial_keys, greedy=greedy)
 
             states = jax.device_get(states)
             action_seqs = np.asarray(action_seqs)
             choice_paths = np.asarray(choice_paths)
             action_lens = np.asarray(action_lens)
-            choice_path_lens = np.asarray(choice_path_lens)
             if detailed:
                 activation_seqs = np.asarray(activation_seqs)
                 count_seqs = np.asarray(count_seqs)
@@ -405,8 +384,8 @@ class JaxSimulator:
                 action_len = int(action_lens[trial_idx])
                 action_seq = np.asarray(action_seqs[trial_idx, :action_len], dtype=np.int32).tolist()
 
-                choice_len = int(choice_path_lens[trial_idx])
-                choice_seq = np.asarray(choice_paths[trial_idx, :choice_len], dtype=np.int32).tolist()
+                choice_path = np.asarray(choice_paths[trial_idx], dtype=np.int32)
+                choice_seq = choice_path[choice_path >= 0].tolist()
 
                 details = None
                 if detailed:

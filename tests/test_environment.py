@@ -608,26 +608,81 @@ def test_q_decay_one_means_no_decay():
     )
 
 
-def test_move_reward_marginalizes_over_possible_paths():
+def test_move_reward_samples_one_path_and_reports_choice_path():
     env = _env(
         num_nodes=3,
         t_max=3,
         scale_factor=1.0,
         shuffle_nodes=False,
     )
-    params = _env_params(env, beta_move=0.0, eps_move=0.0, cost=0.0)
+    params = _env_params(env, beta_move=1000.0, eps_move=0.0, cost=0.0)
     state, _, _ = env.reset(jax.random.PRNGKey(101), params)
     state = state._replace(
         points=jnp.array([0.0, 2.0, 6.0], dtype=jnp.float32),
-        q_values=jnp.zeros((3,), dtype=jnp.float32),
+        q_values=jnp.array([0.0, 0.0, 1.0], dtype=jnp.float32),
     )
 
-    state, _, reward, done, _ = env.step(state, _jax_action(env.num_nodes), params)
+    state, _, reward, done, info = env.step(state, _jax_action(env.num_nodes), params)
 
     assert bool(done)
-    np.testing.assert_allclose(float(reward), 4.0, atol=1e-6)
+    np.testing.assert_allclose(float(reward), 6.0, atol=1e-6)
+    np.testing.assert_allclose(float(info["move_reward"]), 6.0, atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(info["choice_path"]), np.array([2, -1, -1], dtype=np.int32))
+    np.testing.assert_array_equal(np.asarray(state.fixation_node), np.asarray(2, dtype=np.int32))
     assert not hasattr(state, "chosen_path")
     assert not hasattr(state, "chosen_path_len")
+
+
+def test_movement_look_skips_q_update_but_applies_corruption():
+    env = _env(num_nodes=3, shuffle_nodes=False)
+    params = _env_params(env, learning_rate=1.0, wm_decay=0.0, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    state, _, _ = env.reset(jax.random.PRNGKey(102), params)
+    state = state._replace(
+        q_values=jnp.array([5.0, 7.0, 9.0], dtype=jnp.float32),
+        n_visits=jnp.ones((env.num_nodes,), dtype=jnp.int32),
+        activation=jnp.zeros((env.num_nodes,), dtype=jnp.float32),
+    )
+
+    state = env._look_without_q(state, _jax_action(1), params)
+
+    np.testing.assert_allclose(float(state.q_values[1]), 7.0, atol=1e-6)
+    np.testing.assert_allclose(float(state.q_values[2]), 0.0, atol=1e-6)
+    assert int(state.n_visits[2]) == 0
+
+
+def test_movement_forgetting_changes_downstream_choice():
+    env = _env(num_nodes=7, scale_factor=1.0, shuffle_nodes=False)
+    params = _env_params(
+        env,
+        beta_move=1000.0,
+        eps_move=0.0,
+        wm_decay=1.0,
+        forget_rate=1.0,
+        q_drift=0.0,
+        q_decay=1.0,
+        cost=0.0,
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(103), params)
+    state = state._replace(
+        child_nodes=jnp.array(
+            [[1, 2], [3, 4], [5, 6], [-1, -1], [-1, -1], [-1, -1], [-1, -1]],
+            dtype=jnp.int32,
+        ),
+        parent_nodes=jnp.array([-1, 0, 0, 1, 1, 2, 2], dtype=jnp.int32),
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(0, dtype=jnp.int32),
+        points=jnp.array([0.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0], dtype=jnp.float32),
+        q_values=jnp.array([0.0, 5.0, 0.0, 1.0, 10.0, 0.0, 0.0], dtype=jnp.float32),
+        activation=jnp.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=jnp.float32),
+    )
+
+    _, _, reward, _, info = env.step(state, _jax_action(env.num_nodes), params)
+
+    np.testing.assert_allclose(float(reward), 3.0, atol=1e-6)
+    np.testing.assert_array_equal(
+        np.asarray(info["choice_path"]),
+        np.array([1, 3, -1, -1, -1, -1, -1], dtype=np.int32),
+    )
 
 
 @pytest.mark.slow

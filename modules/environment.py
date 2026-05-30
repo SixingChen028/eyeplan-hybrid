@@ -318,6 +318,18 @@ class JaxDecisionTreeEnv:
         node: jax.Array,
         params: JaxDecisionTreeParams,
     ) -> JaxDecisionTreeState:
+        state = self._update_fixation_memory(state, node, params)
+        state = self._update_q(state, params)
+        if not self.wm_only:
+            state = self._corrupt_memory(state, params)
+        return state
+
+    def _update_fixation_memory(
+        self,
+        state: JaxDecisionTreeState,
+        node: jax.Array,
+        params: JaxDecisionTreeParams,
+    ) -> JaxDecisionTreeState:
         state = state._replace(
             fixation_node=node,
             n_visits=state.n_visits.at[node].add(1),
@@ -326,7 +338,15 @@ class JaxDecisionTreeEnv:
         )
         state = self._update_activation(state, params)
         state = self._clear_inactive_memory(state)
-        state = self._update_q(state, params)
+        return state
+
+    def _look_without_q(
+        self,
+        state: JaxDecisionTreeState,
+        node: jax.Array,
+        params: JaxDecisionTreeParams,
+    ) -> JaxDecisionTreeState:
+        state = self._update_fixation_memory(state, node, params)
         if not self.wm_only:
             state = self._corrupt_memory(state, params)
         return state
@@ -438,40 +458,25 @@ class JaxDecisionTreeEnv:
         term_mask = jnp.array([True], dtype=jnp.bool_)
         return jnp.concatenate([node_mask, term_mask], axis=0)
 
-    def _expected_move_reward(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
-        expected = self._zeros()
-
-        def body_fn(_, expected):
-            children = state.child_nodes
-            has_children = children[:, 0] >= 0
-            safe_children = jnp.maximum(children, 0)
-            q_children = state.q_values[safe_children]
-            probs = self._softmax(q_children, params)
-            child_returns = state.points[safe_children] + expected[safe_children]
-            node_expected = jnp.sum(probs * child_returns, axis=-1)
-            return jnp.where(has_children, node_expected, 0.0)
-
-        expected = jax.lax.fori_loop(0, self.max_height, body_fn, expected)
-        return expected[state.root_node]
-
     def _sample_move_path(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
         path = self.empty_path
+        state = self._look_without_q(state, state.root_node, params)
 
         init = (
+            state,
             state.root_node,
             jnp.array(0.0, dtype=jnp.float32),
             path,
-            jnp.int32(0),
-            state.rng_key,
         )
 
         def cond_fn(carry):
-            node, _, _, _, _ = carry
+            state, node, _, _ = carry
             return state.child_nodes[node, 0] >= 0
 
         def body_fn(carry):
-            node, cum_reward, path, path_len, key = carry
-            key, choice_key = jax.random.split(key)
+            state, node, cum_reward, path = carry
+            key, choice_key = jax.random.split(state.rng_key)
+            state = state._replace(rng_key=key)
 
             children = state.child_nodes[node]
             q_children = state.q_values[children]
@@ -480,14 +485,15 @@ class JaxDecisionTreeEnv:
             child = children[idx]
 
             cum_reward = cum_reward + state.points[child]
+            path_len = jnp.sum(path >= 0)
             path = path.at[path_len].set(child)
-            path_len = path_len + 1
+            state = self._look_without_q(state, child, params)
 
-            return child, cum_reward, path, path_len, key
+            return state, child, cum_reward, path
 
-        _, cum_reward, path, path_len, key = jax.lax.while_loop(cond_fn, body_fn, init)
+        state, _, cum_reward, path = jax.lax.while_loop(cond_fn, body_fn, init)
 
-        return cum_reward, path, path_len, key
+        return cum_reward, path, state
 
     def _sample_points(self, key: jax.Array, root: jax.Array):
         key, points_key = jax.random.split(key)
@@ -533,13 +539,25 @@ class JaxDecisionTreeEnv:
             time_elapsed=state.time_elapsed + 1,
             fixation_recency=state.fixation_recency * params.recency_decay,
         )
-        state, reward = jax.lax.cond(
+
+        def look_branch():
+            return self._look(state, action, params), -params.cost, self.empty_path
+
+        def terminate_branch():
+            reward, choice_path, move_state = self._sample_move_path(state, params)
+            return move_state, reward * self.scale_factor, choice_path
+
+        state, reward, choice_path = jax.lax.cond(
             action < self.num_nodes,
-            lambda: (self._look(state, action, params), -params.cost),
-            lambda: (state, self._expected_move_reward(state, params) * self.scale_factor),
+            look_branch,
+            terminate_branch,
         )
         done = (action == self.num_nodes) | (state.time_elapsed == self.t_max)
         obs = self._get_obs(state)
-        info = {"mask": self._get_action_mask(state)}
+        info = {
+            "mask": self._get_action_mask(state),
+            "choice_path": choice_path,
+            "move_reward": jnp.where(action == self.num_nodes, reward, 0.0),
+        }
 
         return state, obs, reward, done, info

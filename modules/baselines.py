@@ -87,44 +87,6 @@ def _optimal_path_reward_raw(child_nodes: np.ndarray, points: np.ndarray, root: 
     return float(dfs(root))
 
 
-def _move_probs(q_children: np.ndarray, beta_move: float, eps_move: float) -> np.ndarray:
-    z = beta_move * (q_children - np.max(q_children))
-    probs = np.exp(z)
-    probs = probs / np.sum(probs)
-    return (1.0 - eps_move) * probs + eps_move * (1.0 / q_children.shape[0])
-
-
-def _expected_move_reward_raw(state: Any, beta_move: float, eps_move: float) -> float:
-    child_nodes = np.asarray(state.child_nodes, dtype=np.int32)
-    points = np.asarray(state.points, dtype=np.float32)
-    q_values = np.asarray(state.q_values, dtype=np.float32)
-    expected = np.zeros(points.shape[0], dtype=np.float32)
-
-    for _ in range(points.shape[0]):
-        next_expected = np.zeros_like(expected)
-        for node in range(points.shape[0]):
-            children = child_nodes[node]
-            if children[0] < 0:
-                continue
-
-            probs = _move_probs(q_values[children], beta_move, eps_move)
-            next_expected[node] = float(np.sum(probs * (points[children] + expected[children])))
-        expected = next_expected
-
-    return float(expected[int(state.root_node)])
-
-
-def _episode_no_cost_rewards(
-    state: Any,
-    env_params: JaxDecisionTreeParams,
-    scale_factor: float,
-) -> Tuple[float, float]:
-    raw_reward = _expected_move_reward_raw(state, float(env_params.beta_move), float(env_params.eps_move))
-    scaled_reward = raw_reward * scale_factor
-
-    return scaled_reward, raw_reward
-
-
 def _depth1_then_terminate_action(
     obs_view: ObsView,
     action_mask: np.ndarray,
@@ -387,6 +349,7 @@ def evaluate_baseline_policies(
 
             done = False
             episode_reward = 0.0
+            terminal_reward = 0.0
             steps = 0
             moved = False
 
@@ -405,10 +368,11 @@ def evaluate_baseline_policies(
                 action_mask_np = np.asarray(info["mask"])
                 episode_reward += float(reward)
                 moved = int(action) == env.num_nodes
+                terminal_reward = float(reward) if moved else terminal_reward
                 steps += 1
 
             scaled_no_cost, raw_no_cost = (
-                _episode_no_cost_rewards(state, env_params, env.scale_factor)
+                (terminal_reward, terminal_reward / env.scale_factor)
                 if moved
                 else (0.0, 0.0)
             )
@@ -456,6 +420,7 @@ def evaluate_network_greedy(
 
         done = False
         episode_reward = 0.0
+        terminal_reward = 0.0
         steps = 0
         moved = False
 
@@ -467,10 +432,11 @@ def evaluate_network_greedy(
             state, obs, reward, done, info = step_fn(state, action)
             episode_reward += float(reward)
             moved = action == env.num_nodes
+            terminal_reward = float(reward) if moved else terminal_reward
             steps += 1
 
         scaled_no_cost, raw_no_cost = (
-            _episode_no_cost_rewards(state, env_params, env.scale_factor)
+            (terminal_reward, terminal_reward / env.scale_factor)
             if moved
             else (0.0, 0.0)
         )
