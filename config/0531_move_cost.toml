@@ -1,0 +1,12 @@
+# [meta]
+# array_vars = "ALL"
+
+[sbatch]
+gpu = true
+
+[params]
+wm_decay = 0.5
+cost = [0.005, 0.01, 0.02]
+move_cost = [0, 0.5, 1]
+seed = [1,2]
+beta_e_final = 0.01
