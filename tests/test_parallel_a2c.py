@@ -280,6 +280,19 @@ def test_parallel_sweep_keeps_q_decay_float():
     np.testing.assert_allclose(np.asarray(hypers.env.q_decay), expected, atol=1e-6)
 
 
+def test_parallel_sweep_allows_move_cost_scale_arrays():
+    fixed, runs, varied_keys = expand_sweep(
+        _small_params(seed=0, wm_decay=1.0, move_cost_scale=[0.0, 1.5])
+    )
+
+    assert varied_keys == ["move_cost_scale"]
+    assert len(runs) == 2
+
+    hypers = build_hypers(runs)
+    expected = np.array([0.0, 1.5], dtype=np.float32)
+    np.testing.assert_allclose(np.asarray(hypers.env.move_cost_scale), expected, atol=1e-6)
+
+
 def test_parallel_sweep_rejects_non_numeric_recency_decay_arrays():
     with np.testing.assert_raises(ValueError):
         expand_sweep(_small_params(seed=0, recency_decay=["off", 0.5]))

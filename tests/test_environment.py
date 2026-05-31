@@ -122,6 +122,7 @@ def _obs_size(env: JaxDecisionTreeEnv) -> int:
         ({"q_decay": 1.1}, "q_decay"),
         ({"recency_decay": -0.1}, "recency_decay"),
         ({"cost": -0.1}, "cost"),
+        ({"move_cost_scale": -0.1}, "move_cost_scale"),
     ],
 )
 def test_make_params_validates_dynamic_ranges(overrides, message):
@@ -687,6 +688,26 @@ def test_move_reward_samples_one_path_and_reports_choice_path():
     np.testing.assert_array_equal(np.asarray(state.fixation_node), np.asarray(2, dtype=np.int32))
     assert not hasattr(state, "chosen_path")
     assert not hasattr(state, "chosen_path_len")
+
+
+def test_move_cost_scale_penalizes_move_reward_by_path_length():
+    env = _env(
+        num_nodes=3,
+        t_max=3,
+        scale_factor=1.0,
+        shuffle_nodes=False,
+    )
+    params = _env_params(env, beta_move=1000.0, eps_move=0.0, cost=0.5, move_cost_scale=2.0)
+    state, _, _ = env.reset(jax.random.PRNGKey(101), params)
+    state = state._replace(
+        points=jnp.array([0.0, 2.0, 6.0], dtype=jnp.float32),
+        q_values=jnp.array([0.0, 0.0, 1.0], dtype=jnp.float32),
+    )
+
+    _, _, reward, _, info = env.step(state, _jax_action(env.num_nodes), params)
+
+    np.testing.assert_allclose(float(reward), 5.0, atol=1e-6)
+    np.testing.assert_allclose(float(info["move_reward"]), 5.0, atol=1e-6)
 
 
 def test_movement_look_skips_q_update_but_applies_corruption():

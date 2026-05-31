@@ -66,7 +66,8 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
 
 
 def env_params_from_run_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecisionTreeParams:
-    required_keys = tuple(key for key in ENV_DYNAMIC_PARAM_KEYS if key != "wm_neighbor_activation")
+    optional_dynamic_keys = {"wm_neighbor_activation", "move_cost_scale"}
+    required_keys = tuple(key for key in ENV_DYNAMIC_PARAM_KEYS if key not in optional_dynamic_keys)
     require_metadata_keys(args, required_keys, "environment dynamic")
 
     return env.make_params(
@@ -82,6 +83,7 @@ def env_params_from_run_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecision
         q_decay=float(args["q_decay"]),
         recency_decay=float(args["recency_decay"]),
         cost=float(args["cost"]),
+        move_cost_scale=float(args.get("move_cost_scale", 0.0)),
     )
 
 

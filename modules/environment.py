@@ -56,6 +56,7 @@ class JaxDecisionTreeParams(NamedTuple):
     q_decay: jax.Array
     recency_decay: jax.Array
     cost: jax.Array
+    move_cost_scale: jax.Array
 
 class DecisionTreeObs(NamedTuple):
     fixation: jax.Array
@@ -144,6 +145,7 @@ class JaxDecisionTreeEnv:
         q_decay,
         recency_decay,
         cost: float,
+        move_cost_scale: float = 0.0,
     ) -> JaxDecisionTreeParams:
 
         assert beta_move >= 0.0, "beta_move must be non-negative."
@@ -158,6 +160,7 @@ class JaxDecisionTreeEnv:
         assert 0.0 <= q_decay <= 1.0, "q_decay must be between 0 and 1."
         assert 0.0 <= recency_decay <= 1.0, "recency_decay must be between 0 and 1."
         assert cost >= 0.0, "cost must be non-negative."
+        assert move_cost_scale >= 0.0, "move_cost_scale must be non-negative."
 
         return JaxDecisionTreeParams(
             beta_move=jnp.asarray(beta_move, dtype=jnp.float32),
@@ -172,6 +175,7 @@ class JaxDecisionTreeEnv:
             q_decay=jnp.asarray(q_decay, dtype=jnp.float32),
             recency_decay=jnp.asarray(recency_decay, dtype=jnp.float32),
             cost=jnp.asarray(cost, dtype=jnp.float32),
+            move_cost_scale=jnp.asarray(move_cost_scale, dtype=jnp.float32),
         )
 
     def _zeros(self, dtype: jnp.dtype = jnp.float32) -> jax.Array:
@@ -549,7 +553,9 @@ class JaxDecisionTreeEnv:
 
         def terminate_branch():
             reward, choice_path, move_state = self._sample_move_path(state, params)
-            return move_state, reward * self.scale_factor, choice_path
+            path_len = jnp.sum(choice_path >= 0)
+            move_cost = params.move_cost_scale * params.cost * path_len.astype(jnp.float32)
+            return move_state, reward * self.scale_factor - move_cost, choice_path
 
         state, reward, choice_path = jax.lax.cond(
             action < self.num_nodes,

@@ -64,6 +64,8 @@ PARAM_DEFAULTS = {
         "recency_decay": 0.5,
         # Per-step movement cost subtracted from environment reward.
         "cost": 0.01,
+        # Multiplier for path-length move penalty, applied as move_cost_scale * cost * path length.
+        "move_cost_scale": 0.0,
         # Set of points to sample from for each node.
         "point_set": (-8, -4, -2, -1, 1, 2, 4, 8),
     },
@@ -135,6 +137,7 @@ ENV_DYNAMIC_PARAM_KEYS = (
     "q_decay",
     "recency_decay",
     "cost",
+    "move_cost_scale",
 )
 ENV_STATIC_PARAM_KEYS = tuple(
     key for key in PARAM_DEFAULTS["environment"] if key not in ENV_DYNAMIC_PARAM_KEYS
