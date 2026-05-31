@@ -4,61 +4,80 @@
 
 Explain why people often consolidate a discovered plan in the forward direction before termination, while the optimized model often consolidates backward through parent looks.
 
-The behavioral pattern suggests that people may not be preparing for termination by refreshing scalar ancestor values. They may instead be stabilizing an executable plan: an ordered sequence from the root to a terminal node. In that interpretation, forward looks are useful because they preserve the path in the same order it will be executed.
+The behavioral pattern suggests that people may not be preparing for termination only by refreshing scalar ancestor values. They may instead be stabilizing a plan representation: an ordered sequence from the root to a terminal node, or the parent-child choices along that sequence. In that interpretation, forward looks are useful because they refresh the information in the same order it will be used during post-termination movement.
 
-The current model has a different incentive. Value propagation is tied to node-value maintenance over the structural parent chain. Once a good path has been found, looking backward through parents can improve or refresh the ancestor `q_values` that determine the expected movement reward after termination. This makes backward consolidation computationally useful, even though it does not match the human eye-movement pattern.
+The current model has a different incentive. A look first refreshes working memory for the fixated node, its parent, its children, and the root. It then updates `q_values` for the fixated node and automatically backs up through active ancestors, with backup depth controlled by `backup_steps` and backup weight controlled by `lamda_backup`. In `backup_mode = "full"` this parent-chain backup can ignore working-memory activation; in the working-memory backup modes, an inactive parent stops the backup. This means the model already has an eligibility-trace-like mechanism: active ancestors of the current fixation are eligible for automatic backup.
 
-The aim is not just to penalize repeated parent looks. A penalty could suppress the symptom while leaving the model's cognitive architecture unchanged. The better goal is to change what information must be available for reward propagation and termination, so that forward consolidation is useful for the same reason it appears useful for people.
+Termination also matters. The current environment does not store a chosen plan before termination. On termination, `_sample_move_path` starts at the root and samples each child from `q_values[children]`, applying fixation-memory updates without `q_values` updates during the movement sequence. The executed `choice_path` is returned in `info`, but it is not stored in the environment state for later use.
 
-## Option 1: Eligibility Trace Over the Discovered Path
+Therefore, a proposal for forward consolidation should not simply say "add eligibility traces" or "store action values." The current code already has active-ancestor eligibility, and the current node-indexed values already behave like child-action preferences at movement time. A coherent proposal must specify which currently missing representation is added, and which current incentive for backward parent looks is removed or weakened.
 
-Add a decaying trace of the recently constructed path. The trace could be over nodes, transitions, or parent-child bindings. When a valuable terminal path is discovered, value updates are applied through the active trace rather than requiring explicit parent looks.
+The aim is not just to penalize repeated parent looks. A penalty could suppress the symptom while leaving the model's cognitive architecture unchanged. The better goal is to change what information must be available for reward propagation or termination, so that forward consolidation is useful for the same reason it appears useful for people.
 
-In a simple version, each forward look refreshes the trace entry for the corresponding transition. When reward or downstream value becomes available, still-active trace entries receive a TD-style or return-style update. If a transition has decayed out of working memory, it is no longer eligible for update.
+## Option 1: Replace Ancestor Eligibility With Path-Edge Eligibility
 
-This does not require eliminating Bellman-like learning. The update target can still be TD-like, but the cognitive availability condition changes: the model can update a parent-child relation only if that relation is currently represented in the path trace.
+This option should be understood as a replacement or restriction of the current ancestor-backup eligibility, not as the addition of eligibility traces in general. The current trace-like mechanism is: after looking at node `n`, update `n`, then walk up `parent_nodes` while ancestors remain active and `backup_steps` allows it. That mechanism makes backward parent looks useful because they refresh the exact nodes that can receive backup.
 
-### Why this should solve the problem
+The proposed change is to make the eligible unit an ordered path edge rather than an active ancestor node. Add a decaying path-edge trace, stored compactly as one value per non-root node because each node has a unique parent. The trace entry for child `c` means: "the incoming edge `parent_nodes[c] -> c` is currently represented as part of the traced path." A trace entry is refreshed only when the agent actually constructs that forward relation, for example by looking from parent `p` to child `c` when `parent_nodes[c] == p`. If this option is combined with candidate-plan memory, replaying the stored plan in root-to-terminal order would also refresh the corresponding trace entries.
 
-The current model benefits from looking at parents because parent looks help make ancestor values available for backup. A trace-based update removes that particular benefit. If value can propagate through an active path trace, the agent does not need to overtly walk backward through parents after finding a good terminal.
+Backups would then be gated by edge-trace activation rather than by ancestor-node activation. For example, after looking at a terminal or high-value descendant, the model could update only the contiguous traced edges on the currently represented path. If the edge `p -> c` has decayed out of the path trace, then `q_values[c]` or the corresponding edge value is not eligible for update through that path, even if `p` happens to be active as a node. Conversely, a forward rehearsal that refreshes `root -> child -> grandchild` keeps those edge entries eligible.
 
-Forward consolidation becomes useful because it refreshes the exact information needed for later value use: the ordered path or transition sequence. Looking root -> child -> grandchild keeps the executable trace active. Looking leaf -> parent -> grandparent may refresh individual ancestors, but it does not refresh the forward transition sequence in execution order. Under low or moderate working-memory capacity, the best way to keep the discovered plan eligible for value use should therefore be to rehearse it forward.
+This option does not require eliminating Bellman-like learning. The update target can remain TD-like. The difference is the working-memory condition for update:
 
-This option also gives a principled interpretation of human consolidation. People may be preserving a path trace long enough to commit to it, not recomputing scalar values at each ancestor.
-
-## Option 2: Store Transition or Action Values
-
-Represent learned value as a parent-child relation rather than as a scalar value attached to the parent node. Conceptually, store `Q(parent, child)`: the value of choosing a particular child from a particular parent. Because the tree structure gives each child a unique parent, this could still be implemented compactly as a value stored on the child node, but the interpretation would be action value rather than parent state value.
-
-Under this representation, the useful memory unit is not "the parent has value X." It is "from this parent, choose this child." A backup or refresh operation should require the parent context and the child/action context to be jointly available.
+- current code: an ancestor node can be backed up when it is active, or always in `backup_mode = "full"`;
+- proposed path-edge version: a parent-child edge can be backed up only when that forward edge is active in the path trace.
 
 ### Why this should solve the problem
 
-Backward parent looks are useful in the current model because they can refresh or improve the scalar value of an ancestor. If the model instead needs a bound parent-child action value, looking at a parent alone is not enough. The relevant object is the forward choice relation.
+The current model benefits from looking at parents because parent looks refresh ancestor nodes and make them eligible for automatic backup. Path-edge eligibility removes that particular benefit. A backward sequence like `leaf -> parent -> grandparent` refreshes nodes, but it does not reconstruct the forward edge sequence `root -> child -> grandchild` unless the implementation explicitly treats backward traversal as edge rehearsal. Under this option, it should not.
 
-A forward sequence naturally reconstructs those relations: root with selected child, then that child with its selected child, and so on. This is exactly the structure needed to execute the plan after termination. A backward sequence visits nodes in the opposite order and is less effective at maintaining the parent-to-child bindings that specify what to do next.
+Forward consolidation becomes useful because it refreshes the exact relations that gate later value propagation. The behavioral interpretation is that people may be preserving a forward path trace long enough to commit to it or learn from it, rather than recomputing scalar values at each active ancestor.
 
-This change also aligns the model more closely with the decision problem induced by termination. After termination, the agent does not need a generic estimate of each ancestor. It needs to choose an action at each branch point. If the stored value is attached to the action relation, then forward consolidation prepares the same representation that termination will use.
+This option is only coherent if the current parent-chain backup is changed. If the existing automatic ancestor backup remains fully available, then adding a path-edge trace simply adds another learning path and may not reduce the optimized model's incentive to look backward through parents.
 
-The main implementation choice is whether to fully replace parent-state `q_values` with action values, or to reinterpret the existing node-indexed values as values of the incoming action from the parent. The second option may be simpler because the tree has unique parent-child edges.
+## Option 2: Add Edge-Binding Memory, Not Just Action Values
+
+The phrase "store `Q(parent, child)`" is ambiguous in this codebase. Because each node has at most one parent, a value stored on child `c` is already enough to represent the value of the incoming action `parent_nodes[c] -> c`. This is also how termination currently uses the values: at a parent node, `_sample_move_path` chooses among `state.q_values[children]`. In that practical sense, the current `q_values[child]` representation already behaves like an action value for choosing that child from its unique parent.
+
+Therefore, merely reinterpreting existing node-indexed values as `Q(parent, child)` is not a substantive model change. It would not change the action probabilities in `_sample_move_path`, the automatic backup path in `_update_q`, or the working-memory corruption rules. It should not be expected to change the optimized consolidation direction.
+
+For this option to have consequences, the model needs a distinct parent-child binding memory in addition to the scalar value. A compact implementation could still index this binding by child node:
+
+- `q_values[c]`: the learned value of taking the unique incoming edge into child `c`;
+- `edge_activation[c]` or `edge_recency[c]`: whether the binding `parent_nodes[c] -> c` is currently available in working memory.
+
+The practical rule would be: a value can influence backup or movement only when the relevant edge binding is available, or its influence is reduced when that binding is weak. Looking at a parent alone would not refresh the binding to the selected child. Looking at a child alone would not necessarily refresh the binding unless the previous fixation or candidate-plan state supplies the parent context. A forward look from parent to child would refresh the binding directly.
+
+### Why this should solve the problem
+
+This option changes the useful working-memory object from "a node has a scalar value" to "this parent has this child as an available valued action." It aligns with termination because movement from each branch point requires the next-child relation, not just the existence of a valuable descendant somewhere in memory.
+
+However, the important part is the binding memory, not the value table shape. If `q_values[c]` remains available whenever node `c` is active, and movement continues to choose from `q_values[children]` without checking edge bindings, then this option collapses back to the current model.
+
+This option is closely related to Option 1. Option 1 uses edge activation to gate learning backups. Option 2 uses edge activation to gate or weight action selection and value availability. They could share the same `edge_activation[c]` state.
 
 ## Option 3: Candidate-Plan Memory
 
-Add an explicit memory for the best candidate plan found so far. The representation could include:
+Add an explicit memory for the best candidate plan found so far. This is a different representation from both node activation and edge activation. It could include:
 
-- the ordered path from root to terminal;
-- an estimated return or confidence value;
-- the current reliability of the plan in working memory.
+- the ordered path from root to terminal, stored as node ids or as next-child choices;
+- an estimated return or confidence value for that path;
+- a reliability or activation value for the plan representation.
 
-Termination would then evaluate or execute this candidate plan, rather than relying only on recursively backed-up ancestor `q_values`. Value learning could still exist, but successful termination would depend on whether the model has an available plan representation.
+The key current-code contrast is that `choice_path` exists only as a termination result. It is returned in `info` after `_sample_move_path` has executed, and the environment state does not retain a pre-termination plan. Candidate-plan memory would add such a state object before termination.
 
-Consolidation would mean stabilizing the candidate plan before termination. A forward look sequence could refresh each element of the plan in the order it will be used. If the plan representation decays, the agent may need to rehearse the route before committing.
+A minimal concrete rule is:
+
+- when a terminal or otherwise valuable path is identified, reconstruct the root-to-terminal path from `parent_nodes` and store it as the current candidate plan;
+- decay the candidate plan's reliability with working-memory decay or a plan-specific decay;
+- refresh reliability when looks match the stored plan in root-to-terminal order;
+- on termination, execute the candidate plan if reliability is high enough, or use it to bias child choices during `_sample_move_path`.
 
 ### Why this should solve the problem
 
-The current model turns consolidation into a value-maintenance problem: make sure the root and ancestors have the right scalar values before terminating. That makes backward backup attractive. Candidate-plan memory changes termination into a plan-availability problem: make sure the intended sequence is active and reliable enough to execute.
+The current model turns consolidation into a value-maintenance problem: make sure enough `q_values` survive and are backed up before termination. Candidate-plan memory changes termination into a plan-availability problem: make sure the intended sequence is active and reliable enough to execute.
 
-Once termination depends on an ordered path, forward consolidation has a direct purpose. It rehearses "what I will do" from root to terminal. Backward consolidation is less useful because it does not refresh the plan in execution order and may not preserve the next-action bindings needed at each branch.
+Once termination depends on an ordered path, forward consolidation has a direct purpose. It rehearses the sequence that will be used during movement. Backward consolidation is less useful because it does not refresh the plan in execution order and may not preserve the next-child bindings needed at each branch.
 
 This option is also behaviorally transparent. It predicts that forward consolidation should be strongest after a good path has been found and before termination, especially when working-memory decay makes the plan unreliable. That matches the qualitative human pattern more directly than an account based only on scalar value backup.
 
@@ -66,10 +85,10 @@ The cost is that candidate-plan memory adds a new representational object. That 
 
 ## Comparison
 
-The eligibility-trace option is the smallest conceptual change to reward propagation. It keeps value learning central, but changes the working-memory condition for update. It is a good first test if the main hypothesis is that reward can propagate through active forward traces without overt parent looks.
+The path-edge eligibility option is the smallest conceptual change to reward propagation, but only if it replaces or restricts the current active-ancestor backup. It keeps value learning central while changing the working-memory condition for update from "ancestor node is active" to "forward edge on the candidate path is active."
 
-The transition-value option changes the value representation. It should reduce the usefulness of isolated parent refreshes because the useful object is a forward action relation. It is a good fit if the current scalar parent-value representation is the suspected source of the mismatch.
+The edge-binding option is not a pure value-representation change. Purely reinterpreting `q_values[child]` as `Q(parent, child)` is already consistent with the current movement policy and has no practical consequence by itself. This option only becomes meaningful if the parent-child binding has its own working-memory availability and that availability gates backup, movement, or both.
 
 The candidate-plan option changes what termination depends on. It directly models forward rehearsal as plan maintenance rather than value backup. It is the most explicit account of the human behavior, but also introduces the most new machinery.
 
-These options are compatible. A useful path might be to start with trace-gated transition updates, then add candidate-plan memory only if value-representation changes are not enough to produce forward consolidation.
+These options are compatible, but they should be tested in a clean order. A useful first test is edge activation shared by Option 1 and Option 2: add `edge_activation[c]`, refresh it on parent-to-child looks, and use it to gate the existing automatic backup or movement choices. If that does not produce forward consolidation, candidate-plan memory is the more direct hypothesis because it changes the termination computation rather than only the learning computation.
