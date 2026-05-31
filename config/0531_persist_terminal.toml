@@ -1,0 +1,35 @@
+[meta]
+array_vars = "ALL"
+
+# [sbatch]
+# gpu = true
+# time = "1:00:00"
+# mem_per_cpu = "4000M"
+
+[params]
+forget_rate = 0.0
+wm_decay = 0.5
+cost = 0.01
+seed = [1, 2]
+beta_e_final = 0.01
+num_envs = 128
+num_updates = 30_000
+network_type = "node_shared"
+hidden_size = 64
+
+use_q_values_obs = true
+use_n_visits_obs = true
+use_g_values_obs = true
+use_time_elapsed_obs = true
+use_recency_obs = true
+use_best_open_value_obs = true
+use_best_terminal_value_obs = true
+use_is_terminal_obs = true
+
+[[conditions]]
+label = "wm_terminal"
+persist_terminal = false
+
+[[conditions]]
+label = "persist_terminal"
+persist_terminal = true
