@@ -125,7 +125,6 @@ PARAM_DEFAULTS = {
 }
 
 ENV_DYNAMIC_PARAM_KEYS = (
-    "persist_terminal",
     "beta_move",
     "eps_move",
     "learning_rate",

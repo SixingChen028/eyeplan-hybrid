@@ -293,19 +293,6 @@ def test_parallel_sweep_allows_move_cost_scale_arrays():
     np.testing.assert_allclose(np.asarray(hypers.env.move_cost_scale), expected, atol=1e-6)
 
 
-def test_parallel_sweep_allows_persist_terminal_arrays():
-    _, runs, varied_keys = expand_sweep(
-        _small_params(seed=0, wm_decay=1.0, persist_terminal=[False, True])
-    )
-
-    assert varied_keys == ["persist_terminal"]
-    assert len(runs) == 2
-
-    hypers = build_hypers(runs)
-    np.testing.assert_array_equal(np.asarray(hypers.env.persist_terminal), np.array([False, True]))
-    assert [run["persist_terminal"] for run in runs] == [False, True]
-
-
 def test_parallel_sweep_rejects_non_numeric_recency_decay_arrays():
     with np.testing.assert_raises(ValueError):
         expand_sweep(_small_params(seed=0, recency_decay=["off", 0.5]))

@@ -41,7 +41,7 @@ def require_metadata_keys(metadata_args: dict, keys: tuple[str, ...], section_na
 
 
 def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
-    optional_static_keys = {"wm_only"}
+    optional_static_keys = {"wm_only", "persist_terminal"}
     required_keys = tuple(key for key in ENV_STATIC_PARAM_KEYS if key not in optional_static_keys)
     require_metadata_keys(args, required_keys, "environment static")
 
@@ -66,7 +66,7 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
 
 
 def env_params_from_run_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecisionTreeParams:
-    optional_dynamic_keys = {"wm_neighbor_activation", "move_cost_scale", "persist_terminal"}
+    optional_dynamic_keys = {"wm_neighbor_activation", "move_cost_scale"}
     required_keys = tuple(key for key in ENV_DYNAMIC_PARAM_KEYS if key not in optional_dynamic_keys)
     require_metadata_keys(args, required_keys, "environment dynamic")
 
@@ -84,7 +84,6 @@ def env_params_from_run_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecision
         recency_decay=float(args["recency_decay"]),
         cost=float(args["cost"]),
         move_cost_scale=float(args.get("move_cost_scale", 0.0)),
-        persist_terminal=bool(args.get("persist_terminal", DEFAULT_PARAMS["persist_terminal"])),
     )
 
 
