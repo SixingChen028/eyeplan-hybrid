@@ -421,6 +421,30 @@ def test_persist_terminal_keeps_inactive_terminal_memory():
     )
 
 
+def test_persist_terminal_can_vary_by_params():
+    env = _env(num_nodes=7, shuffle_nodes=False, persist_terminal=False)
+    state = env._sample_initial_state(jax.random.PRNGKey(15))
+    state = state._replace(
+        is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
+        activation=jnp.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32),
+    )
+
+    clearing_params = _env_params(env, persist_terminal=False)
+    persistent_params = _env_params(env, persist_terminal=True)
+
+    clearing_state = env._clear_inactive_memory(state, clearing_params)
+    persistent_state = env._clear_inactive_memory(state, persistent_params)
+
+    np.testing.assert_array_equal(
+        np.asarray(clearing_state.is_terminal),
+        np.array([False, False, False, False, False, False, True]),
+    )
+    np.testing.assert_array_equal(
+        np.asarray(persistent_state.is_terminal),
+        np.array([False, False, False, True, False, False, True]),
+    )
+
+
 def test_wm_only_clears_inactive_terminal_memory_even_when_persistent():
     env = _env(num_nodes=7, shuffle_nodes=False, wm_only=True, persist_terminal=True)
     state = env._sample_initial_state(jax.random.PRNGKey(16))

@@ -44,6 +44,7 @@ class JaxDecisionTreeState(NamedTuple):
     is_terminal: jax.Array
 
 class JaxDecisionTreeParams(NamedTuple):
+    persist_terminal: jax.Array
     beta_move: jax.Array
     eps_move: jax.Array
     learning_rate: jax.Array
@@ -146,6 +147,7 @@ class JaxDecisionTreeEnv:
         recency_decay,
         cost: float,
         move_cost_scale: float = 0.0,
+        persist_terminal: bool | None = None,
     ) -> JaxDecisionTreeParams:
 
         assert beta_move >= 0.0, "beta_move must be non-negative."
@@ -162,7 +164,11 @@ class JaxDecisionTreeEnv:
         assert cost >= 0.0, "cost must be non-negative."
         assert move_cost_scale >= 0.0, "move_cost_scale must be non-negative."
 
+        if persist_terminal is None:
+            persist_terminal = self.persist_terminal
+
         return JaxDecisionTreeParams(
+            persist_terminal=jnp.asarray(persist_terminal, dtype=jnp.bool_),
             beta_move=jnp.asarray(beta_move, dtype=jnp.float32),
             eps_move=jnp.asarray(eps_move, dtype=jnp.float32),
             learning_rate=jnp.asarray(learning_rate, dtype=jnp.float32),
@@ -236,7 +242,11 @@ class JaxDecisionTreeEnv:
 
         return jax.lax.fori_loop(0, math.ceil(self.num_nodes / 2), body_fn, g_values)
 
-    def _clear_inactive_memory(self, state: JaxDecisionTreeState):
+    def _clear_inactive_memory(
+        self,
+        state: JaxDecisionTreeState,
+        params: JaxDecisionTreeParams | None = None,
+    ):
         active = state.activation > 0.0
         if self.wm_only:
             return state._replace(
@@ -247,8 +257,10 @@ class JaxDecisionTreeEnv:
             )
 
         # Terminality is normally working-memory dependent, but can be made persistent for ablations.
-        if not self.persist_terminal:
-            state = state._replace(is_terminal=state.is_terminal & active)
+        persist_terminal = self.persist_terminal if params is None else params.persist_terminal
+        state = state._replace(
+            is_terminal=jnp.where(persist_terminal, state.is_terminal, state.is_terminal & active)
+        )
 
         return state
 
@@ -345,7 +357,7 @@ class JaxDecisionTreeEnv:
             is_terminal=state.is_terminal.at[node].set(state.child_nodes[node, 0] < 0),
         )
         state = self._update_activation(state, params)
-        state = self._clear_inactive_memory(state)
+        state = self._clear_inactive_memory(state, params)
         return state
 
     def _look_without_q(
