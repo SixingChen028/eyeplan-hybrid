@@ -41,7 +41,8 @@ def require_metadata_keys(metadata_args: dict, keys: tuple[str, ...], section_na
 
 
 def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
-    required_keys = tuple(key for key in ENV_STATIC_PARAM_KEYS if key != "wm_only")
+    optional_static_keys = {"wm_only", "persist_terminal"}
+    required_keys = tuple(key for key in ENV_STATIC_PARAM_KEYS if key not in optional_static_keys)
     require_metadata_keys(args, required_keys, "environment static")
 
     return JaxDecisionTreeEnv(
@@ -50,6 +51,7 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
         scale_factor=float(args["scale_factor"]),
         shuffle_nodes=bool(args["shuffle_nodes"]),
         wm_only=bool(args.get("wm_only", DEFAULT_PARAMS["wm_only"])),
+        persist_terminal=bool(args.get("persist_terminal", DEFAULT_PARAMS["persist_terminal"])),
         use_recency_obs=bool(args["use_recency_obs"]),
         use_best_open_value_obs=bool(args["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(args["use_best_terminal_value_obs"]),

@@ -20,6 +20,8 @@ PARAM_DEFAULTS = {
         "shuffle_nodes": True,
         # Whether inactive nodes retain no node-specific information.
         "wm_only": False,
+        # Whether seen-terminal indicators persist after a terminal node leaves working memory.
+        "persist_terminal": False,
         # Whether observations include per-node fixation recency values.
         "use_recency_obs": True,
         # Whether observations include best-open-path scalar value.

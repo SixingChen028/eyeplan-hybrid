@@ -46,6 +46,7 @@ def _build_env(params: dict[str, Any]) -> JaxDecisionTreeEnv:
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
         wm_only=bool(params["wm_only"]),
+        persist_terminal=bool(params["persist_terminal"]),
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),

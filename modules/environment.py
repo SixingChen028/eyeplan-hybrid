@@ -93,12 +93,14 @@ class JaxDecisionTreeEnv:
         backup_mode: str,
         point_set: tuple,
         wm_only: bool = False,
+        persist_terminal: bool = False,
     ):
         self.num_nodes = int(num_nodes)
         self.t_max = int(t_max)
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
         self.wm_only = bool(wm_only)
+        self.persist_terminal = bool(persist_terminal)
         self.use_recency_obs = bool(use_recency_obs)
         self.use_best_open_value_obs = bool(use_best_open_value_obs)
         self.use_best_terminal_value_obs = bool(use_best_terminal_value_obs)
@@ -232,17 +234,19 @@ class JaxDecisionTreeEnv:
 
     def _clear_inactive_memory(self, state: JaxDecisionTreeState):
         active = state.activation > 0.0
-        # Knowledge of terminality never persists outside working memory.
-        state = state._replace(is_terminal=state.is_terminal & active)
+        if self.wm_only:
+            return state._replace(
+                q_values=jnp.where(active, state.q_values, 0.0),
+                n_visits=jnp.where(active, state.n_visits, 0),
+                fixation_recency=jnp.where(active, state.fixation_recency, 0.0),
+                is_terminal=state.is_terminal & active,
+            )
 
-        if not self.wm_only:
-            return state
+        # Terminality is normally working-memory dependent, but can be made persistent for ablations.
+        if not self.persist_terminal:
+            state = state._replace(is_terminal=state.is_terminal & active)
 
-        return state._replace(
-            q_values=jnp.where(active, state.q_values, 0.0),
-            n_visits=jnp.where(active, state.n_visits, 0),
-            fixation_recency=jnp.where(active, state.fixation_recency, 0.0),
-        )
+        return state
 
     def _backup_target(self, state, node, params: JaxDecisionTreeParams):
         children = state.child_nodes[node]

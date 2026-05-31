@@ -19,6 +19,7 @@ def _env(**overrides):
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
         wm_only=bool(params["wm_only"]),
+        persist_terminal=bool(params["persist_terminal"]),
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
@@ -385,6 +386,61 @@ def test_wm_only_best_value_observations_ignore_inactive_nodes():
     np.testing.assert_allclose(np.asarray(obs.best_terminal_value), np.array([6.0]), atol=1e-6)
     assert np.asarray(obs.is_terminal)[5] == 0.0
     assert np.asarray(obs.is_terminal)[6] == 1.0
+
+
+def test_terminal_memory_clears_inactive_nodes_by_default():
+    env = _env(num_nodes=7, shuffle_nodes=False, persist_terminal=False)
+    state = env._sample_initial_state(jax.random.PRNGKey(14))
+    state = state._replace(
+        is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
+        activation=jnp.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32),
+    )
+
+    state = env._clear_inactive_memory(state)
+
+    np.testing.assert_array_equal(
+        np.asarray(state.is_terminal),
+        np.array([False, False, False, False, False, False, True]),
+    )
+
+
+def test_persist_terminal_keeps_inactive_terminal_memory():
+    env = _env(num_nodes=7, shuffle_nodes=False, persist_terminal=True)
+    state = env._sample_initial_state(jax.random.PRNGKey(15))
+    state = state._replace(
+        is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
+        activation=jnp.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32),
+    )
+
+    state = env._clear_inactive_memory(state)
+
+    np.testing.assert_array_equal(
+        np.asarray(state.is_terminal),
+        np.array([False, False, False, True, False, False, True]),
+    )
+
+
+def test_wm_only_clears_inactive_terminal_memory_even_when_persistent():
+    env = _env(num_nodes=7, shuffle_nodes=False, wm_only=True, persist_terminal=True)
+    state = env._sample_initial_state(jax.random.PRNGKey(16))
+    state = state._replace(
+        q_values=jnp.arange(env.num_nodes, dtype=jnp.float32),
+        n_visits=jnp.ones((env.num_nodes,), dtype=jnp.int32),
+        fixation_recency=jnp.ones((env.num_nodes,), dtype=jnp.float32),
+        is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
+        activation=jnp.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32),
+    )
+
+    state = env._clear_inactive_memory(state)
+
+    inactive_mask = np.asarray(state.activation) == 0.0
+    np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], 0.0, atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(state.n_visits)[inactive_mask], 0)
+    np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
+    np.testing.assert_array_equal(
+        np.asarray(state.is_terminal),
+        np.array([False, False, False, False, False, False, True]),
+    )
 
 
 def test_update_activation_preserves_q_values():
