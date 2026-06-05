@@ -1,0 +1,27 @@
+[sbatch]
+gpu = true
+
+[params]
+backup_mode = "wm_partial"
+cost = 0.005
+seed = [1, 2, 3]
+beta_e_final = 0.01
+
+
+# everything
+use_q_values_obs = true
+use_n_visits_obs = true
+use_g_values_obs = true
+use_time_elapsed_obs = true
+use_recency_obs = true
+use_best_open_value_obs = true
+use_best_terminal_value_obs = true
+use_is_terminal_obs = true
+
+# unbounded memory, but actions still masked to the active WM set
+# (full backup + persistent terminal => activation's only effect is the action mask)
+[[conditions]]
+label = "unbounded_masking"
+wm_decay = 0.5
+backup_mode = "full"
+persist_terminal = true
