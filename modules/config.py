@@ -17,6 +17,8 @@ PARAM_DEFAULTS = {
         "scale_factor": 0.125,
         # Whether to randomly permute node labels for each generated tree.
         "shuffle_nodes": True,
+        # Legacy mode where inactive nodes retain no node-specific information.
+        "wm_only": False,
         # Whether activation determines which fixation actions are legal.
         "activation_masks_actions": True,
         # Whether activation determines whether an ancestor can receive a backup update.

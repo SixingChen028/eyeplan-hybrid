@@ -46,11 +46,11 @@ activation_gates_backup_source = false
 activation_protects_memory = false
 activation_masks_observation = false
 
-# no persistence: approximate former WM-only behavior with immediate inactive forgetting
+# WM-only: inactive nodes retain no node-specific information
 [[conditions]]
 label = "no_persistence"
 wm_decay = 0.5
-forget_rate = 1.0
+wm_only = true
 
 # no WM: activation collapses to the current fixation neighborhood each step
 [[conditions]]
@@ -61,4 +61,4 @@ wm_decay = 0.0
 [[conditions]]
 label = "no_memory"
 wm_decay = 0.0
-forget_rate = 1.0
+wm_only = true

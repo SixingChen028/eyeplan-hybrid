@@ -22,7 +22,7 @@ from modules.simulation import append_simulation_trial, empty_simulation_data
 
 
 WM_DECAYS = (0.0, 0.25, 0.5, 0.75, 1.0)
-NO_PERSISTENCE_VALUES = (False, True)
+WM_ONLY_VALUES = (False, True)
 DEFAULT_NAME = "wm_decay_backtrack_rollouts"
 DEFAULT_TREE_VIEWER = Path("/Users/fred/projects/eyeplan/tree-viewer")
 
@@ -45,6 +45,7 @@ def _build_env(params: dict[str, Any]) -> JaxDecisionTreeEnv:
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
+        wm_only=bool(params["wm_only"]),
         activation_masks_actions=bool(params["activation_masks_actions"]),
         activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
         activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
@@ -204,7 +205,7 @@ def _simulate_decay(
     *,
     base_params: dict[str, Any],
     experiment_name: str,
-    no_persistence: bool,
+    wm_only: bool,
     wm_decay: float,
     seed: int,
     num_trials: int,
@@ -215,7 +216,7 @@ def _simulate_decay(
     params.update(
         {
             "wm_decay": wm_decay,
-            "forget_rate": 1.0 if no_persistence else base_params["forget_rate"],
+            "wm_only": wm_only,
             "experiment": experiment_name,
             "seed": seed,
         }
@@ -239,7 +240,7 @@ def _simulate_decay(
 
     data = empty_simulation_data(detailed=True)
     key = jax.random.PRNGKey(seed)
-    rng = np.random.default_rng(seed + int(round(wm_decay * 1000)) + int(no_persistence) * 100_000)
+    rng = np.random.default_rng(seed + int(round(wm_decay * 1000)) + int(wm_only) * 100_000)
     exported = 0
 
     for trial_idx in range(num_trials):
@@ -278,9 +279,9 @@ def _simulate_decay(
     return exported
 
 
-def _decay_slug(no_persistence: bool, wm_decay: float) -> str:
+def _decay_slug(wm_only: bool, wm_decay: float) -> str:
     decay_text = f"{wm_decay:g}".replace(".", "p")
-    return f"no_persistence_{str(no_persistence).lower()}_decay{decay_text}"
+    return f"wm_only_{str(wm_only).lower()}_decay{decay_text}"
 
 
 def _read_viewer_index(index_path: Path) -> dict[str, Any]:
@@ -329,14 +330,14 @@ def main() -> None:
         shutil.rmtree(source_dir)
     source_dir.mkdir(parents=True)
 
-    for no_persistence in NO_PERSISTENCE_VALUES:
+    for wm_only in WM_ONLY_VALUES:
         for wm_decay in WM_DECAYS:
-            run_dir = source_dir / _decay_slug(no_persistence, wm_decay)
+            run_dir = source_dir / _decay_slug(wm_only, wm_decay)
             exported = _simulate_decay(
                 run_dir,
                 base_params=base_params,
                 experiment_name=args.name,
-                no_persistence=no_persistence,
+                wm_only=wm_only,
                 wm_decay=wm_decay,
                 seed=args.seed,
                 num_trials=args.num_trials,

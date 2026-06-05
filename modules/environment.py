@@ -85,6 +85,7 @@ class JaxDecisionTreeEnv:
         use_n_visits_obs: bool,
         use_is_terminal_obs: bool,
         use_time_elapsed_obs: bool,
+        wm_only: bool,
         activation_masks_actions: bool,
         activation_gates_backup_sink: bool,
         activation_gates_backup_source: bool,
@@ -97,6 +98,7 @@ class JaxDecisionTreeEnv:
         self.t_max = int(t_max)
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
+        self.wm_only = bool(wm_only)
         self.activation_masks_actions = bool(activation_masks_actions)
         self.activation_gates_backup_sink = bool(activation_gates_backup_sink)
         self.activation_gates_backup_source = bool(activation_gates_backup_source)
@@ -235,10 +237,18 @@ class JaxDecisionTreeEnv:
         return jax.lax.fori_loop(0, math.ceil(self.num_nodes / 2), body_fn, g_values)
 
     def _clear_inactive_memory(self, state: JaxDecisionTreeState):
+        active = state.activation > 0.0
+        if self.wm_only:
+            return state._replace(
+                q_values=jnp.where(active, state.q_values, 0.0),
+                n_visits=jnp.where(active, state.n_visits, 0),
+                fixation_recency=jnp.where(active, state.fixation_recency, 0.0),
+                is_terminal=state.is_terminal & active,
+            )
+
         if not self.activation_protects_memory:
             return state
 
-        active = state.activation > 0.0
         return state._replace(is_terminal=state.is_terminal & active)
 
     def _backup_target(self, state, node, params: JaxDecisionTreeParams):
@@ -282,7 +292,7 @@ class JaxDecisionTreeEnv:
             has_parent = parent >= 0
             has_budget = steps < params.backup_steps
             parent_active = safe_get(state.activation, parent, fill_value=0.0) > 0.0
-            activation_allows_backup = parent_active if self.activation_gates_backup_sink else True
+            activation_allows_backup = parent_active if self.wm_only or self.activation_gates_backup_sink else True
             return (
                 (weight > 1e-6)
                 & (current != state.root_node)
@@ -320,7 +330,7 @@ class JaxDecisionTreeEnv:
     ) -> JaxDecisionTreeState:
         state = self._update_fixation_memory(state, node, params)
         state = self._update_q(state, params)
-        if self.activation_protects_memory:
+        if self.activation_protects_memory and not self.wm_only:
             state = self._corrupt_memory(state, params)
         return state
 
@@ -347,7 +357,7 @@ class JaxDecisionTreeEnv:
         params: JaxDecisionTreeParams,
     ) -> JaxDecisionTreeState:
         state = self._update_fixation_memory(state, node, params)
-        if self.activation_protects_memory:
+        if self.activation_protects_memory and not self.wm_only:
             state = self._corrupt_memory(state, params)
         return state
 
@@ -412,7 +422,7 @@ class JaxDecisionTreeEnv:
     def _get_obs(self, state: JaxDecisionTreeState) -> DecisionTreeObs:
         observation_mask = self._get_observation_mask(state)
         known_mask = safe_get(state.n_visits > 0, state.parent_nodes, fill_value=True)
-        g_value_mask = known_mask & observation_mask
+        g_value_mask = observation_mask if self.wm_only else known_mask & observation_mask
 
         best_open_value = None
         if self.use_best_open_value_obs:

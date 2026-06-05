@@ -27,6 +27,5 @@ use_best_terminal_value_obs = true
 use_is_terminal_obs = true
 
 [[conditions]]
-label = "no_persistence"
-forget_rate = 1.0
-
+label = "wm_only"
+wm_only = true

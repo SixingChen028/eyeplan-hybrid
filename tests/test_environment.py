@@ -18,6 +18,7 @@ def _env(**overrides):
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
+        wm_only=bool(params["wm_only"]),
         activation_masks_actions=bool(params["activation_masks_actions"]),
         activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
         activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
@@ -332,6 +333,43 @@ def test_activation_protects_memory_allows_forgetting_inactive_node_memory():
     np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
 
 
+def test_wm_only_clears_inactive_node_memory_without_forget_rate():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+        wm_only=True,
+    )
+    params = _env_params(
+        env,
+        wm_decay=0.0,
+        wm_neighbor_activation=0.25,
+        q_decay=1.0,
+        q_drift=1.0,
+        forget_rate=0.0,
+    )
+    state = env._sample_initial_state(jax.random.PRNGKey(11))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(0, dtype=jnp.int32),
+        child_nodes=jnp.array(
+            [[1, 2], [3, 4], [5, 6], [-1, -1], [-1, -1], [-1, -1], [-1, -1]],
+            dtype=jnp.int32,
+        ),
+        parent_nodes=jnp.array([-1, 0, 0, 1, 1, 2, 2], dtype=jnp.int32),
+        q_values=jnp.arange(7, dtype=jnp.float32),
+        n_visits=jnp.ones((7,), dtype=jnp.int32),
+        fixation_recency=jnp.linspace(0.1, 0.7, 7, dtype=jnp.float32),
+        activation=jnp.ones((7,), dtype=jnp.float32),
+    )
+
+    state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params)
+
+    inactive_mask = np.asarray(state.activation) == 0.0
+    np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], 0.0, atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(state.n_visits)[inactive_mask], np.zeros(np.sum(inactive_mask)))
+    np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
+
+
 def test_activation_masks_observation_keeps_active_g_values():
     env = _env(
         num_nodes=7,
@@ -390,6 +428,34 @@ def test_activation_masked_best_value_observations_ignore_inactive_nodes():
     np.testing.assert_allclose(np.asarray(obs.best_terminal_value), np.array([6.0]), atol=1e-6)
     assert np.asarray(obs.is_terminal)[5] == 0.0
     assert np.asarray(obs.is_terminal)[6] == 1.0
+
+
+def test_wm_only_best_value_observations_use_active_nodes():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+        wm_only=True,
+    )
+    state = env._sample_initial_state(jax.random.PRNGKey(13))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(2, dtype=jnp.int32),
+        child_nodes=jnp.array(
+            [[1, 2], [3, 4], [5, 6], [-1, -1], [-1, -1], [-1, -1], [-1, -1]],
+            dtype=jnp.int32,
+        ),
+        parent_nodes=jnp.array([-1, 0, 0, 1, 1, 2, 2], dtype=jnp.int32),
+        points=jnp.zeros((7,), dtype=jnp.float32),
+        g_values=jnp.array([0.0, 1.0, 2.0, 100.0, 5.0, 80.0, 6.0], dtype=jnp.float32),
+        n_visits=jnp.array([1, 0, 1, 0, 0, 0, 1], dtype=jnp.int32),
+        activation=jnp.array([1.0, 0.0, 1.0, 1.0, 0.0, 0.25, 1.0], dtype=jnp.float32),
+        is_terminal=jnp.array([False, False, False, False, False, False, True], dtype=jnp.bool_),
+    )
+
+    obs = env._get_obs(state)
+
+    np.testing.assert_allclose(np.asarray(obs.best_open_value), np.array([100.0]), atol=1e-6)
+    np.testing.assert_allclose(np.asarray(obs.best_terminal_value), np.array([6.0]), atol=1e-6)
 
 
 def test_terminal_memory_clears_inactive_nodes_by_default():
@@ -1203,6 +1269,42 @@ def test_backup_sink_flag_controls_whether_inactive_parents_update():
         )
         updated = env._update_q(state, params=params)
         np.testing.assert_allclose(float(updated.q_values[0]), expected_root, atol=1e-6)
+
+
+def test_wm_only_backup_stops_at_inactive_parent_even_when_sink_gate_is_disabled():
+    child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
+    parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
+    points = jnp.array([0.0, 5.0, 0.0], dtype=jnp.float32)
+    activation = jnp.array([0.0, 1.0, 0.0], dtype=jnp.float32)
+    env = _env(
+        num_nodes=3,
+        shuffle_nodes=False,
+        wm_only=True,
+        activation_gates_backup_sink=False,
+        activation_gates_backup_source=False,
+    )
+    params = _env_params(
+        env,
+        beta_move=0.0,
+        eps_move=0.0,
+        learning_rate=1.0,
+        lamda_backup=1.0,
+        backup_steps=1,
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(0), params)
+    state = state._replace(
+        q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),
+        child_nodes=child_nodes,
+        parent_nodes=parent_nodes,
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(1, dtype=jnp.int32),
+        points=points,
+        activation=activation,
+    )
+
+    updated = env._update_q(state, params=params)
+
+    np.testing.assert_allclose(float(updated.q_values[0]), 0.0, atol=1e-6)
 
 
 def test_backup_source_variants_agree_when_both_children_are_active():
