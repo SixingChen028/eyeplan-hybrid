@@ -1,0 +1,60 @@
+[meta]
+array_vars = "ALL"
+
+[sbatch]
+time = "1:00:00"
+mem_per_cpu = "2000M"
+gpu = false
+
+[params]
+backup_mode = "wm_partial"
+cost = 0.005
+seed = [1, 2, 3]
+beta_e_final = 0.01
+
+
+# everything
+use_q_values_obs = true
+use_n_visits_obs = true
+use_g_values_obs = true
+use_time_elapsed_obs = true
+use_recency_obs = true
+use_best_open_value_obs = true
+use_best_terminal_value_obs = true
+use_is_terminal_obs = true
+
+# main model: WM gates actions, backup, and terminal memory
+[[conditions]]
+label = "main"
+wm_decay = 0.5
+
+# unbounded: activation never decays, so nothing ever leaves WM
+[[conditions]]
+label = "unbounded"
+wm_decay = 1.0
+backup_mode = "full"  # should be equivalent to wm_partial
+
+# unbounded memory, but actions still masked to the active WM set
+# (full backup + persistent terminal => activation's only effect is the action mask)
+[[conditions]]
+label = "unbounded_masking"
+wm_decay = 0.5
+backup_mode = "full"
+persist_terminal = true
+
+# WM-only: inactive nodes retain no node-specific information
+[[conditions]]
+label = "no_persistence"
+wm_decay = 0.5
+wm_only = true
+
+# no WM: activation collapses to the current fixation neighborhood each step
+[[conditions]]
+label = "no_wm"
+wm_decay = 0.0
+
+# no memory at all... tough
+[[conditions]]
+label = "no_memory"
+wm_decay = 0.0
+wm_only = true
