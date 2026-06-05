@@ -29,6 +29,11 @@ Note that WM stands for working memory (e.g. `wm_decay`).
 - Top-level scripts such as `train.py`, `simulate.py`, `plot_training.py`, and
   `generate_sbatch.py` are command-line entry points.
 
+## Rules
+
+- Do not edit files under `config/` unless instructed to. If edits might be
+  necessary, offer it as a suggestion.
+
 ## Running code
 
 Use .venv/bin/python if available. Next, try /Users/fred/.venvs/default/bin/python3.
