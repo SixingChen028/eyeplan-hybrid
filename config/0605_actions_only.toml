@@ -1,0 +1,17 @@
+[sbatch]
+gpu = true
+
+[params]
+cost = 0.005
+seed = [1, 2, 3]
+beta_e_final = 0.01
+
+# actions-only: activation only gates legal fixation actions
+[[conditions]]
+label = "actions_only"
+wm_decay = 0.5
+activation_masks_actions = true
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+activation_protects_memory = false
+activation_masks_observation = false
