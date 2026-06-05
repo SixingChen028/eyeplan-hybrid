@@ -8,7 +8,7 @@ Status: Proposed
 
 Working-memory activation currently controls several conceptually distinct mechanisms in the decision-tree cognitive architecture. Some of these mechanisms are bundled behind broad modes such as `backup_mode` and `wm_only`. This makes comparison models difficult to interpret because a named condition can change more than one activation touch point at a time.
 
-The recent `unbounded_masking` comparison exposed this problem. In the environment, the intended manipulation was close to "activation only changes action availability." With the `node_shared` architecture, however, the action mask is also a network input. The condition therefore changed both legal actions and the policy/value representation.
+The recent `unbounded_masking` comparison exposed this problem. In the environment, the intended manipulation was close to "activation only changes action availability." With the `node_shared` architecture, however, the action mask is also a network input. The condition therefore changed both legal actions and the policy/value information available to the model.
 
 We want future ablations to be defined by explicit, mostly binary switches over the places where activation matters.
 
@@ -20,7 +20,9 @@ Replace bundled activation modes with explicit activation touch-point parameters
 - `activation_gates_backup_sink`: activation determines whether an ancestor can receive a backup update.
 - `activation_gates_backup_source`: activation determines whether child values are available when computing backup targets.
 - `activation_protects_memory`: activation protects node-specific memory from corruption, forgetting, and terminal-flag clearing.
-- `activation_masks_network_input`: activation-derived legality is exposed to the `node_shared` network as a feature and pooling mask.
+- `activation_masks_observation`: activation determines which node-specific information is available to the policy/value model.
+
+`activation_masks_observation` is implemented differently by different network architectures, but represents one cognitive mechanism. For flat observations, inactive node fields should be masked in the observation itself. For `node_shared`, inactive nodes can be excluded from shared pooling and may receive an explicit mask feature; this is the architecture's way of ignoring unavailable information rather than consuming zero-filled placeholders.
 
 Use `excluded_child_value` to refine backup-source gating. The default is `None`; TOML configs should represent this default by omitting the field unless the implementation later introduces an explicit string sentinel.
 
@@ -68,9 +70,11 @@ For the first migration, assume `wm_only = false` and factor the five touch poin
 
 ## Relationship to network architecture
 
-`activation_masks_actions` and `activation_masks_network_input` must remain separate. For `node_shared`, the activation-derived action mask is consumed as `legal_feature`, `legal_mean`, and `legal_max`, so it changes the policy/value input representation. For a clean "action availability only" ablation, legal-action masking should be separable from the mask passed into the network.
+`activation_masks_actions` and `activation_masks_observation` must remain separate. For a clean "action availability only" ablation, legal-action masking should not also hide information from the policy/value model.
 
-The MLP architecture is currently disabled until information masking is addressed, because it receives flattened observations for all emitted nodes and ignores the action mask as a representation input.
+For `node_shared`, observation masking can be implemented by passing an observation mask to the network and using it for `legal_feature`, `legal_mean`, and `legal_max`. Under this interpretation, the shared-network mask is not a sixth touch point. It is the architecture-specific implementation of observation availability.
+
+The MLP architecture is currently disabled until information masking is addressed, because it receives flattened observations for all emitted nodes. Once masked observations are defined as an environment contract, MLP can be reconsidered because it would receive the same information content as `node_shared`.
 
 ## Consequences
 
@@ -83,7 +87,7 @@ activation_masks_actions = true
 activation_gates_backup_sink = true
 activation_gates_backup_source = true
 activation_protects_memory = true
-activation_masks_network_input = true
+activation_masks_observation = true
 # excluded_child_value omitted: default None
 ```
 
@@ -94,7 +98,7 @@ activation_masks_actions = false
 activation_gates_backup_sink = false
 activation_gates_backup_source = false
 activation_protects_memory = false
-activation_masks_network_input = false
+activation_masks_observation = false
 ```
 
 An "actions only" ablation is explicit:
@@ -104,13 +108,13 @@ activation_masks_actions = true
 activation_gates_backup_sink = false
 activation_gates_backup_source = false
 activation_protects_memory = false
-activation_masks_network_input = false
+activation_masks_observation = false
 ```
 
 ## Non-goals
 
 This ADR does not implement the migration.
 
-This ADR does not decide whether activation should be exposed as a direct observation feature. The current issue is that the action mask is implicitly reused as a network representation mask.
+This ADR does not decide whether activation should be exposed as a direct observation feature separate from masking. The current issue is that the action mask is implicitly reused as an information-availability mask.
 
 This ADR does not introduce edge-binding activation or other non-node working-memory objects.
