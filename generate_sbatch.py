@@ -59,10 +59,12 @@ def _as_dict(value, name: str, default: dict | None = None) -> dict:
 
 
 def _is_scalar(value) -> bool:
-    return isinstance(value, (bool, int, float, str))
+    return value is None or isinstance(value, (bool, int, float, str))
 
 
 def _to_shell_scalar(value) -> str:
+    if value is None:
+        return "none"
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):

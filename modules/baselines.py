@@ -425,7 +425,12 @@ def evaluate_network_greedy(
         moved = False
 
         while (not done) and (steps < env.t_max):
-            logits, _ = forward_fn(params, _batch_obs(obs), info["mask"][None, :])
+            logits, _ = forward_fn(
+                params,
+                _batch_obs(obs),
+                info["mask"][None, :],
+                info["observation_mask"][None, :],
+            )
             masked_logits = apply_action_mask(logits[0], info["mask"])
             action = int(jnp.argmax(masked_logits))
 

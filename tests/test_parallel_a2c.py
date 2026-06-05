@@ -33,8 +33,12 @@ def _env(**overrides):
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
-        wm_only=bool(params["wm_only"]),
-        persist_terminal=bool(params["persist_terminal"]),
+        activation_masks_actions=bool(params["activation_masks_actions"]),
+        activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
+        activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
+        activation_protects_memory=bool(params["activation_protects_memory"]),
+        activation_masks_observation=bool(params["activation_masks_observation"]),
+        excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
@@ -43,7 +47,6 @@ def _env(**overrides):
         use_n_visits_obs=bool(params["use_n_visits_obs"]),
         use_is_terminal_obs=bool(params["use_is_terminal_obs"]),
         use_time_elapsed_obs=bool(params["use_time_elapsed_obs"]),
-        backup_mode=str(params["backup_mode"]),
         point_set=params["point_set"],
     )
 
@@ -459,7 +462,12 @@ env = JaxDecisionTreeEnv(
     use_n_visits_obs=True,
     use_is_terminal_obs=True,
     use_time_elapsed_obs=True,
-    backup_mode="full",
+    activation_masks_actions=True,
+    activation_gates_backup_sink=False,
+    activation_gates_backup_source=False,
+    activation_protects_memory=True,
+    activation_masks_observation=True,
+    excluded_child_value=None,
     point_set=(-8, -4, -2, -1, 1, 2, 4, 8),
 )
 trainer = JaxBatchMaskA2C(
@@ -521,22 +529,13 @@ def test_expand_sweep_rejects_shape_changing_arrays():
     assert False, "shape-changing arrays should be rejected"
 
 
-def test_expand_sweep_rejects_backup_mode_arrays():
+def test_expand_sweep_rejects_activation_touch_point_arrays():
     try:
-        expand_sweep(_small_params(backup_mode=["full", "wm_zero"]))
+        expand_sweep(_small_params(activation_gates_backup_source=[True, False]))
     except ValueError as error:
         assert "changes compiled shapes" in str(error)
         return
-    assert False, "backup_mode arrays should be rejected"
-
-
-def test_expand_sweep_rejects_invalid_backup_mode():
-    try:
-        expand_sweep(_small_params(backup_mode="invalid"))
-    except ValueError as error:
-        assert "backup_mode must be one of" in str(error)
-        return
-    assert False, "invalid backup_mode should be rejected"
+    assert False, "activation touch-point arrays should be rejected"
 
 
 def test_expand_sweep_rejects_unknown_params():

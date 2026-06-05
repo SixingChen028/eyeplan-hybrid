@@ -5,12 +5,6 @@ from typing import NamedTuple
 
 from modules.tree_generation import build_tree_templates
 
-BACKUP_MODES = ("full", "wm_both", "wm_zero", "wm_partial")
-BACKUP_MODE_FULL = "full"
-BACKUP_MODE_WM_BOTH = "wm_both"
-BACKUP_MODE_WM_ZERO = "wm_zero"
-BACKUP_MODE_WM_PARTIAL = "wm_partial"
-
 
 def safe_get(arr: jax.Array, idx: jax.Array, *, fill_value) -> jax.Array:
     return arr.at[idx].get(
@@ -91,17 +85,24 @@ class JaxDecisionTreeEnv:
         use_n_visits_obs: bool,
         use_is_terminal_obs: bool,
         use_time_elapsed_obs: bool,
-        backup_mode: str,
+        activation_masks_actions: bool,
+        activation_gates_backup_sink: bool,
+        activation_gates_backup_source: bool,
+        activation_protects_memory: bool,
+        activation_masks_observation: bool,
+        excluded_child_value: float | None,
         point_set: tuple,
-        wm_only: bool = False,
-        persist_terminal: bool = False,
     ):
         self.num_nodes = int(num_nodes)
         self.t_max = int(t_max)
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
-        self.wm_only = bool(wm_only)
-        self.persist_terminal = bool(persist_terminal)
+        self.activation_masks_actions = bool(activation_masks_actions)
+        self.activation_gates_backup_sink = bool(activation_gates_backup_sink)
+        self.activation_gates_backup_source = bool(activation_gates_backup_source)
+        self.activation_protects_memory = bool(activation_protects_memory)
+        self.activation_masks_observation = bool(activation_masks_observation)
+        self.excluded_child_value = None if excluded_child_value is None else float(excluded_child_value)
         self.use_recency_obs = bool(use_recency_obs)
         self.use_best_open_value_obs = bool(use_best_open_value_obs)
         self.use_best_terminal_value_obs = bool(use_best_terminal_value_obs)
@@ -110,9 +111,6 @@ class JaxDecisionTreeEnv:
         self.use_n_visits_obs = bool(use_n_visits_obs)
         self.use_is_terminal_obs = bool(use_is_terminal_obs)
         self.use_time_elapsed_obs = bool(use_time_elapsed_obs)
-        if backup_mode not in BACKUP_MODES:
-            raise ValueError(f"backup_mode must be one of {BACKUP_MODES}.")
-        self.backup_mode = backup_mode
 
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
         self.empty_path = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
@@ -237,30 +235,20 @@ class JaxDecisionTreeEnv:
         return jax.lax.fori_loop(0, math.ceil(self.num_nodes / 2), body_fn, g_values)
 
     def _clear_inactive_memory(self, state: JaxDecisionTreeState):
+        if not self.activation_protects_memory:
+            return state
+
         active = state.activation > 0.0
-        if self.wm_only:
-            return state._replace(
-                q_values=jnp.where(active, state.q_values, 0.0),
-                n_visits=jnp.where(active, state.n_visits, 0),
-                fixation_recency=jnp.where(active, state.fixation_recency, 0.0),
-                is_terminal=state.is_terminal & active,
-            )
-
-        # Terminality is normally working-memory dependent, but can be made persistent for ablations.
-        if not self.persist_terminal:
-            state = state._replace(is_terminal=state.is_terminal & active)
-
-        return state
+        return state._replace(is_terminal=state.is_terminal & active)
 
     def _backup_target(self, state, node, params: JaxDecisionTreeParams):
         children = state.child_nodes[node]
         child_q = safe_get(state.q_values, children, fill_value=0.0)
         child_active = safe_get(state.activation, children, fill_value=0.0) > 0.0
 
-        if self.backup_mode == BACKUP_MODE_WM_ZERO:
-            child_q = jnp.where(child_active, child_q, 0.0)
+        if not self.activation_gates_backup_source:
             probs = self._softmax(child_q, params)
-        elif self.backup_mode == BACKUP_MODE_WM_PARTIAL:
+        elif self.excluded_child_value is None:
             active = child_active.astype(jnp.float32)
             active_count = jnp.sum(active)
             max_q = jnp.max(jnp.where(child_active, child_q, -jnp.inf))
@@ -273,10 +261,9 @@ class JaxDecisionTreeEnv:
                 (1.0 - params.eps_move) * softmax_probs + params.eps_move * random_probs,
                 0.0,
             )
-        elif self.backup_mode in {BACKUP_MODE_FULL, BACKUP_MODE_WM_BOTH}:
-            probs = self._softmax(child_q, params)
         else:
-            raise AssertionError(f"Unexpected backup_mode: {self.backup_mode}")
+            child_q = jnp.where(child_active, child_q, self.excluded_child_value)
+            probs = self._softmax(child_q, params)
 
         return state.points[node] + jnp.sum(probs * child_q)
 
@@ -295,9 +282,14 @@ class JaxDecisionTreeEnv:
             has_parent = parent >= 0
             has_budget = steps < params.backup_steps
             parent_active = safe_get(state.activation, parent, fill_value=0.0) > 0.0
-            full_backup = (self.backup_mode == BACKUP_MODE_FULL) & (not self.wm_only)
-            wm_allows_backup = full_backup | parent_active
-            return (weight > 1e-6) & (current != state.root_node) & has_parent & has_budget & wm_allows_backup
+            activation_allows_backup = parent_active if self.activation_gates_backup_sink else True
+            return (
+                (weight > 1e-6)
+                & (current != state.root_node)
+                & has_parent
+                & has_budget
+                & activation_allows_backup
+            )
 
         def body_fn(carry):
             current, weight, steps, q_values = carry
@@ -328,7 +320,7 @@ class JaxDecisionTreeEnv:
     ) -> JaxDecisionTreeState:
         state = self._update_fixation_memory(state, node, params)
         state = self._update_q(state, params)
-        if not self.wm_only:
+        if self.activation_protects_memory:
             state = self._corrupt_memory(state, params)
         return state
 
@@ -355,7 +347,7 @@ class JaxDecisionTreeEnv:
         params: JaxDecisionTreeParams,
     ) -> JaxDecisionTreeState:
         state = self._update_fixation_memory(state, node, params)
-        if not self.wm_only:
+        if self.activation_protects_memory:
             state = self._corrupt_memory(state, params)
         return state
 
@@ -418,9 +410,9 @@ class JaxDecisionTreeEnv:
         )
 
     def _get_obs(self, state: JaxDecisionTreeState) -> DecisionTreeObs:
-        active_mask = state.activation > 0.0
+        observation_mask = self._get_observation_mask(state)
         known_mask = safe_get(state.n_visits > 0, state.parent_nodes, fill_value=True)
-        g_value_mask = active_mask if self.wm_only else known_mask
+        g_value_mask = known_mask & observation_mask
 
         best_open_value = None
         if self.use_best_open_value_obs:
@@ -432,7 +424,8 @@ class JaxDecisionTreeEnv:
         best_terminal_value = None
         if self.use_best_terminal_value_obs:
             total_values = state.g_values + state.points
-            best_terminal_obs = jnp.max(jnp.where(state.is_terminal, total_values, self.min_path_value))
+            terminal_mask = state.is_terminal & observation_mask
+            best_terminal_obs = jnp.max(jnp.where(terminal_mask, total_values, self.min_path_value))
             best_terminal_value = jnp.array([best_terminal_obs], dtype=jnp.float32)
 
         child1, child2 = state.child_nodes[state.fixation_node]
@@ -447,12 +440,28 @@ class JaxDecisionTreeEnv:
                 if self.use_g_values_obs
                 else None
             ),
-            q_values=state.q_values if self.use_q_values_obs else None,
-            n_visits=state.n_visits.astype(jnp.float32) if self.use_n_visits_obs else None,
-            is_terminal=state.is_terminal.astype(jnp.float32) if self.use_is_terminal_obs else None,
+            q_values=(
+                jnp.where(observation_mask, state.q_values, 0.0)
+                if self.use_q_values_obs
+                else None
+            ),
+            n_visits=(
+                jnp.where(observation_mask, state.n_visits, 0).astype(jnp.float32)
+                if self.use_n_visits_obs
+                else None
+            ),
+            is_terminal=(
+                (state.is_terminal & observation_mask).astype(jnp.float32)
+                if self.use_is_terminal_obs
+                else None
+            ),
             best_open_value=best_open_value,
             best_terminal_value=best_terminal_value,
-            recency=state.fixation_recency if self.use_recency_obs else None,
+            recency=(
+                jnp.where(observation_mask, state.fixation_recency, 0.0)
+                if self.use_recency_obs
+                else None
+            ),
             time_elapsed=(
                 jnp.array([state.time_elapsed], dtype=jnp.float32)
                 if self.use_time_elapsed_obs
@@ -460,11 +469,25 @@ class JaxDecisionTreeEnv:
             ),
         )
 
+    def _get_observation_mask(self, state: JaxDecisionTreeState) -> jax.Array:
+        if self.activation_masks_observation:
+            return state.activation > 0.0
+        return jnp.ones((self.num_nodes,), dtype=jnp.bool_)
+
     def _get_action_mask(self, state: JaxDecisionTreeState) -> jax.Array:
         fixation_allowed = state.time_elapsed != (self.t_max - 1)
-        node_mask = (state.activation > 0) & fixation_allowed
+        if self.activation_masks_actions:
+            node_mask = (state.activation > 0) & fixation_allowed
+        else:
+            node_mask = jnp.full((self.num_nodes,), fixation_allowed, dtype=jnp.bool_)
         term_mask = jnp.array([True], dtype=jnp.bool_)
         return jnp.concatenate([node_mask, term_mask], axis=0)
+
+    def _get_info(self, state: JaxDecisionTreeState) -> dict[str, jax.Array]:
+        return {
+            "mask": self._get_action_mask(state),
+            "observation_mask": self._get_observation_mask(state),
+        }
 
     def _sample_move_path(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
         path = self.empty_path
@@ -539,7 +562,7 @@ class JaxDecisionTreeEnv:
         state = self._sample_initial_state(key)
         state = self._look(state, state.root_node, params)
         obs = self._get_obs(state)
-        info = {"mask": self._get_action_mask(state)}
+        info = self._get_info(state)
         return state, obs, info
 
     def step(self, state: JaxDecisionTreeState, action: jax.Array, params: JaxDecisionTreeParams):
@@ -565,7 +588,7 @@ class JaxDecisionTreeEnv:
         done = (action == self.num_nodes) | (state.time_elapsed == self.t_max)
         obs = self._get_obs(state)
         info = {
-            "mask": self._get_action_mask(state),
+            **self._get_info(state),
             "choice_path": choice_path,
             "move_reward": jnp.where(action == self.num_nodes, reward, 0.0),
         }

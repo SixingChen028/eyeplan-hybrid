@@ -1,7 +1,6 @@
 [meta]
 
 [params]
-backup_mode = "wm_partial"
 wm_decay = [0, 0.5, 1]
 cost = [0.005, 0.01, 0.02]
 seed = [1,2]

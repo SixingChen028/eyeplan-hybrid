@@ -47,7 +47,12 @@ def test_num_nodes_9_sampling_matches_explicit_probabilities():
         use_n_visits_obs=True,
         use_is_terminal_obs=True,
         use_time_elapsed_obs=True,
-        backup_mode="full",
+        activation_masks_actions=True,
+        activation_gates_backup_sink=False,
+        activation_gates_backup_source=False,
+        activation_protects_memory=True,
+        activation_masks_observation=True,
+        excluded_child_value=None,
         point_set=(-8, -4, -2, -1, 1, 2, 4, 8),
     )
 

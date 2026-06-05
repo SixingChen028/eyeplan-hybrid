@@ -2,7 +2,6 @@
 gpu = true
 
 [params]
-backup_mode = "wm_partial"
 cost = 0.005
 seed = [1, 2, 3]
 beta_e_final = 0.01
@@ -18,10 +17,11 @@ use_best_open_value_obs = true
 use_best_terminal_value_obs = true
 use_is_terminal_obs = true
 
-# unbounded memory, but actions still masked to the active WM set
-# (full backup + persistent terminal => activation's only effect is the action mask)
+# actions-only: activation only gates legal fixation actions
 [[conditions]]
-label = "unbounded_masking"
+label = "actions_only"
 wm_decay = 0.5
-backup_mode = "full"
-persist_terminal = true
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+activation_protects_memory = false
+activation_masks_observation = false

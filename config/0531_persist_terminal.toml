@@ -28,8 +28,8 @@ use_is_terminal_obs = true
 
 [[conditions]]
 label = "wm_terminal"
-persist_terminal = false
+activation_protects_memory = true
 
 [[conditions]]
-label = "persist_terminal"
-persist_terminal = true
+label = "unprotected_memory"
+activation_protects_memory = false

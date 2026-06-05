@@ -1,7 +1,6 @@
 [meta]
 
 [environment]
-backup_mode = ["full", "wm_both", "wm_zero", "wm_partial"]
 wm_decay = [0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 1.0]
 wm_neighbor_activation = [0.25, 0.5, 1.0]
 cost = 0.01
@@ -16,6 +15,27 @@ num_updates = 30_000
 [network]
 network_type = "node_shared"
 hidden_size = 64
+
+[[conditions]]
+label = "full"
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+
+[[conditions]]
+label = "wm_both"
+activation_gates_backup_sink = true
+activation_gates_backup_source = false
+
+[[conditions]]
+label = "wm_zero"
+activation_gates_backup_sink = true
+activation_gates_backup_source = true
+excluded_child_value = 0.0
+
+[[conditions]]
+label = "wm_partial"
+activation_gates_backup_sink = true
+activation_gates_backup_source = true
 
 [sbatch]
 time = "2:00:00"

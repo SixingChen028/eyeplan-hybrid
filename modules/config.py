@@ -4,7 +4,6 @@ import itertools
 import tomllib
 from pathlib import Path
 
-BACKUP_MODES = ("full", "wm_both", "wm_zero", "wm_partial")
 PARAM_CLASSES = ("environment", "training", "network", "meta")
 PARAM_RUNTIME_CLASSES = ("environment", "training", "network")
 
@@ -18,10 +17,18 @@ PARAM_DEFAULTS = {
         "scale_factor": 0.125,
         # Whether to randomly permute node labels for each generated tree.
         "shuffle_nodes": True,
-        # Whether inactive nodes retain no node-specific information.
-        "wm_only": False,
-        # Whether seen-terminal indicators persist after a terminal node leaves working memory.
-        "persist_terminal": False,
+        # Whether activation determines which fixation actions are legal.
+        "activation_masks_actions": True,
+        # Whether activation determines whether an ancestor can receive a backup update.
+        "activation_gates_backup_sink": True,
+        # Whether activation determines whether child values are available for backup targets.
+        "activation_gates_backup_source": True,
+        # Whether activation protects node-specific memory from corruption and forgetting.
+        "activation_protects_memory": True,
+        # Whether activation determines which node-specific information is observable.
+        "activation_masks_observation": True,
+        # Value substituted for inactive child values when backup-source gating keeps full child support.
+        "excluded_child_value": None,
         # Whether observations include per-node fixation recency values.
         "use_recency_obs": True,
         # Whether observations include best-open-path scalar value.
@@ -38,8 +45,6 @@ PARAM_DEFAULTS = {
         "use_is_terminal_obs": True,
         # Whether observations include elapsed time.
         "use_time_elapsed_obs": True,
-        # Policy backup mode for ancestor value updates.
-        "backup_mode": "wm_partial",
         # Inverse temperature for softmax move probabilities in environment dynamics.
         "beta_move": 40.0,
         # Uniform random-move mixture rate in environment dynamics.
@@ -256,14 +261,6 @@ def normalize_config(config: dict) -> dict:
         for param_class in PARAM_RUNTIME_CLASSES
         for key, value in normalized[param_class].items()
     }
-    reject_unresolved_network_type(params.get("network_type"))
-    for condition_idx, condition in enumerate(conditions):
-        if "network_type" in condition:
-            reject_unresolved_network_type(
-                condition["network_type"],
-                name=f"conditions[{condition_idx}].network_type",
-            )
-
     return {
         **normalized,
         "meta": meta,
@@ -290,7 +287,7 @@ def is_list(value) -> bool:
 
 
 def is_scalar(value) -> bool:
-    return isinstance(value, (bool, int, float, str))
+    return value is None or isinstance(value, (bool, int, float, str))
 
 
 def normalize_conditions(raw_conditions) -> list[dict]:
@@ -341,25 +338,10 @@ def parse_unit_interval(value, *, name: str) -> float:
     return value
 
 
-def validate_backup_mode(value, *, name: str = "backup_mode") -> None:
-    if value not in BACKUP_MODES:
-        raise ValueError(f"{name} must be one of {BACKUP_MODES}.")
-
-
-def reject_unresolved_network_type(value, *, name: str = "network_type") -> None:
-    values = value if isinstance(value, list) else [value]
-    if "mlp" in values:
-        raise NotImplementedError(
-            f"{name}='mlp' is disabled: address information masking before using the MLP architecture again."
-        )
-
-
 def validate_params(params: dict) -> None:
     unknown_keys = sorted(set(params) - set(DEFAULT_PARAMS))
     if unknown_keys:
         raise ValueError("Unknown [params] keys: " + ", ".join(unknown_keys))
-
-    reject_unresolved_network_type(params.get("network_type"))
 
     for key, value in params.items():
         if not is_list(value):
@@ -386,7 +368,11 @@ def validate_params(params: dict) -> None:
         if parsed == 0.0:
             raise ValueError("wm_neighbor_activation numeric values must satisfy 0 < wm_neighbor_activation <= 1.")
 
-    validate_backup_mode(params.get("backup_mode"), name="backup_mode")
+    value = params.get("excluded_child_value")
+    values = value if is_list(value) else [value]
+    for item in values:
+        if item is not None and not isinstance(item, (int, float)):
+            raise ValueError("excluded_child_value must be numeric or omitted.")
 
 
 def expand_sweep(params: dict) -> tuple[dict, list[dict], list[str]]:
@@ -464,6 +450,11 @@ def resolve_training_geometry(params: dict) -> tuple[int, int, int]:
 
 
 def _parse_cli_scalar(raw: str, template_value):
+    if template_value is None:
+        lowered = raw.strip().lower()
+        if lowered in {"none", "null"}:
+            return None
+        return float(raw)
     if isinstance(template_value, bool):
         lowered = raw.strip().lower()
         if lowered in {"1", "true", "t", "yes", "y", "on"}:

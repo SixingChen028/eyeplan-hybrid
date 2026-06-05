@@ -90,6 +90,7 @@ class JaxSimulator:
         env_params = self.env_params
         state, obs, info = self.env.reset(rng_key, env_params)
         action_mask = info["mask"]
+        observation_mask = info["observation_mask"]
 
         action_seq = -jnp.ones((self.env.t_max,), dtype=jnp.int32)
         activation_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
@@ -104,6 +105,7 @@ class JaxSimulator:
             state,
             obs,
             action_mask,
+            observation_mask,
             action_seq,
             activation_seq,
             count_seq,
@@ -119,7 +121,7 @@ class JaxSimulator:
         )
 
         def cond_fn(carry):
-            _, _, _, _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
+            _, _, _, _, _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
@@ -127,6 +129,7 @@ class JaxSimulator:
                 state,
                 obs,
                 action_mask,
+                observation_mask,
                 action_seq,
                 activation_seq,
                 count_seq,
@@ -147,7 +150,12 @@ class JaxSimulator:
             q_seq = q_seq.at[step_count].set(state.q_values)
             fixation_recency_seq = fixation_recency_seq.at[step_count].set(state.fixation_recency)
             is_terminal_seq = is_terminal_seq.at[step_count].set(state.is_terminal)
-            logits, _ = actor_critic_forward(params, _batch_obs(obs), action_mask[None, :])
+            logits, _ = actor_critic_forward(
+                params,
+                _batch_obs(obs),
+                action_mask[None, :],
+                observation_mask[None, :],
+            )
             logits = logits[0]
             logits_seq = logits_seq.at[step_count].set(logits)
 
@@ -167,6 +175,7 @@ class JaxSimulator:
             raw_action = action
             state, obs, _, done, info = self.env.step(state, action, env_params)
             action_mask = info["mask"]
+            observation_mask = info["observation_mask"]
             choice_path = jnp.where(raw_action == self.env.num_nodes, info["choice_path"], choice_path)
             action_seq = action_seq.at[step_count].set(raw_action)
             step_count = step_count + 1
@@ -175,6 +184,7 @@ class JaxSimulator:
                 state,
                 obs,
                 action_mask,
+                observation_mask,
                 action_seq,
                 activation_seq,
                 count_seq,
@@ -191,6 +201,7 @@ class JaxSimulator:
 
         (
             state,
+            _,
             _,
             _,
             action_seq,
@@ -226,11 +237,13 @@ class JaxSimulator:
         env_params = self.env_params
         state, obs, info = self.env.reset(rng_key, env_params)
         action_mask = info["mask"]
+        observation_mask = info["observation_mask"]
 
         carry = (
             state,
             obs,
             action_mask,
+            observation_mask,
             jnp.array(0, dtype=jnp.int32),
             jnp.array(0.0, dtype=jnp.float32),
             jnp.array(0.0, dtype=jnp.float32),
@@ -240,13 +253,29 @@ class JaxSimulator:
         )
 
         def cond_fn(carry):
-            _, _, _, step_count, _, _, _, done, _ = carry
+            _, _, _, _, step_count, _, _, _, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
-            state, obs, action_mask, step_count, episode_reward, no_cost_reward, moved, _, rng_key = carry
+            (
+                state,
+                obs,
+                action_mask,
+                observation_mask,
+                step_count,
+                episode_reward,
+                no_cost_reward,
+                moved,
+                _,
+                rng_key,
+            ) = carry
 
-            logits, _ = actor_critic_forward(params, _batch_obs(obs), action_mask[None, :])
+            logits, _ = actor_critic_forward(
+                params,
+                _batch_obs(obs),
+                action_mask[None, :],
+                observation_mask[None, :],
+            )
             logits = logits[0]
 
             def greedy_action(_):
@@ -267,14 +296,26 @@ class JaxSimulator:
 
             state, obs, reward, done, info = self.env.step(state, action, env_params)
             action_mask = info["mask"]
+            observation_mask = info["observation_mask"]
             step_count = step_count + 1
             episode_reward = episode_reward + reward
             moved = action == self.env.num_nodes
             no_cost_reward = jnp.where(moved, reward, no_cost_reward)
 
-            return state, obs, action_mask, step_count, episode_reward, no_cost_reward, moved, done, rng_key
+            return (
+                state,
+                obs,
+                action_mask,
+                observation_mask,
+                step_count,
+                episode_reward,
+                no_cost_reward,
+                moved,
+                done,
+                rng_key,
+            )
 
-        state, _, _, step_count, episode_reward, no_cost_reward, _, _, rng_key = jax.lax.while_loop(
+        state, _, _, _, step_count, episode_reward, no_cost_reward, _, _, rng_key = jax.lax.while_loop(
             cond_fn,
             body_fn,
             carry,

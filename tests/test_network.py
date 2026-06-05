@@ -23,8 +23,12 @@ def _env(**overrides):
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
-        wm_only=bool(params["wm_only"]),
-        persist_terminal=bool(params["persist_terminal"]),
+        activation_masks_actions=bool(params["activation_masks_actions"]),
+        activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
+        activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
+        activation_protects_memory=bool(params["activation_protects_memory"]),
+        activation_masks_observation=bool(params["activation_masks_observation"]),
+        excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
@@ -33,7 +37,6 @@ def _env(**overrides):
         use_n_visits_obs=bool(params["use_n_visits_obs"]),
         use_is_terminal_obs=bool(params["use_is_terminal_obs"]),
         use_time_elapsed_obs=bool(params["use_time_elapsed_obs"]),
-        backup_mode=str(params["backup_mode"]),
         point_set=params["point_set"],
     )
 
@@ -72,7 +75,12 @@ def test_mlp_forward_shape_is_unchanged():
         hidden_size=16,
     )
 
-    logits, values = actor_critic_forward(params, _batch_obs(obs), info["mask"][None, :])
+    logits, values = actor_critic_forward(
+        params,
+        _batch_obs(obs),
+        info["mask"][None, :],
+        info["observation_mask"][None, :],
+    )
 
     assert logits.shape == (1, env.action_size)
     assert values.shape == (1,)
@@ -103,7 +111,12 @@ def test_node_shared_forward_shape_with_optional_features():
                 network_type=NETWORK_NODE_SHARED,
             )
 
-            logits, values = actor_critic_forward(params, _batch_obs(obs), info["mask"][None, :])
+            logits, values = actor_critic_forward(
+                params,
+                _batch_obs(obs),
+                info["mask"][None, :],
+                info["observation_mask"][None, :],
+            )
 
             expected_node_features = 10 if use_recency_obs else 9
             expected_global_features = 16 * 2 + 2
@@ -139,7 +152,12 @@ def test_node_shared_forward_shape_without_static_observation_features():
         network_type=NETWORK_NODE_SHARED,
     )
 
-    logits, values = actor_critic_forward(params, _batch_obs(obs), info["mask"][None, :])
+    logits, values = actor_critic_forward(
+        params,
+        _batch_obs(obs),
+        info["mask"][None, :],
+        info["observation_mask"][None, :],
+    )
 
     assert params["node_fc1"]["w"].shape == (6, 16)
     assert params["global_fc"]["w"].shape == (16 * 2 + 3, 16)
@@ -161,12 +179,19 @@ def test_node_shared_forward_is_permutation_equivariant_for_node_logits():
     permutation = np.array([2, 0, 4, 1, 3], dtype=np.int32)
     permuted_obs = _permute_node_observation(obs, permutation)
     permuted_mask = np.concatenate([np.asarray(info["mask"])[:-1][permutation], np.asarray(info["mask"])[-1:]])
+    permuted_observation_mask = np.asarray(info["observation_mask"])[permutation]
 
-    logits, values = actor_critic_forward(params, _batch_obs(obs), info["mask"][None, :])
+    logits, values = actor_critic_forward(
+        params,
+        _batch_obs(obs),
+        info["mask"][None, :],
+        info["observation_mask"][None, :],
+    )
     permuted_logits, permuted_values = actor_critic_forward(
         params,
         _batch_obs(permuted_obs),
         permuted_mask[None, :],
+        permuted_observation_mask[None, :],
     )
 
     np.testing.assert_allclose(

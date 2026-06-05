@@ -7,7 +7,6 @@ mem_per_cpu = "3000M"
 gpu = false
 
 [params]
-backup_mode = "wm_partial"
 cost = 0.005
 seed = [1, 2, 3]
 beta_e_final = 0.01
@@ -28,33 +27,38 @@ use_is_terminal_obs = true
 label = "main"
 wm_decay = 0.5
 
-# unbounded: activation never decays, so nothing ever leaves WM
+# unbounded: activation does not gate actions, backup, memory, or observations
 [[conditions]]
 label = "unbounded"
 wm_decay = 1.0
-backup_mode = "full"  # should be equivalent to wm_partial
+activation_masks_actions = false
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+activation_protects_memory = false
+activation_masks_observation = false
 
-# unbounded memory, but actions still masked to the active WM set
-# (full backup + persistent terminal => activation's only effect is the action mask)
+# actions-only: activation only gates legal fixation actions
 [[conditions]]
-label = "unbounded_masking"
+label = "actions_only"
 wm_decay = 0.5
-backup_mode = "full"
-persist_terminal = true
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+activation_protects_memory = false
+activation_masks_observation = false
 
-# WM-only: inactive nodes retain no node-specific information
+# no persistence: approximate former WM-only behavior with immediate inactive forgetting
 [[conditions]]
 label = "no_persistence"
 wm_decay = 0.5
-wm_only = true
+forget_rate = 1.0
 
 # no WM: activation collapses to the current fixation neighborhood each step
 [[conditions]]
 label = "no_wm"
 wm_decay = 0.0
 
-# no memory at all... tough
+# no memory: activation collapses and inactive node-specific memory is forgotten
 [[conditions]]
 label = "no_memory"
 wm_decay = 0.0
-wm_only = true
+forget_rate = 1.0

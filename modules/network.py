@@ -173,10 +173,13 @@ def _node_shared_forward(
     params: Dict[str, Dict[str, jax.Array]],
     obs: DecisionTreeObs,
     action_mask: jax.Array | None = None,
+    observation_mask: jax.Array | None = None,
 ):
     if action_mask is None:
         raise ValueError("node_shared network requires action_mask.")
     num_nodes = action_mask.shape[-1] - 1
+    if observation_mask is None:
+        raise ValueError("node_shared network requires observation_mask.")
 
     fixation = obs.fixation
     fixation_point = obs.fixation_point
@@ -192,8 +195,8 @@ def _node_shared_forward(
     recency = obs.recency
     time_elapsed = obs.time_elapsed
 
-    legal_nodes = action_mask[..., :num_nodes]
-    legal_feature = legal_nodes.astype(fixation.dtype)
+    observable_nodes = observation_mask[..., :num_nodes]
+    observation_feature = observable_nodes.astype(fixation.dtype)
 
     parts = [
         fixation,
@@ -211,15 +214,15 @@ def _node_shared_forward(
         parts.append(is_terminal)
     if recency is not None:
         parts.append(recency)
-    parts.append(legal_feature)
+    parts.append(observation_feature)
     node_features = jnp.stack(parts, axis=-1)
 
     h1 = jax.nn.relu(_linear(node_features, params["node_fc1"]))
     node_embeddings = jax.nn.relu(_linear(h1, params["node_fc2"]))
     node_logits = _linear(node_embeddings, params["node_policy"]).squeeze(-1)
 
-    legal_mean = _masked_mean(node_embeddings, legal_nodes)
-    legal_max = _masked_max(node_embeddings, legal_nodes)
+    legal_mean = _masked_mean(node_embeddings, observable_nodes)
+    legal_max = _masked_max(node_embeddings, observable_nodes)
 
     global_parts = [legal_mean, legal_max, fixation_point]
     if time_elapsed is not None:
@@ -250,9 +253,10 @@ def actor_critic_forward(
     params: Dict[str, Dict[str, jax.Array]],
     obs: DecisionTreeObs | jax.Array,
     action_mask: jax.Array | None = None,
+    observation_mask: jax.Array | None = None,
 ):
     if "node_fc1" in params:
-        return _node_shared_forward(params, obs, action_mask)
+        return _node_shared_forward(params, obs, action_mask, observation_mask)
     if isinstance(obs, DecisionTreeObs):
         obs = flatten_observation(obs)
     return _mlp_forward(params, obs)

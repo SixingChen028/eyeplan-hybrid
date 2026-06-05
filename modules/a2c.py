@@ -59,6 +59,7 @@ class RolloutState(NamedTuple):
     env_state: Any
     obs: jax.Array
     action_mask: jax.Array
+    observation_mask: jax.Array
     running_return: jax.Array
     running_length: jax.Array
 
@@ -195,6 +196,7 @@ class JaxBatchMaskA2C:
             env_state=env_state,
             obs=obs,
             action_mask=info["mask"],
+            observation_mask=info["observation_mask"],
             running_return=jnp.zeros((self.num_envs,), dtype=jnp.float32),
             running_length=jnp.zeros((self.num_envs,), dtype=jnp.float32),
         )
@@ -211,6 +213,7 @@ class JaxBatchMaskA2C:
         env_state = rollout_state.env_state
         obs = rollout_state.obs
         action_mask = rollout_state.action_mask
+        observation_mask = rollout_state.observation_mask
         running_return = rollout_state.running_return
         running_length = rollout_state.running_length
         one_mask = jnp.ones((self.num_envs,), dtype=jnp.float32)
@@ -221,6 +224,7 @@ class JaxBatchMaskA2C:
                 env_state,
                 obs,
                 action_mask,
+                observation_mask,
                 running_return,
                 running_length,
                 episode_reward_sum,
@@ -229,7 +233,7 @@ class JaxBatchMaskA2C:
                 rng_key,
             ) = carry
 
-            logits, values = actor_critic_forward(params, obs, action_mask)
+            logits, values = actor_critic_forward(params, obs, action_mask, observation_mask)
 
             rng_key, action_key, reset_key = jax.random.split(rng_key, 3)
             actions, log_probs, entropies = sample_actions(action_key, logits, action_mask)
@@ -239,6 +243,7 @@ class JaxBatchMaskA2C:
                 in_axes=(0, 0, None),
             )(env_state, actions, train_params.env)
             next_action_mask = info["mask"]
+            next_observation_mask = info["observation_mask"]
 
             reset_keys = jax.random.split(reset_key, self.num_envs)
             reset_env_state, reset_obs, reset_info = jax.vmap(
@@ -246,6 +251,7 @@ class JaxBatchMaskA2C:
                 in_axes=(0, None),
             )(reset_keys, train_params.env)
             reset_action_mask = reset_info["mask"]
+            reset_observation_mask = reset_info["observation_mask"]
 
             env_state = jax.tree_util.tree_map(
                 lambda stepped, reset: _select_reset_on_done(dones, stepped, reset),
@@ -258,6 +264,7 @@ class JaxBatchMaskA2C:
                 reset_obs,
             )
             action_mask = _select_reset_on_done(dones, next_action_mask, reset_action_mask)
+            observation_mask = _select_reset_on_done(dones, next_observation_mask, reset_observation_mask)
             running_return = running_return + rewards.astype(jnp.float32)
             running_length = running_length + one_mask
 
@@ -282,6 +289,7 @@ class JaxBatchMaskA2C:
                     env_state,
                     obs,
                     action_mask,
+                    observation_mask,
                     running_return,
                     running_length,
                     episode_reward_sum,
@@ -298,6 +306,7 @@ class JaxBatchMaskA2C:
                 env_state,
                 obs,
                 action_mask,
+                observation_mask,
                 running_return,
                 running_length,
                 jnp.array(0.0, dtype=jnp.float32),
@@ -313,6 +322,7 @@ class JaxBatchMaskA2C:
             final_env_state,
             final_obs,
             final_action_mask,
+            final_observation_mask,
             final_running_return,
             final_running_length,
             episode_reward_sum,
@@ -320,11 +330,12 @@ class JaxBatchMaskA2C:
             episode_count,
             new_key,
         ) = carry
-        _, bootstrap_values = actor_critic_forward(params, final_obs, final_action_mask)
+        _, bootstrap_values = actor_critic_forward(params, final_obs, final_action_mask, final_observation_mask)
         next_rollout_state = RolloutState(
             env_state=final_env_state,
             obs=final_obs,
             action_mask=final_action_mask,
+            observation_mask=final_observation_mask,
             running_return=final_running_return,
             running_length=final_running_length,
         )

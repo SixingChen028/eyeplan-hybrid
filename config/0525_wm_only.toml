@@ -7,7 +7,6 @@ mem_per_cpu = "2000M"
 gpu = false
 
 [params]
-backup_mode = "wm_partial"
 wm_decay = [0.3, 0.5, 0.7]
 cost = [0.005, 0.01, 0.02]
 seed = [1, 2]
@@ -28,7 +27,6 @@ use_best_terminal_value_obs = true
 use_is_terminal_obs = true
 
 [[conditions]]
-label = "wm_only"
-wm_only = true
-
+label = "no_persistence"
+forget_rate = 1.0
 

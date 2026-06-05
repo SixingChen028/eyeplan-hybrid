@@ -3,7 +3,6 @@ experiment = "0521_obs2"
 label = "+is_terminal"
 
 [params]
-backup_mode = "wm_partial"
 wm_decay = [0.3, 0.5, 0.7]
 cost = [0.005, 0.01, 0.02]
 seed = 1

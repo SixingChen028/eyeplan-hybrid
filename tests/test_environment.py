@@ -18,8 +18,12 @@ def _env(**overrides):
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
-        wm_only=bool(params["wm_only"]),
-        persist_terminal=bool(params["persist_terminal"]),
+        activation_masks_actions=bool(params["activation_masks_actions"]),
+        activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
+        activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
+        activation_protects_memory=bool(params["activation_protects_memory"]),
+        activation_masks_observation=bool(params["activation_masks_observation"]),
+        excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
         use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
         use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
@@ -28,7 +32,6 @@ def _env(**overrides):
         use_n_visits_obs=bool(params["use_n_visits_obs"]),
         use_is_terminal_obs=bool(params["use_is_terminal_obs"]),
         use_time_elapsed_obs=bool(params["use_time_elapsed_obs"]),
-        backup_mode=str(params["backup_mode"]),
         point_set=params["point_set"],
     )
 
@@ -292,11 +295,11 @@ def test_recency_decay_one_means_no_decay():
     np.testing.assert_allclose(recency, expected, atol=1e-6)
 
 
-def test_wm_only_clears_inactive_node_memory():
+def test_activation_protects_memory_allows_forgetting_inactive_node_memory():
     env = _env(
         num_nodes=7,
         shuffle_nodes=False,
-        wm_only=True,
+        activation_protects_memory=True,
     )
     params = _env_params(
         env,
@@ -304,7 +307,7 @@ def test_wm_only_clears_inactive_node_memory():
         wm_neighbor_activation=0.25,
         q_decay=1.0,
         q_drift=1.0,
-        forget_rate=0.0,
+        forget_rate=1.0,
     )
     state = env._sample_initial_state(jax.random.PRNGKey(11))
     state = state._replace(
@@ -329,11 +332,11 @@ def test_wm_only_clears_inactive_node_memory():
     np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
 
 
-def test_wm_only_observation_keeps_active_g_values():
+def test_activation_masks_observation_keeps_active_g_values():
     env = _env(
         num_nodes=7,
         shuffle_nodes=False,
-        wm_only=True,
+        activation_masks_observation=True,
     )
     state = env._sample_initial_state(jax.random.PRNGKey(12))
     state = state._replace(
@@ -359,11 +362,11 @@ def test_wm_only_observation_keeps_active_g_values():
     assert np.asarray(obs.is_terminal)[3] == 1.0
 
 
-def test_wm_only_best_value_observations_ignore_inactive_nodes():
+def test_activation_masked_best_value_observations_ignore_inactive_nodes():
     env = _env(
         num_nodes=7,
         shuffle_nodes=False,
-        wm_only=True,
+        activation_masks_observation=True,
     )
     state = env._sample_initial_state(jax.random.PRNGKey(13))
     state = state._replace(
@@ -383,14 +386,14 @@ def test_wm_only_best_value_observations_ignore_inactive_nodes():
 
     obs = env._get_obs(state)
 
-    np.testing.assert_allclose(np.asarray(obs.best_open_value), np.array([100.0]), atol=1e-6)
+    np.testing.assert_allclose(np.asarray(obs.best_open_value), np.array([80.0]), atol=1e-6)
     np.testing.assert_allclose(np.asarray(obs.best_terminal_value), np.array([6.0]), atol=1e-6)
     assert np.asarray(obs.is_terminal)[5] == 0.0
     assert np.asarray(obs.is_terminal)[6] == 1.0
 
 
 def test_terminal_memory_clears_inactive_nodes_by_default():
-    env = _env(num_nodes=7, shuffle_nodes=False, persist_terminal=False)
+    env = _env(num_nodes=7, shuffle_nodes=False, activation_protects_memory=True)
     state = env._sample_initial_state(jax.random.PRNGKey(14))
     state = state._replace(
         is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
@@ -405,8 +408,8 @@ def test_terminal_memory_clears_inactive_nodes_by_default():
     )
 
 
-def test_persist_terminal_keeps_inactive_terminal_memory():
-    env = _env(num_nodes=7, shuffle_nodes=False, persist_terminal=True)
+def test_disabling_activation_memory_protection_keeps_inactive_terminal_memory():
+    env = _env(num_nodes=7, shuffle_nodes=False, activation_protects_memory=False)
     state = env._sample_initial_state(jax.random.PRNGKey(15))
     state = state._replace(
         is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
@@ -421,8 +424,8 @@ def test_persist_terminal_keeps_inactive_terminal_memory():
     )
 
 
-def test_wm_only_clears_inactive_terminal_memory_even_when_persistent():
-    env = _env(num_nodes=7, shuffle_nodes=False, wm_only=True, persist_terminal=True)
+def test_activation_protects_memory_clears_inactive_terminal_memory():
+    env = _env(num_nodes=7, shuffle_nodes=False, activation_protects_memory=True)
     state = env._sample_initial_state(jax.random.PRNGKey(16))
     state = state._replace(
         q_values=jnp.arange(env.num_nodes, dtype=jnp.float32),
@@ -435,9 +438,13 @@ def test_wm_only_clears_inactive_terminal_memory_even_when_persistent():
     state = env._clear_inactive_memory(state)
 
     inactive_mask = np.asarray(state.activation) == 0.0
-    np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], 0.0, atol=1e-6)
-    np.testing.assert_array_equal(np.asarray(state.n_visits)[inactive_mask], 0)
-    np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
+    np.testing.assert_allclose(
+        np.asarray(state.q_values)[inactive_mask],
+        np.arange(env.num_nodes, dtype=np.float32)[inactive_mask],
+        atol=1e-6,
+    )
+    np.testing.assert_array_equal(np.asarray(state.n_visits)[inactive_mask], np.ones(np.sum(inactive_mask)))
+    np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 1.0, atol=1e-6)
     np.testing.assert_array_equal(
         np.asarray(state.is_terminal),
         np.array([False, False, False, False, False, False, True]),
@@ -944,7 +951,13 @@ def test_backup_steps_limits_ancestor_depth():
 
 
 def test_wm_decay_zero_multi_step_backup_uses_refreshed_activation():
-    env = _env(num_nodes=7, shuffle_nodes=False, backup_mode="wm_zero")
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+        activation_gates_backup_sink=True,
+        activation_gates_backup_source=True,
+        excluded_child_value=0.0,
+    )
     params = _env_params(
         env,
         learning_rate=1.0,
@@ -980,7 +993,7 @@ def test_wm_decay_zero_multi_step_backup_uses_refreshed_activation():
     )
 
 
-def test_working_memory_backup_modes_stop_at_inactive_ancestor():
+def test_backup_sink_gating_stops_at_inactive_ancestor():
     child_nodes = jnp.array(
         [
             [1, -1],
@@ -995,7 +1008,12 @@ def test_working_memory_backup_modes_stop_at_inactive_ancestor():
     points = jnp.array([0.0, 1.0, 10.0, 3.0, -8.0], dtype=jnp.float32)
     activation = jnp.array([1.0, 0.0, 1.0, 1.0, 0.0], dtype=jnp.float32)
 
-    full_env = _env(num_nodes=5, shuffle_nodes=False, backup_mode="full")
+    full_env = _env(
+        num_nodes=5,
+        shuffle_nodes=False,
+        activation_gates_backup_sink=False,
+        activation_gates_backup_source=False,
+    )
     full_params = _env_params(
         full_env,
         learning_rate=1.0,
@@ -1025,7 +1043,13 @@ def test_working_memory_backup_modes_stop_at_inactive_ancestor():
         atol=1e-6,
     )
 
-    wm_zero_env = _env(num_nodes=5, shuffle_nodes=False, backup_mode="wm_zero")
+    wm_zero_env = _env(
+        num_nodes=5,
+        shuffle_nodes=False,
+        activation_gates_backup_sink=True,
+        activation_gates_backup_source=True,
+        excluded_child_value=0.0,
+    )
     wm_zero_params = _env_params(
         wm_zero_env,
         learning_rate=1.0,
@@ -1056,20 +1080,34 @@ def test_working_memory_backup_modes_stop_at_inactive_ancestor():
     )
 
 
-def test_backup_modes_handle_inactive_child_differently():
+def test_backup_source_gating_handles_inactive_child_variants():
     child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
     parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
     points = jnp.array([0.0, 5.0, 0.0], dtype=jnp.float32)
     activation = jnp.array([1.0, 1.0, 0.0], dtype=jnp.float32)
 
-    expected_roots = {
-        "full": 7.5,
-        "wm_both": 7.5,
-        "wm_zero": 2.5,
-        "wm_partial": 5.0,
-    }
-    for backup_mode, expected_root in expected_roots.items():
-        env = _env(num_nodes=3, shuffle_nodes=False, backup_mode=backup_mode)
+    cases = [
+        ({"activation_gates_backup_sink": False, "activation_gates_backup_source": False}, 7.5),
+        ({"activation_gates_backup_sink": True, "activation_gates_backup_source": False}, 7.5),
+        (
+            {
+                "activation_gates_backup_sink": True,
+                "activation_gates_backup_source": True,
+                "excluded_child_value": 0.0,
+            },
+            2.5,
+        ),
+        (
+            {
+                "activation_gates_backup_sink": True,
+                "activation_gates_backup_source": True,
+                "excluded_child_value": None,
+            },
+            5.0,
+        ),
+    ]
+    for env_overrides, expected_root in cases:
+        env = _env(num_nodes=3, shuffle_nodes=False, **env_overrides)
         params = _env_params(
             env,
             beta_move=0.0,
@@ -1096,13 +1134,18 @@ def test_backup_modes_handle_inactive_child_differently():
         )
 
 
-def test_wm_partial_backup_keeps_negative_active_child_when_softmax_underflows():
+def test_excluded_child_backup_keeps_negative_active_child_when_softmax_underflows():
     child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
     parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
     points = jnp.array([0.0, -8.0, 0.0], dtype=jnp.float32)
     activation = jnp.array([1.0, 1.0, 0.0], dtype=jnp.float32)
 
-    env = _env(num_nodes=3, shuffle_nodes=False, backup_mode="wm_partial")
+    env = _env(
+        num_nodes=3,
+        shuffle_nodes=False,
+        activation_gates_backup_source=True,
+        excluded_child_value=None,
+    )
     params = _env_params(
         env,
         beta_move=40.0,
@@ -1127,14 +1170,19 @@ def test_wm_partial_backup_keeps_negative_active_child_when_softmax_underflows()
     np.testing.assert_allclose(float(updated.q_values[0]), -8.0, atol=1e-6)
 
 
-def test_full_backup_updates_inactive_parents_but_wm_both_does_not():
+def test_backup_sink_flag_controls_whether_inactive_parents_update():
     child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
     parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
     points = jnp.array([0.0, 5.0, 0.0], dtype=jnp.float32)
     activation = jnp.array([0.0, 1.0, 0.0], dtype=jnp.float32)
 
-    for backup_mode, expected_root in [("full", 7.5), ("wm_both", 0.0)]:
-        env = _env(num_nodes=3, shuffle_nodes=False, backup_mode=backup_mode)
+    for activation_gates_backup_sink, expected_root in [(False, 7.5), (True, 0.0)]:
+        env = _env(
+            num_nodes=3,
+            shuffle_nodes=False,
+            activation_gates_backup_sink=activation_gates_backup_sink,
+            activation_gates_backup_source=False,
+        )
         params = _env_params(
             env,
             beta_move=0.0,
@@ -1157,14 +1205,28 @@ def test_full_backup_updates_inactive_parents_but_wm_both_does_not():
         np.testing.assert_allclose(float(updated.q_values[0]), expected_root, atol=1e-6)
 
 
-def test_backup_modes_agree_when_both_children_are_active():
+def test_backup_source_variants_agree_when_both_children_are_active():
     child_nodes = jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32)
     parent_nodes = jnp.array([-1, 0, 0], dtype=jnp.int32)
     points = jnp.array([0.0, 5.0, 0.0], dtype=jnp.float32)
     activation = jnp.ones((3,), dtype=jnp.float32)
 
-    for backup_mode in ["full", "wm_both", "wm_zero", "wm_partial"]:
-        env = _env(num_nodes=3, shuffle_nodes=False, backup_mode=backup_mode)
+    cases = [
+        {"activation_gates_backup_sink": False, "activation_gates_backup_source": False},
+        {"activation_gates_backup_sink": True, "activation_gates_backup_source": False},
+        {
+            "activation_gates_backup_sink": True,
+            "activation_gates_backup_source": True,
+            "excluded_child_value": 0.0,
+        },
+        {
+            "activation_gates_backup_sink": True,
+            "activation_gates_backup_source": True,
+            "excluded_child_value": None,
+        },
+    ]
+    for env_overrides in cases:
+        env = _env(num_nodes=3, shuffle_nodes=False, **env_overrides)
         params = _env_params(
             env,
             beta_move=0.0,

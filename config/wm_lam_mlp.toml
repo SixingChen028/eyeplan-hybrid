@@ -2,7 +2,8 @@
 lamda_backup = [0.0, 0.5, 1.0]
 wm_decay = [0.0, 0.5, 1.0]
 cost = 0.01
-backup_mode = "full"
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
 use_recency_obs = false
 use_best_open_value_obs = false
 use_best_terminal_value_obs = false

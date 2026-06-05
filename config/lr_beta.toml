@@ -4,7 +4,7 @@ array_vars = ["seed"]
 [environment]
 num_nodes = 15
 t_max = 50
-backup_mode = "wm_zero"
+excluded_child_value = 0.0
 beta_move = [1, 2, 4]
 learning_rate = [0.1, 0.3, 0.5, 0.7, 1.0]
 lamda_backup = 1
