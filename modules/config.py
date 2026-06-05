@@ -256,6 +256,13 @@ def normalize_config(config: dict) -> dict:
         for param_class in PARAM_RUNTIME_CLASSES
         for key, value in normalized[param_class].items()
     }
+    reject_unresolved_network_type(params.get("network_type"))
+    for condition_idx, condition in enumerate(conditions):
+        if "network_type" in condition:
+            reject_unresolved_network_type(
+                condition["network_type"],
+                name=f"conditions[{condition_idx}].network_type",
+            )
 
     return {
         **normalized,
@@ -339,10 +346,20 @@ def validate_backup_mode(value, *, name: str = "backup_mode") -> None:
         raise ValueError(f"{name} must be one of {BACKUP_MODES}.")
 
 
+def reject_unresolved_network_type(value, *, name: str = "network_type") -> None:
+    values = value if isinstance(value, list) else [value]
+    if "mlp" in values:
+        raise NotImplementedError(
+            f"{name}='mlp' is disabled: address information masking before using the MLP architecture again."
+        )
+
+
 def validate_params(params: dict) -> None:
     unknown_keys = sorted(set(params) - set(DEFAULT_PARAMS))
     if unknown_keys:
         raise ValueError("Unknown [params] keys: " + ", ".join(unknown_keys))
+
+    reject_unresolved_network_type(params.get("network_type"))
 
     for key, value in params.items():
         if not is_list(value):
