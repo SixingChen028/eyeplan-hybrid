@@ -23,19 +23,25 @@ def safe_set(arr: jax.Array, idx: jax.Array, value) -> jax.Array:
 
 
 class JaxDecisionTreeState(NamedTuple):
-    rng_key: jax.Array
-    time_elapsed: jax.Array
-    fixation_node: jax.Array
+    # problem definition (static within episode)
     root_node: jax.Array
     points: jax.Array
     child_nodes: jax.Array
     parent_nodes: jax.Array
+    g_values: jax.Array  # conceptually search state but static in practice (see NOTE)
+    # search state
+    fixation_node: jax.Array
     q_values: jax.Array
-    g_values: jax.Array
     n_visits: jax.Array
     fixation_recency: jax.Array
     activation: jax.Array
     is_terminal: jax.Array
+    time_elapsed: jax.Array
+    # implementation detail
+    rng_key: jax.Array
+
+# NOTE g_values is static because it's impossible for the agent to ever form an
+# incorrect g value. This is a consequence of action masking and parent activation.
 
 class JaxDecisionTreeParams(NamedTuple):
     beta_move: jax.Array
@@ -85,7 +91,7 @@ class JaxDecisionTreeEnv:
         use_n_visits_obs: bool,
         use_is_terminal_obs: bool,
         use_time_elapsed_obs: bool,
-        wm_only: bool,
+        disable_persistence: bool,
         activation_masks_actions: bool,
         activation_gates_backup_sink: bool,
         activation_gates_backup_source: bool,
@@ -98,7 +104,7 @@ class JaxDecisionTreeEnv:
         self.t_max = int(t_max)
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
-        self.wm_only = bool(wm_only)
+        self.disable_persistence = bool(disable_persistence)
         self.activation_masks_actions = bool(activation_masks_actions)
         self.activation_gates_backup_sink = bool(activation_gates_backup_sink)
         self.activation_gates_backup_source = bool(activation_gates_backup_source)
@@ -113,6 +119,15 @@ class JaxDecisionTreeEnv:
         self.use_n_visits_obs = bool(use_n_visits_obs)
         self.use_is_terminal_obs = bool(use_is_terminal_obs)
         self.use_time_elapsed_obs = bool(use_time_elapsed_obs)
+
+        # enforce parameterization rules
+        if self.disable_persistence: # assumes default activation behavior
+            assert self.activation_masks_actions
+            assert self.activation_gates_backup_sink
+            assert self.activation_gates_backup_source
+            assert self.activation_protects_memory
+            assert self.activation_masks_observation
+        assert self.activation_masks_actions  # see NOTE above
 
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
         self.empty_path = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
@@ -238,7 +253,7 @@ class JaxDecisionTreeEnv:
 
     def _clear_inactive_memory(self, state: JaxDecisionTreeState):
         active = state.activation > 0.0
-        if self.wm_only:
+        if self.disable_persistence:
             return state._replace(
                 q_values=jnp.where(active, state.q_values, 0.0),
                 n_visits=jnp.where(active, state.n_visits, 0),
@@ -292,7 +307,7 @@ class JaxDecisionTreeEnv:
             has_parent = parent >= 0
             has_budget = steps < params.backup_steps
             parent_active = safe_get(state.activation, parent, fill_value=0.0) > 0.0
-            activation_allows_backup = parent_active if self.wm_only or self.activation_gates_backup_sink else True
+            activation_allows_backup = parent_active if self.activation_gates_backup_sink else True
             return (
                 (weight > 1e-6)
                 & (current != state.root_node)
@@ -330,7 +345,7 @@ class JaxDecisionTreeEnv:
     ) -> JaxDecisionTreeState:
         state = self._update_fixation_memory(state, node, params)
         state = self._update_q(state, params)
-        if self.activation_protects_memory and not self.wm_only:
+        if self.activation_protects_memory and not self.disable_persistence:
             state = self._corrupt_memory(state, params)
         return state
 
@@ -357,7 +372,7 @@ class JaxDecisionTreeEnv:
         params: JaxDecisionTreeParams,
     ) -> JaxDecisionTreeState:
         state = self._update_fixation_memory(state, node, params)
-        if self.activation_protects_memory and not self.wm_only:
+        if self.activation_protects_memory and not self.disable_persistence:
             state = self._corrupt_memory(state, params)
         return state
 
@@ -421,20 +436,24 @@ class JaxDecisionTreeEnv:
 
     def _get_obs(self, state: JaxDecisionTreeState) -> DecisionTreeObs:
         observation_mask = self._get_observation_mask(state)
-        known_mask = safe_get(state.n_visits > 0, state.parent_nodes, fill_value=True)
-        g_value_mask = observation_mask if self.wm_only else known_mask & observation_mask
 
         best_open_value = None
         if self.use_best_open_value_obs:
+            # TODO: this has weird behavior under forgetting (n_visits)
+            known_mask = (
+                observation_mask
+                if self.disable_persistence
+                else safe_get(state.n_visits > 0, state.parent_nodes, fill_value=True)
+            )
             unseen_mask = state.n_visits == 0
-            open_mask = g_value_mask & unseen_mask
+            open_mask = known_mask & unseen_mask
             open_obs = jnp.max(jnp.where(open_mask, state.g_values, self.min_path_value))
             best_open_value = jnp.array([open_obs], dtype=jnp.float32)
 
         best_terminal_value = None
         if self.use_best_terminal_value_obs:
             total_values = state.g_values + state.points
-            terminal_mask = state.is_terminal & observation_mask
+            terminal_mask = state.is_terminal
             best_terminal_obs = jnp.max(jnp.where(terminal_mask, total_values, self.min_path_value))
             best_terminal_value = jnp.array([best_terminal_obs], dtype=jnp.float32)
 
@@ -446,7 +465,7 @@ class JaxDecisionTreeEnv:
             child=self._one_hot(child1) + self._one_hot(child2),
             root=self._one_hot(state.root_node),
             g_values=(
-                jnp.where(g_value_mask, state.g_values, 0.0)
+                jnp.where(observation_mask, state.g_values, 0.0)
                 if self.use_g_values_obs
                 else None
             ),
@@ -553,19 +572,19 @@ class JaxDecisionTreeEnv:
         key, points = self._sample_points(key, root)
 
         return JaxDecisionTreeState(
-            rng_key=key,
-            time_elapsed=jnp.int32(0),
-            fixation_node=root,
             root_node=root,
             points=points,
             child_nodes=child_nodes,
             parent_nodes=parent_nodes,
-            q_values=self._zeros(),
             g_values=self._compute_path_values(parent_nodes, points),
+            fixation_node=root,
+            q_values=self._zeros(),
             n_visits=self._zeros(jnp.int32),
             fixation_recency=self._zeros(),
             activation=self._zeros(),
             is_terminal=self._zeros(jnp.bool_),
+            time_elapsed=jnp.int32(0),
+            rng_key=key,
         )
 
     def reset(self, key: jax.Array, params: JaxDecisionTreeParams):
