@@ -39,7 +39,7 @@ def test_num_nodes_9_sampling_matches_explicit_probabilities():
         t_max=8,
         scale_factor=1.0,
         shuffle_nodes=True,
-        wm_only=False,
+        disable_persistence=False,
         use_recency_obs=False,
         use_best_open_value_obs=True,
         use_best_terminal_value_obs=True,

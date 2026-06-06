@@ -58,7 +58,7 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
         t_max=int(args["t_max"]),
         scale_factor=float(args["scale_factor"]),
         shuffle_nodes=bool(args["shuffle_nodes"]),
-        wm_only=bool(args.get("wm_only", DEFAULT_PARAMS["wm_only"])),
+        disable_persistence=bool(args.get("wm_only", DEFAULT_PARAMS["wm_only"])),
         activation_masks_actions=bool(args.get("activation_masks_actions", DEFAULT_PARAMS["activation_masks_actions"])),
         activation_gates_backup_sink=bool(
             args.get("activation_gates_backup_sink", DEFAULT_PARAMS["activation_gates_backup_sink"])
