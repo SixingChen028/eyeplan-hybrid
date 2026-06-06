@@ -18,7 +18,7 @@ def _env(**overrides):
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
-        disable_persistence=bool(params["wm_only"]),
+        disable_persistence=bool(params["disable_persistence"]),
         activation_masks_actions=bool(params["activation_masks_actions"]),
         activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
         activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
@@ -337,7 +337,7 @@ def test_disable_persistence_clears_inactive_node_memory_without_forget_rate():
     env = _env(
         num_nodes=7,
         shuffle_nodes=False,
-        wm_only=True,
+        disable_persistence=True,
     )
     params = _env_params(
         env,
@@ -472,7 +472,7 @@ def test_disable_persistence_best_value_observations_use_active_nodes():
     env = _env(
         num_nodes=7,
         shuffle_nodes=False,
-        wm_only=True,
+        disable_persistence=True,
     )
     state = env._sample_initial_state(jax.random.PRNGKey(13))
     state = state._replace(
