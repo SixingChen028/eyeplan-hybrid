@@ -1,0 +1,67 @@
+[meta]
+array_vars = "ALL"
+
+[sbatch]
+time = "2:00:00"
+mem_per_cpu = "3000M"
+gpu = false
+
+[params]
+cost = 0.005
+seed = [1, 2]
+beta_e_final = 0.001
+
+
+# everything
+use_q_values_obs = true
+use_n_visits_obs = true
+use_g_values_obs = true
+use_time_elapsed_obs = true
+use_recency_obs = false
+use_best_open_value_obs = false
+use_best_terminal_value_obs = false
+use_is_terminal_obs = true
+
+# main model: WM gates actions, backup, and terminal memory
+[[conditions]]
+label = "main"
+wm_decay = 0.5
+
+# [[conditions]]
+# label = "unbounded"
+# wm_decay = 1.0
+# activation_masks_actions = false
+# activation_gates_backup_sink = false
+# activation_gates_backup_source = false
+# activation_protects_memory = false
+# activation_masks_observation = false
+
+[[conditions]]
+label = "actions_only"
+wm_decay = 0.5
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+activation_protects_memory = false
+activation_masks_observation = false
+
+# [[conditions]]
+# label = "full_backups"
+# wm_decay = 0.5
+# activation_gates_backup_sink = false
+# activation_gates_backup_source = false
+# activation_protects_memory = true
+# activation_masks_observation = true
+
+# [[conditions]]
+# label = "no_persistence"
+# wm_decay = 0.5
+# disable_persistence = true
+
+# [[conditions]]
+# label = "no_wm"
+# wm_decay = 0.0
+
+# [[conditions]]
+# label = "no_memory"
+# wm_decay = 0.0
+# disable_persistence = true
