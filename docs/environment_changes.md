@@ -1,4 +1,4 @@
-# Environment Compatibility
+# Environment Change Tracker
 
 The environment compatibility version is an integer epoch. Bump it only when a change to the cognitive architecture or environment semantics makes existing checkpoint weights incompatible.
 
