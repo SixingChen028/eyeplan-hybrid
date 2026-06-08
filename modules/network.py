@@ -8,7 +8,8 @@ from .environment import DecisionTreeObs
 
 NETWORK_MLP = "mlp"
 NETWORK_NODE_SHARED = "node_shared"
-NETWORK_TYPES = (NETWORK_MLP, NETWORK_NODE_SHARED)
+NETWORK_GLOBAL_SHARED = "global_shared"
+NETWORK_TYPES = (NETWORK_MLP, NETWORK_NODE_SHARED, NETWORK_GLOBAL_SHARED)
 
 
 def _xavier_uniform(key: jax.Array, fan_in: int, fan_out: int) -> jax.Array:
@@ -126,6 +127,28 @@ def init_node_shared_actor_critic_params(
     }
 
 
+def init_global_shared_actor_critic_params(
+    key: jax.Array,
+    observation_template: DecisionTreeObs,
+    hidden_size: int = 128,
+) -> Dict[str, Dict[str, jax.Array]]:
+    params = init_node_shared_actor_critic_params(
+        key,
+        observation_template=observation_template,
+        hidden_size=hidden_size,
+    )
+    k1, k2 = jax.random.split(jax.random.fold_in(key, 1), 2)
+    params["node_policy_context"] = {
+        "w": _xavier_uniform(k1, hidden_size * 2, hidden_size),
+        "b": jnp.zeros((hidden_size,), dtype=jnp.float32),
+    }
+    params["node_policy"] = {
+        "w": _xavier_uniform(k2, hidden_size, 1),
+        "b": jnp.zeros((1,), dtype=jnp.float32),
+    }
+    return params
+
+
 def init_actor_critic_params(
     key: jax.Array,
     observation_template: DecisionTreeObs,
@@ -143,6 +166,12 @@ def init_actor_critic_params(
         )
     if network_type == NETWORK_NODE_SHARED:
         return init_node_shared_actor_critic_params(
+            key,
+            observation_template=observation_template,
+            hidden_size=hidden_size,
+        )
+    if network_type == NETWORK_GLOBAL_SHARED:
+        return init_global_shared_actor_critic_params(
             key,
             observation_template=observation_template,
             hidden_size=hidden_size,
@@ -219,7 +248,6 @@ def _node_shared_forward(
 
     h1 = jax.nn.relu(_linear(node_features, params["node_fc1"]))
     node_embeddings = jax.nn.relu(_linear(h1, params["node_fc2"]))
-    node_logits = _linear(node_embeddings, params["node_policy"]).squeeze(-1)
 
     legal_mean = _masked_mean(node_embeddings, observable_nodes)
     legal_max = _masked_max(node_embeddings, observable_nodes)
@@ -233,6 +261,13 @@ def _node_shared_forward(
         global_parts.append(best_terminal_value)
     global_features = jnp.concatenate(global_parts, axis=-1)
     global_hidden = jax.nn.relu(_linear(global_features, params["global_fc"]))
+    if "node_policy_context" in params:
+        global_context = jnp.broadcast_to(global_hidden[..., None, :], node_embeddings.shape)
+        policy_inputs = jnp.concatenate([node_embeddings, global_context], axis=-1)
+        policy_hidden = jax.nn.relu(_linear(policy_inputs, params["node_policy_context"]))
+        node_logits = _linear(policy_hidden, params["node_policy"]).squeeze(-1)
+    else:
+        node_logits = _linear(node_embeddings, params["node_policy"]).squeeze(-1)
     terminate_logit = _linear(global_hidden, params["terminate"]).squeeze(-1)
     value = _linear(global_hidden, params["value"]).squeeze(-1)
     logits = jnp.concatenate([node_logits, terminate_logit[..., None]], axis=-1)
