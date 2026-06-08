@@ -3,13 +3,16 @@ experiment = "0608_global_shared_basic"
 
 [sbatch]
 gpu = true
+time = "2:00:00"
+mem_per_cpu = "6000M"
+
 
 [params]
-network_type = "global_shared"
 hidden_size = 64
-cost = 0.005
-seed = [1, 2]
+seed = 1
 beta_e_final = 0.001
+wm_decay = [0.0, 0.5, 0.75, 1.0]
+cost = [0.001, 0.01, 0.02, 0.04, 0.08, 0.16]
 
 # basic: disable extra observations
 use_recency_obs = false
@@ -19,13 +22,8 @@ use_is_terminal_obs = true
 
 # main model: WM gates actions, backup, and terminal memory
 [[conditions]]
-label = "main"
-wm_decay = 0.5
+label = "local"
 
 [[conditions]]
-label = "actions_only"
-wm_decay = 0.5
-activation_gates_backup_sink = false
-activation_gates_backup_source = false
-activation_protects_memory = false
-activation_masks_observation = false
+label = "global"
+network_type = "global_shared"
