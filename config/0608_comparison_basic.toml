@@ -1,9 +1,6 @@
 [meta]
-array_vars = "ALL"
 
 [sbatch]
-time = "2:00:00"
-mem_per_cpu = "3000M"
 gpu = false
 
 [params]
@@ -11,12 +8,7 @@ cost = 0.005
 seed = [1, 2]
 beta_e_final = 0.001
 
-
-# everything
-use_q_values_obs = true
-use_n_visits_obs = true
-use_g_values_obs = true
-use_time_elapsed_obs = true
+# basic: disable extra observations
 use_recency_obs = false
 use_best_open_value_obs = false
 use_best_terminal_value_obs = false
