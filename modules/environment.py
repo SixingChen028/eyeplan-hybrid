@@ -122,12 +122,14 @@ class JaxDecisionTreeEnv:
 
         # enforce parameterization rules
         if self.disable_persistence: # assumes default activation behavior
-            assert self.activation_masks_actions
             assert self.activation_gates_backup_sink
             assert self.activation_gates_backup_source
             assert self.activation_protects_memory
             assert self.activation_masks_observation
-        assert self.activation_masks_actions  # see NOTE above
+        
+        # We currently assume this (see NOTE above).
+        # Leaving the flag in place for explicitness and for possible future implementation
+        assert self.activation_masks_actions
 
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
         self.empty_path = -jnp.ones((self.num_nodes,), dtype=jnp.int32)
