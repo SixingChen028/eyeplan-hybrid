@@ -63,10 +63,6 @@ def flatten_observation(obs: DecisionTreeObs) -> jax.Array:
         parts.append(obs.n_visits)
     if obs.is_terminal is not None:
         parts.append(obs.is_terminal)
-    if obs.best_open_value is not None:
-        parts.append(obs.best_open_value)
-    if obs.best_terminal_value is not None:
-        parts.append(obs.best_terminal_value)
     if obs.recency is not None:
         parts.append(obs.recency)
     if obs.time_elapsed is not None:
@@ -92,10 +88,6 @@ def init_node_shared_actor_critic_params(
 
     global_feature_size = hidden_size * 2 + 1
     if observation_template.time_elapsed is not None:
-        global_feature_size += 1
-    if observation_template.best_open_value is not None:
-        global_feature_size += 1
-    if observation_template.best_terminal_value is not None:
         global_feature_size += 1
     k1, k2, k3, k4, k5, k6 = jax.random.split(key, 6)
 
@@ -219,8 +211,6 @@ def _node_shared_forward(
     q_values = obs.q_values
     n_visits = obs.n_visits
     is_terminal = obs.is_terminal
-    best_open_value = obs.best_open_value
-    best_terminal_value = obs.best_terminal_value
     recency = obs.recency
     time_elapsed = obs.time_elapsed
 
@@ -255,10 +245,6 @@ def _node_shared_forward(
     global_parts = [legal_mean, legal_max, fixation_point]
     if time_elapsed is not None:
         global_parts.append(time_elapsed)
-    if best_open_value is not None:
-        global_parts.append(best_open_value)
-    if best_terminal_value is not None:
-        global_parts.append(best_terminal_value)
     global_features = jnp.concatenate(global_parts, axis=-1)
     global_hidden = jax.nn.relu(_linear(global_features, params["global_fc"]))
     if "node_policy_context" in params:

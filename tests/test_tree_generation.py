@@ -41,8 +41,6 @@ def test_num_nodes_9_sampling_matches_explicit_probabilities():
         shuffle_nodes=True,
         disable_persistence=False,
         use_recency_obs=False,
-        use_best_open_value_obs=True,
-        use_best_terminal_value_obs=True,
         use_g_values_obs=True,
         use_q_values_obs=True,
         use_n_visits_obs=True,

@@ -57,7 +57,7 @@ The observation exposes local tree-search information and selected memory variab
 - the current fixation as a one-hot vector;
 - the point value at the current fixation;
 - one-hot or multi-hot indicators for the current node's parent, children, and root;
-- known path-prefix values `g_i`, with unknown entries set to zero;
+- path-prefix values `g_i` for observable nodes, with unobservable entries set to zero;
 - all stored Q-values;
 - node visit counts;
 - indicators for terminal nodes that have been visited;
@@ -68,10 +68,6 @@ A node is known when its parent has been visited; the root is known from reset. 
 Optional observation fields are controlled by environment configuration:
 
 - `recency`: per-node fixation recency traces.
-- `best_open_value`: the largest `g_i` among known, unvisited nodes.
-- `best_terminal_value`: the largest `g_i + r_i` among visited terminal nodes.
-
-If a best-value field has no eligible node, it takes the minimum possible path sentinel `ceil(N / 2) * min(point_set)`.
 
 ## Termination Reward
 
@@ -102,13 +98,13 @@ is_terminal_i, [recency_i], legal_i
 
 The same two-layer ReLU MLP maps every node input to an embedding `h_i`. A shared linear head maps each `h_i` to that node's fixation logit.
 
-The terminate logit and value estimate are computed from global features. The model pools embeddings over currently legal fixation actions using both a mean and an elementwise maximum, then concatenates these pooled vectors with the current fixation point value, elapsed time, and any enabled best-value observation fields. A one-layer ReLU MLP processes this global vector, followed by separate linear heads for the terminate logit and state value.
+The terminate logit and value estimate are computed from global features. The model pools embeddings over currently legal fixation actions using both a mean and an elementwise maximum, then concatenates these pooled vectors with the current fixation point value and elapsed time. A one-layer ReLU MLP processes this global vector, followed by separate linear heads for the terminate logit and state value.
 
 Because node embeddings and node logits use shared weights, the fixation logits are permutation equivariant with respect to node relabeling. Because the terminate and value heads use pooled legal-node embeddings, those outputs are invariant to node relabeling, up to the non-node scalar features.
 
 ## Default Configuration
 
-The default environment uses 15 nodes, `t_max = 50`, `scale_factor = 0.125`, shuffled node labels, recency observations, both best-value observations, and working-memory-restricted backups. The default dynamic parameters are:
+The default environment uses 15 nodes, `t_max = 50`, `scale_factor = 0.125`, shuffled node labels, recency observations, and working-memory-restricted backups. The default dynamic parameters are:
 
 ```text
 beta_move = 40.0

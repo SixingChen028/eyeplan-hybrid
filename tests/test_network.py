@@ -33,8 +33,6 @@ def _env(**overrides):
         activation_masks_observation=bool(params["activation_masks_observation"]),
         excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
-        use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
-        use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
         use_n_visits_obs=bool(params["use_n_visits_obs"]),
@@ -92,47 +90,31 @@ def test_mlp_forward_shape_is_unchanged():
 @pytest.mark.slow
 def test_node_shared_forward_shape_with_optional_features():
     for use_recency_obs, recency_decay in [(False, 0.0), (True, 0.5)]:
-        for use_best_open_value_obs, use_best_terminal_value_obs in [
-            (False, False),
-            (True, False),
-            (False, True),
-            (True, True),
-        ]:
-            env = _env(
-                num_nodes=5,
-                shuffle_nodes=False,
-                use_recency_obs=use_recency_obs,
-                use_best_open_value_obs=use_best_open_value_obs,
-                use_best_terminal_value_obs=use_best_terminal_value_obs,
-            )
-            _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=recency_decay))
-            params = init_actor_critic_params(
-                jax.random.PRNGKey(1),
-                observation_template=env.observation_template,
-                action_size=env.action_size,
-                hidden_size=16,
-                network_type=NETWORK_NODE_SHARED,
-            )
+        env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=use_recency_obs)
+        _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=recency_decay))
+        params = init_actor_critic_params(
+            jax.random.PRNGKey(1),
+            observation_template=env.observation_template,
+            action_size=env.action_size,
+            hidden_size=16,
+            network_type=NETWORK_NODE_SHARED,
+        )
 
-            logits, values = actor_critic_forward(
-                params,
-                _batch_obs(obs),
-                info["mask"][None, :],
-                info["observation_mask"][None, :],
-            )
+        logits, values = actor_critic_forward(
+            params,
+            _batch_obs(obs),
+            info["mask"][None, :],
+            info["observation_mask"][None, :],
+        )
 
-            expected_node_features = 10 if use_recency_obs else 9
-            expected_global_features = 16 * 2 + 2
-            if use_best_open_value_obs:
-                expected_global_features += 1
-            if use_best_terminal_value_obs:
-                expected_global_features += 1
-            assert params["node_fc1"]["w"].shape == (expected_node_features, 16)
-            assert params["global_fc"]["w"].shape == (expected_global_features, 16)
-            assert logits.shape == (1, env.action_size)
-            assert values.shape == (1,)
-            assert np.all(np.isfinite(np.asarray(logits)))
-            assert np.all(np.isfinite(np.asarray(values)))
+        expected_node_features = 10 if use_recency_obs else 9
+        expected_global_features = 16 * 2 + 2
+        assert params["node_fc1"]["w"].shape == (expected_node_features, 16)
+        assert params["global_fc"]["w"].shape == (expected_global_features, 16)
+        assert logits.shape == (1, env.action_size)
+        assert values.shape == (1,)
+        assert np.all(np.isfinite(np.asarray(logits)))
+        assert np.all(np.isfinite(np.asarray(values)))
 
 
 @pytest.mark.slow

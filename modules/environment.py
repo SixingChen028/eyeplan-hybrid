@@ -68,8 +68,6 @@ class DecisionTreeObs(NamedTuple):
     q_values: jax.Array | None
     n_visits: jax.Array | None
     is_terminal: jax.Array | None
-    best_open_value: jax.Array | None
-    best_terminal_value: jax.Array | None
     recency: jax.Array | None
     time_elapsed: jax.Array | None
 
@@ -84,8 +82,6 @@ class JaxDecisionTreeEnv:
         scale_factor: float,
         shuffle_nodes: bool,
         use_recency_obs: bool,
-        use_best_open_value_obs: bool,
-        use_best_terminal_value_obs: bool,
         use_g_values_obs: bool,
         use_q_values_obs: bool,
         use_n_visits_obs: bool,
@@ -112,8 +108,6 @@ class JaxDecisionTreeEnv:
         self.activation_masks_observation = bool(activation_masks_observation)
         self.excluded_child_value = None if excluded_child_value is None else float(excluded_child_value)
         self.use_recency_obs = bool(use_recency_obs)
-        self.use_best_open_value_obs = bool(use_best_open_value_obs)
-        self.use_best_terminal_value_obs = bool(use_best_terminal_value_obs)
         self.use_g_values_obs = bool(use_g_values_obs)
         self.use_q_values_obs = bool(use_q_values_obs)
         self.use_n_visits_obs = bool(use_n_visits_obs)
@@ -422,26 +416,6 @@ class JaxDecisionTreeEnv:
     def _get_obs(self, state: JaxDecisionTreeState) -> DecisionTreeObs:
         observation_mask = self._get_observation_mask(state)
 
-        best_open_value = None
-        if self.use_best_open_value_obs:
-            # TODO: this has weird behavior under forgetting (n_visits)
-            known_mask = (
-                observation_mask
-                if self.disable_persistence
-                else safe_get(state.n_visits > 0, state.parent_nodes, fill_value=True)
-            )
-            unseen_mask = state.n_visits == 0
-            open_mask = known_mask & unseen_mask
-            open_obs = jnp.max(jnp.where(open_mask, state.g_values, self.min_path_value))
-            best_open_value = jnp.array([open_obs], dtype=jnp.float32)
-
-        best_terminal_value = None
-        if self.use_best_terminal_value_obs:
-            total_values = state.g_values + state.points
-            terminal_mask = state.is_terminal
-            best_terminal_obs = jnp.max(jnp.where(terminal_mask, total_values, self.min_path_value))
-            best_terminal_value = jnp.array([best_terminal_obs], dtype=jnp.float32)
-
         child1, child2 = state.child_nodes[state.fixation_node]
         return DecisionTreeObs(
             fixation=self._one_hot(state.fixation_node),
@@ -469,8 +443,6 @@ class JaxDecisionTreeEnv:
                 if self.use_is_terminal_obs
                 else None
             ),
-            best_open_value=best_open_value,
-            best_terminal_value=best_terminal_value,
             recency=(
                 jnp.where(observation_mask, state.fixation_recency, 0.0)
                 if self.use_recency_obs

@@ -28,10 +28,10 @@ The `node_shared` network also receives these global observation components.
 | --------------------- | ------------------------------------------------------|
 | `fixation_point`      | Reward at the currently fixated node                  |
 | `time_elapsed`        | Current elapsed step count                            |
-| `best_open_value`     | Best sum of rewards up to an unvisited but known node |
-| `best_terminal_value` | Best observed complete path reward                    |
 
 The always-included structural components define what is currently available in working memory: the fixation, its local tree neighborhood, the root marker, and the legal action mask. The ablations below focus on optional components because they already have configuration flags and can be varied without changing network code.
+
+Note: `best_open_value` and `best_terminal_value` were later removed from the current observation schema; see ADR 0004.
 
 ## Config
 

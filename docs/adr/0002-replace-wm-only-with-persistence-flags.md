@@ -68,7 +68,7 @@ This mapping makes clear that `wm_only` bundles at least five persistence assump
 
 `terminal_persist` controls whether known terminal status survives outside working memory. This should replace the current one-off `persist_terminal` flag.
 
-`known_path_values_persist` controls whether discovered path-value information remains available after the node leaves working memory. In current code this is the `known_mask` versus `active_mask` distinction for `g_values` and `best_open_value`.
+`known_path_values_persist` controls whether discovered path-value information remains available after the node leaves working memory. At the time of this ADR, this was the `known_mask` versus `active_mask` distinction for `g_values` and `best_open_value`. `best_open_value` was later removed from the observation schema.
 
 Because `known_path_values_persist` is conceptually separate from `n_visits_persist`, the implementation should not continue to derive known path-value visibility only from `n_visits > 0` if visit-count memory can be cleared independently. The migration may need an explicit discovered/known-path mask so "the path value remains known" and "the visit count remains remembered" can vary independently.
 

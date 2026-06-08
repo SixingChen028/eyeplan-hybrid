@@ -53,8 +53,6 @@ def _build_env(params: dict[str, Any]) -> JaxDecisionTreeEnv:
         activation_masks_observation=bool(params["activation_masks_observation"]),
         excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
-        use_best_open_value_obs=bool(params["use_best_open_value_obs"]),
-        use_best_terminal_value_obs=bool(params["use_best_terminal_value_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
         use_n_visits_obs=bool(params["use_n_visits_obs"]),

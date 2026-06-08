@@ -74,8 +74,6 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
         ),
         excluded_child_value=args.get("excluded_child_value", DEFAULT_PARAMS["excluded_child_value"]),
         use_recency_obs=bool(args["use_recency_obs"]),
-        use_best_open_value_obs=bool(args["use_best_open_value_obs"]),
-        use_best_terminal_value_obs=bool(args["use_best_terminal_value_obs"]),
         use_g_values_obs=bool(args["use_g_values_obs"]),
         use_q_values_obs=bool(args["use_q_values_obs"]),
         use_n_visits_obs=bool(args["use_n_visits_obs"]),

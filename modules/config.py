@@ -33,10 +33,6 @@ PARAM_DEFAULTS = {
         "excluded_child_value": None,
         # Whether observations include per-node fixation recency values.
         "use_recency_obs": True,
-        # Whether observations include best-open-path scalar value.
-        "use_best_open_value_obs": True,
-        # Whether observations include best-seen-terminal scalar value.
-        "use_best_terminal_value_obs": True,
         # Whether observations include per-node path values.
         "use_g_values_obs": True,
         # Whether observations include per-node remembered value estimates.
