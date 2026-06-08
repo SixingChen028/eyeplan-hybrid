@@ -1,0 +1,29 @@
+[meta]
+experiment = "0608_global_shared_basic"
+
+[sbatch]
+gpu = true
+time = "2:00:00"
+mem_per_cpu = "6000M"
+
+
+[params]
+hidden_size = 64
+seed = 1
+beta_e_final = 0.001
+wm_decay = [0.0, 0.5, 0.75, 1.0]
+cost = [0.001, 0.01, 0.02, 0.04, 0.08, 0.16]
+
+# basic: disable extra observations
+use_recency_obs = false
+use_best_open_value_obs = false
+use_best_terminal_value_obs = false
+use_is_terminal_obs = true
+
+# main model: WM gates actions, backup, and terminal memory
+[[conditions]]
+label = "local"
+
+[[conditions]]
+label = "global"
+network_type = "global_shared"
