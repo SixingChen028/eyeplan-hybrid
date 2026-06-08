@@ -29,6 +29,7 @@ def main() -> None:
     parser.add_argument("--eval_episodes", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--allow-unversioned-params", action="store_true")
     parser.add_argument("--gpu", action="store_true", help="Allow JAX to use GPU devices.")
     args = parser.parse_args()
 
@@ -53,6 +54,7 @@ def main() -> None:
                 overwrite=args.overwrite,
                 eval_episodes=args.eval_episodes,
                 batch_size=args.batch_size,
+                allow_unversioned_params=args.allow_unversioned_params,
             )
         except FileNotFoundError as error:
             print(f"skip incomplete run={run_dir} reason={error}", flush=True)

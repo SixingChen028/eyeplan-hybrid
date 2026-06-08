@@ -8,6 +8,7 @@ from modules.results_layout import (
     resolve_analysis_target,
     write_run_metadata,
 )
+from modules.environment_compat import ENVIRONMENT_COMPAT_VERSION
 
 
 def _make_run_dir(path: Path) -> None:
@@ -104,3 +105,4 @@ def test_write_run_metadata_writes_args_and_git_sha_field(tmp_path: Path):
     content = (run_dir / "metadata.json").read_text()
     assert '"args"' in content
     assert '"git_sha": null' in content
+    assert f'"environment_compat_version": {ENVIRONMENT_COMPAT_VERSION}' in content

@@ -174,12 +174,17 @@ def _simulate_run(
     greedy: bool,
     skip_timeout_trials: bool,
     detailed: bool,
+    allow_unversioned_params: bool,
 ) -> tuple[str, int, int, int]:
 
     metadata = _read_metadata(run_dir)
     metadata_args = _read_metadata_args(run_dir)
     params_path = _resolve_params_path_from_metadata(run_dir, metadata)
-    params = load_jax_params(params_path)
+    params = load_jax_params(
+        params_path,
+        allow_unversioned=allow_unversioned_params,
+        expected_environment_compat_version=metadata.get("environment_compat_version"),
+    )
 
     metadata_args = _metadata_args_with_simulation_overrides(
         metadata_args,
@@ -227,6 +232,7 @@ def main() -> None:
     parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--seed-filter", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--allow-unversioned-params", action="store_true")
     parser.add_argument("--gpu", action="store_true", help="Allow JAX to use GPU devices.")
     args = parser.parse_args()
     if args.viewer:
@@ -307,6 +313,7 @@ def main() -> None:
                 greedy=args.greedy,
                 skip_timeout_trials=args.skip_timeout_trials,
                 detailed=args.detailed,
+                allow_unversioned_params=args.allow_unversioned_params,
             )
             print(f"{idx:>2}/{total:<3} {output_path}")
             simulated_experiments.add(experiment)

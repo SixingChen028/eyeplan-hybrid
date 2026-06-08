@@ -217,6 +217,7 @@ def evaluate_run_dir(
     overwrite: bool = False,
     eval_episodes: int | None = None,
     batch_size: int | None = None,
+    allow_unversioned_params: bool = False,
 ) -> tuple[str, dict]:
     eval_summary_path = os.path.join(run_dir, EVAL_SUMMARY_NAME)
     if os.path.exists(eval_summary_path) and not overwrite:
@@ -225,7 +226,11 @@ def evaluate_run_dir(
     metadata = read_metadata(run_dir)
     args = read_metadata_args(run_dir)
     params_path = resolve_params_path_from_metadata(run_dir, metadata)
-    params = load_jax_params(params_path)
+    params = load_jax_params(
+        params_path,
+        allow_unversioned=allow_unversioned_params,
+        expected_environment_compat_version=metadata.get("environment_compat_version"),
+    )
     eval_summary = evaluate_params(
         params,
         args,

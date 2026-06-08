@@ -9,6 +9,8 @@ from argparse import Namespace
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from modules.environment_compat import ENVIRONMENT_COMPAT_VERSION
+
 
 @dataclass(frozen=True)
 class ResolvedAnalysisTarget:
@@ -171,6 +173,7 @@ def write_run_metadata(run_dir: str, args: Namespace, cwd: str | None = None) ->
     metadata = {
         "started_at_utc": timestamp_utc,
         "git_sha": _get_git_sha(cwd=cwd),
+        "environment_compat_version": ENVIRONMENT_COMPAT_VERSION,
         "argv": sys.argv,
         "args": vars(args),
     }

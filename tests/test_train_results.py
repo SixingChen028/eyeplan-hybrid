@@ -1,6 +1,11 @@
 import json
+import pickle
 from pathlib import Path
 
+import pytest
+
+from modules.environment_compat import ENVIRONMENT_COMPAT_VERSION
+from modules.evaluation import evaluate_run_dir
 from modules.train_results import (
     EVAL_SUMMARY_NAME,
     PARAMS_NAME,
@@ -97,3 +102,15 @@ def test_prepare_run_dirs_writes_label_to_metadata(tmp_path: Path):
     metadata_path = Path(run_dirs[0]) / "metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert metadata["args"]["label"] == "obs-basic"
+    assert metadata["environment_compat_version"] == ENVIRONMENT_COMPAT_VERSION
+
+
+def test_evaluate_run_dir_rejects_unversioned_params_by_default(tmp_path: Path):
+    run_dir = tmp_path / "results" / "runs" / "test" / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "metadata.json").write_text(json.dumps({"args": {}}), encoding="utf-8")
+    with (run_dir / PARAMS_NAME).open("wb") as file:
+        pickle.dump({"w": [1.0]}, file)
+
+    with pytest.raises(ValueError, match="missing environment compatibility metadata"):
+        evaluate_run_dir(str(run_dir))

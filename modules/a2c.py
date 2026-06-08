@@ -8,6 +8,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
+from .environment_compat import (
+    ENVIRONMENT_COMPAT_VERSION,
+    PARAMS_FORMAT_VERSION,
+    assert_environment_compat_version,
+)
 from .network import NETWORK_MLP, actor_critic_forward, init_actor_critic_params, sample_actions
 
 
@@ -101,12 +106,61 @@ def load_jax_tree(path: str):
     return _tree_from_numpy(tree)
 
 
+def _is_params_payload(tree: Any) -> bool:
+    return (
+        isinstance(tree, dict)
+        and "params_format_version" in tree
+        and "environment_compat_version" in tree
+        and "params" in tree
+    )
+
+
 def save_jax_params(params: Any, path: str):
-    save_jax_tree(params, path)
+    payload = {
+        "params_format_version": PARAMS_FORMAT_VERSION,
+        "environment_compat_version": ENVIRONMENT_COMPAT_VERSION,
+        "params": _tree_to_numpy(params),
+    }
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as file:
+        pickle.dump(payload, file)
 
 
-def load_jax_params(path: str):
-    return load_jax_tree(path)
+def load_jax_params(
+    path: str,
+    *,
+    allow_unversioned: bool = False,
+    expected_environment_compat_version=None,
+):
+    with open(path, "rb") as file:
+        tree = pickle.load(file)
+
+    if not _is_params_payload(tree):
+        if not allow_unversioned:
+            raise ValueError(
+                f"Model params are missing environment compatibility metadata: {path}. "
+                "Pass --allow-unversioned-params only for legacy runs."
+            )
+        return _tree_from_numpy(tree)
+
+    params_format_version = int(tree["params_format_version"])
+    if params_format_version != PARAMS_FORMAT_VERSION:
+        raise ValueError(
+            "Unsupported params format version: "
+            f"{params_format_version}; expected {PARAMS_FORMAT_VERSION}."
+        )
+
+    recorded_environment_version = tree["environment_compat_version"]
+    assert_environment_compat_version(recorded_environment_version, source=path)
+    if expected_environment_compat_version is not None:
+        expected_environment_version = int(expected_environment_compat_version)
+        if int(recorded_environment_version) != expected_environment_version:
+            raise ValueError(
+                "Environment compatibility version mismatch: "
+                f"{path} has {int(recorded_environment_version)}, "
+                f"run metadata has {expected_environment_version}."
+            )
+    return _tree_from_numpy(tree["params"])
 
 
 def _zeros_like_tree(tree):
