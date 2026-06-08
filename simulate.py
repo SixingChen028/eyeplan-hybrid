@@ -48,7 +48,7 @@ def _metadata_args_with_simulation_overrides(
             raise ValueError("num_nodes must be positive")
         if not _uses_node_shared_network(params):
             raise ValueError(
-                "--num_nodes can only be used with node_shared network parameters. "
+                "--num_nodes can only be used with node_shared or global_shared network parameters. "
                 "Dense MLP parameters include environment-size-dependent input and action dimensions."
             )
         args["num_nodes"] = int(num_nodes)

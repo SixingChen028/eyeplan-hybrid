@@ -1,10 +1,12 @@
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import JaxDecisionTreeEnv
 from modules.network import (
+    NETWORK_GLOBAL_SHARED,
     NETWORK_NODE_SHARED,
     actor_critic_forward,
     flatten_observation,
@@ -134,6 +136,33 @@ def test_node_shared_forward_shape_with_optional_features():
 
 
 @pytest.mark.slow
+def test_global_shared_forward_shape_with_optional_features():
+    env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=True)
+    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
+    params = init_actor_critic_params(
+        jax.random.PRNGKey(1),
+        observation_template=env.observation_template,
+        action_size=env.action_size,
+        hidden_size=16,
+        network_type=NETWORK_GLOBAL_SHARED,
+    )
+
+    logits, values = actor_critic_forward(
+        params,
+        _batch_obs(obs),
+        info["mask"][None, :],
+        info["observation_mask"][None, :],
+    )
+
+    assert params["node_policy_context"]["w"].shape == (32, 16)
+    assert params["node_policy"]["w"].shape == (16, 1)
+    assert logits.shape == (1, env.action_size)
+    assert values.shape == (1,)
+    assert np.all(np.isfinite(np.asarray(logits)))
+    assert np.all(np.isfinite(np.asarray(values)))
+
+
+@pytest.mark.slow
 def test_node_shared_forward_shape_without_static_observation_features():
     env = _env(
         num_nodes=5,
@@ -202,3 +231,87 @@ def test_node_shared_forward_is_permutation_equivariant_for_node_logits():
     )
     np.testing.assert_allclose(float(permuted_logits[0, -1]), float(logits[0, -1]), atol=1e-6)
     np.testing.assert_allclose(float(permuted_values[0]), float(values[0]), atol=1e-6)
+
+
+@pytest.mark.slow
+def test_global_shared_forward_is_permutation_equivariant_for_node_logits():
+    env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=True)
+    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
+    params = init_actor_critic_params(
+        jax.random.PRNGKey(1),
+        observation_template=env.observation_template,
+        action_size=env.action_size,
+        hidden_size=16,
+        network_type=NETWORK_GLOBAL_SHARED,
+    )
+    permutation = np.array([2, 0, 4, 1, 3], dtype=np.int32)
+    permuted_obs = _permute_node_observation(obs, permutation)
+    permuted_mask = np.concatenate([np.asarray(info["mask"])[:-1][permutation], np.asarray(info["mask"])[-1:]])
+    permuted_observation_mask = np.asarray(info["observation_mask"])[permutation]
+
+    logits, values = actor_critic_forward(
+        params,
+        _batch_obs(obs),
+        info["mask"][None, :],
+        info["observation_mask"][None, :],
+    )
+    permuted_logits, permuted_values = actor_critic_forward(
+        params,
+        _batch_obs(permuted_obs),
+        permuted_mask[None, :],
+        permuted_observation_mask[None, :],
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(permuted_logits[0, :-1]),
+        np.asarray(logits[0, :-1])[permutation],
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(float(permuted_logits[0, -1]), float(logits[0, -1]), atol=1e-6)
+    np.testing.assert_allclose(float(permuted_values[0]), float(values[0]), atol=1e-6)
+
+
+@pytest.mark.slow
+def test_global_shared_node_logit_ranking_can_depend_on_global_context():
+    env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=False)
+    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
+    params = init_actor_critic_params(
+        jax.random.PRNGKey(1),
+        observation_template=env.observation_template,
+        action_size=env.action_size,
+        hidden_size=2,
+        network_type=NETWORK_GLOBAL_SHARED,
+    )
+
+    params = jax.tree_util.tree_map(lambda value: np.zeros_like(np.asarray(value)), params)
+    params["node_fc1"]["w"][5, 0] = 1.0
+    params["node_fc2"]["w"][0, 0] = 1.0
+    params["global_fc"]["w"][4, 0] = 1.0
+    params["node_policy_context"]["w"][0, 0] = 1.0
+    params["node_policy_context"]["w"][0, 1] = 1.0
+    params["node_policy_context"]["w"][2, 1] = -1.0
+    params["node_policy"]["w"][0, 0] = -1.0
+    params["node_policy"]["w"][1, 0] = 1.5
+    params = jax.tree_util.tree_map(jnp.asarray, params)
+
+    low_context_obs = obs._replace(
+        q_values=obs.q_values.at[0].set(1.0).at[1].set(2.0),
+        fixation_point=jnp.array([0.0]),
+    )
+    high_context_obs = low_context_obs._replace(fixation_point=jnp.array([1.5]))
+
+    low_logits, _ = actor_critic_forward(
+        params,
+        _batch_obs(low_context_obs),
+        info["mask"][None, :],
+        info["observation_mask"][None, :],
+    )
+    high_logits, _ = actor_critic_forward(
+        params,
+        _batch_obs(high_context_obs),
+        info["mask"][None, :],
+        info["observation_mask"][None, :],
+    )
+
+    assert low_logits[0, 1] > low_logits[0, 0]
+    assert high_logits[0, 0] > high_logits[0, 1]

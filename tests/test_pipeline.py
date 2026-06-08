@@ -121,6 +121,39 @@ def test_jax_train_step_runs_node_shared_network():
 
 
 @pytest.mark.slow
+def test_jax_train_step_runs_global_shared_network():
+    env = _env(
+        num_nodes=3,
+        t_max=5,
+        scale_factor=1.0,
+        shuffle_nodes=False,
+        point_set=np.array([1.0], dtype=np.float32),
+    )
+
+    trainer = JaxBatchMaskA2C(
+        env=env,
+        action_size=env.action_size,
+        hidden_size=16,
+        num_envs=4,
+        lr=1e-3,
+        max_grad_norm=1.0,
+        gamma=1.0,
+        lamda=1.0,
+        beta_v=0.05,
+        beta_e=0.05,
+        network_type="global_shared",
+    )
+
+    env_params = _env_params(env)
+    train_params = _train_params(env_params)
+    state = trainer.init_state(seed=0, env_params=env_params)
+    state, metrics = trainer.train_step(state, train_params, beta_e=0.05)
+
+    assert int(state.optimizer.step) == 1
+    assert np.isfinite(float(metrics.loss))
+
+
+@pytest.mark.slow
 def test_jax_simulator_runs_trials():
     env = _env(
         num_nodes=3,
