@@ -5,6 +5,10 @@ import jax.numpy as jnp
 
 from .environment import DecisionTreeObs
 
+# When changing this file in a way that can affect pipeline results, update
+# docs/pipeline_changes.md. If existing checkpoint weights become incompatible,
+# also bump PIPELINE_COMPAT_VERSION.
+
 
 NETWORK_MLP = "mlp"
 NETWORK_NODE_SHARED = "node_shared"

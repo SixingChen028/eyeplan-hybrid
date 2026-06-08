@@ -28,6 +28,7 @@ from modules.evaluation import (
 )
 from modules.results_layout import resolve_analysis_target
 from modules.simulation import JaxSimulator
+from modules.pipeline_compat import get_pipeline_compat_version
 
 
 def _uses_node_shared_network(params) -> bool:
@@ -183,7 +184,7 @@ def _simulate_run(
     params = load_jax_params(
         params_path,
         allow_unversioned=allow_unversioned_params,
-        expected_environment_compat_version=metadata.get("environment_compat_version"),
+        expected_pipeline_compat_version=get_pipeline_compat_version(metadata),
     )
 
     metadata_args = _metadata_args_with_simulation_overrides(

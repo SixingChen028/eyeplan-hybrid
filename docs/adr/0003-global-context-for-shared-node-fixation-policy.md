@@ -4,7 +4,7 @@ Date: 2026-06-08
 
 Status: Implemented
 
-Recorded version: Environment compatibility version 1; checkpoint compatibility is distinguished by `network_type`
+Recorded version: Pipeline compatibility version 1; checkpoint shape compatibility is distinguished by `network_type`
 
 ## Context
 
@@ -49,7 +49,7 @@ Name the new architecture `global_shared` (new value of `network_type`), so expe
 
 Implemented in `eb91a3a`.
 
-`global_shared` reuses the `node_shared` encoder and global hidden state. It adds `node_policy_context`, which combines each node embedding with the broadcast global hidden state through a shared ReLU layer before producing fixation logits. Existing `node_shared` params do not have this layer, so checkpoint compatibility is handled by `network_type` and parameter shape rather than by bumping `ENVIRONMENT_COMPAT_VERSION`.
+`global_shared` reuses the `node_shared` encoder and global hidden state. It adds `node_policy_context`, which combines each node embedding with the broadcast global hidden state through a shared ReLU layer before producing fixation logits. Existing `node_shared` params do not have this layer, so checkpoint shape compatibility is handled by `network_type` and parameter shape rather than by bumping `PIPELINE_COMPAT_VERSION`.
 
 ## Rationale
 
