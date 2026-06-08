@@ -1,7 +1,7 @@
 [meta]
 
 [sbatch]
-gpu = false
+gpu = true
 
 [params]
 cost = 0.005
