@@ -2,13 +2,15 @@
 
 Date: 2026-06-08
 
-Status: Proposed
+Status: Implemented
+
+Recorded version: Environment compatibility version 1; checkpoint compatibility is distinguished by `network_type`
 
 ## Context
 
-The `node_shared` policy/value network applies a shared encoder to each node and maps each node embedding directly to a fixation logit with a shared linear head. The terminate logit and value estimate are different: they use global features built from pooled observable-node embeddings plus scalar state features such as the current fixation reward, elapsed time, and best-value observations.
+The `node_shared` policy/value network applies a shared encoder to each node and maps each node embedding directly to a fixation logit with a shared linear head. The terminate logit and value estimate are different: they use global features built from pooled observable-node embeddings plus scalar state features such as the current fixation reward and elapsed time.
 
-This means fixation actions and termination do not receive the same context. The model can use global trial state to decide whether to terminate, but the relative logits among fixation targets are determined only by each target's local node features. For example, elapsed time or the best observed terminal value can affect the terminate logit but cannot change which node is preferred if the model continues.
+This means fixation actions and termination do not receive the same context. The model can use global trial state to decide whether to terminate, but the relative logits among fixation targets are determined only by each target's local node features. For example, elapsed time can affect the terminate logit but cannot change which node is preferred if the model continues.
 
 A simple concatenation of global features to each node embedding is not enough if the fixation policy head remains linear. With a linear head:
 
@@ -41,7 +43,13 @@ fixation_logit_i = v_policy z_i + c_policy
 
 The terminate and value heads should continue to use `global_hidden`.
 
-Name the new architecture `global_shared` (new value of network_type), so experiment records distinguish it from the current `node_shared` architecture and old checkpoints do not need compatibility branches. If there is a good reason to use a different name, that is fine.
+Name the new architecture `global_shared` (new value of `network_type`), so experiment records distinguish it from `node_shared` and old checkpoints do not need compatibility branches.
+
+## Current implementation
+
+Implemented in `eb91a3a`.
+
+`global_shared` reuses the `node_shared` encoder and global hidden state. It adds `node_policy_context`, which combines each node embedding with the broadcast global hidden state through a shared ReLU layer before producing fixation logits. Existing `node_shared` params do not have this layer, so checkpoint compatibility is handled by `network_type` and parameter shape rather than by bumping `ENVIRONMENT_COMPAT_VERSION`.
 
 ## Rationale
 
@@ -80,8 +88,6 @@ For `num_nodes = 15`, `hidden_size = 64`, and a `policy_hidden_size = 64`, the a
 This is small compared with full rollout and training overhead, but it is not free under many vectorized environments. Memory use also increases by the new policy-head parameters and per-node policy activations.
 
 ## Non-goals
-
-This ADR does not implement the architecture.
 
 This ADR does not decide whether the new architecture should replace `node_shared` as the default.
 

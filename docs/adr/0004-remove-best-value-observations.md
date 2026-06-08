@@ -2,7 +2,9 @@
 
 Date: 2026-06-08
 
-Status: Accepted
+Status: Implemented
+
+Recorded version: Environment compatibility version 1
 
 ## Context
 
@@ -18,6 +20,14 @@ These fields were intended as compact summary statistics over the cognitive arch
 Remove `best_open_value` and `best_terminal_value` from the environment observation, network inputs, and default configuration.
 
 Do not replace them with new scalar observations in the current implementation.
+
+## Current implementation
+
+Implemented in `91279dc`.
+
+The current code has no `use_best_open_value_obs` or `use_best_terminal_value_obs` config fields, no corresponding `DecisionTreeObs` fields, and no network inputs for these values. Historical configs that still specify those flags are rejected as unknown keys by config normalization.
+
+This removal is recorded under the currently implemented `ENVIRONMENT_COMPAT_VERSION = 1`; no later environment compatibility epoch exists in code.
 
 ## Rationale
 
