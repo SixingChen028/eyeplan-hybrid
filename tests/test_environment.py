@@ -831,7 +831,7 @@ def test_movement_look_skips_q_update_but_applies_corruption():
         activation=jnp.zeros((env.num_nodes,), dtype=jnp.float32),
     )
 
-    state = env._look_without_q(state, _jax_action(1), params)
+    state = env._look(state, _jax_action(1), params, skip_q_update=True)
 
     np.testing.assert_allclose(float(state.q_values[1]), 7.0, atol=1e-6)
     np.testing.assert_allclose(float(state.q_values[2]), 0.0, atol=1e-6)

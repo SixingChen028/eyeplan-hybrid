@@ -344,18 +344,8 @@ class JaxDecisionTreeEnv:
         state: JaxDecisionTreeState,
         node: jax.Array,
         params: JaxDecisionTreeParams,
-    ) -> JaxDecisionTreeState:
-        state = self._update_fixation_memory(state, node, params)
-        state = self._update_q(state, params)
-        if self.activation_protects_memory and not self.disable_persistence:
-            state = self._corrupt_memory(state, params)
-        return state
-
-    def _update_fixation_memory(
-        self,
-        state: JaxDecisionTreeState,
-        node: jax.Array,
-        params: JaxDecisionTreeParams,
+        *,
+        skip_q_update: bool = False,
     ) -> JaxDecisionTreeState:
         state = state._replace(
             fixation_node=node,
@@ -365,15 +355,8 @@ class JaxDecisionTreeEnv:
         )
         state = self._update_activation(state, params)
         state = self._clear_inactive_memory(state)
-        return state
-
-    def _look_without_q(
-        self,
-        state: JaxDecisionTreeState,
-        node: jax.Array,
-        params: JaxDecisionTreeParams,
-    ) -> JaxDecisionTreeState:
-        state = self._update_fixation_memory(state, node, params)
+        if not skip_q_update:
+            state = self._update_q(state, params)
         if self.activation_protects_memory and not self.disable_persistence:
             state = self._corrupt_memory(state, params)
         return state
@@ -522,7 +505,7 @@ class JaxDecisionTreeEnv:
 
     def _sample_move_path(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
         path = self.empty_path
-        state = self._look_without_q(state, state.root_node, params)
+        state = self._look(state, state.root_node, params, skip_q_update=True)
 
         init = (
             state,
@@ -549,7 +532,7 @@ class JaxDecisionTreeEnv:
             cum_reward = cum_reward + state.points[child]
             path_len = jnp.sum(path >= 0)
             path = path.at[path_len].set(child)
-            state = self._look_without_q(state, child, params)
+            state = self._look(state, child, params, skip_q_update=True)
 
             return state, child, cum_reward, path
 
