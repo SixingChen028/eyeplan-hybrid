@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from modules.config import DEFAULT_PARAMS
+
 
 @pytest.fixture(scope="module")
 def train_test_config_run(tmp_path_factory: pytest.TempPathFactory):
@@ -91,7 +93,7 @@ def test_train_integration_metadata_records_overrides(train_test_config_run):
     assert metadata["args"]["run_eval"] is True
     assert metadata["args"]["wm_decay"] == 0.0
     assert metadata["args"]["cost"] == 0.01
-    assert metadata["args"]["network_type"] == "node_shared"
+    assert metadata["args"]["network_type"] == DEFAULT_PARAMS["network_type"]
 
 
 def test_train_integration_training_data_has_one_update(train_test_config_run):
