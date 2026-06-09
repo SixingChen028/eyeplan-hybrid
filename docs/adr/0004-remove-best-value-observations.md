@@ -4,7 +4,7 @@ Date: 2026-06-08
 
 Status: Implemented
 
-Recorded version: Pipeline compatibility version 1
+Recorded version: Compatibility version 1
 
 ## Context
 
@@ -27,7 +27,7 @@ Implemented in `91279dc`.
 
 The current code has no `use_best_open_value_obs` or `use_best_terminal_value_obs` config fields, no corresponding `DecisionTreeObs` fields, and no network inputs for these values. Historical configs that still specify those flags are rejected as unknown keys by config normalization.
 
-This removal is recorded under the currently implemented `PIPELINE_COMPAT_VERSION = 1`; no later pipeline compatibility epoch exists in code.
+This removal is recorded under the currently implemented `COMPAT_VERSION = 1`; no later compatibility epoch exists in code.
 
 ## Rationale
 

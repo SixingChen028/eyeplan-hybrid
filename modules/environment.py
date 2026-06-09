@@ -5,9 +5,9 @@ from typing import NamedTuple
 
 from modules.tree_generation import build_tree_templates
 
-# When changing this file in a way that can affect pipeline results, update
-# docs/pipeline_changes.md. If existing checkpoint weights become incompatible,
-# also bump PIPELINE_COMPAT_VERSION.
+# When changing this file in a way that can affect results, update
+# docs/changes.md. If existing checkpoint weights become incompatible,
+# also bump COMPAT_VERSION.
 
 
 def safe_get(arr: jax.Array, idx: jax.Array, *, fill_value) -> jax.Array:

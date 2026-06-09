@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from modules.evaluation import evaluate_run_dir
-from modules.pipeline_compat import PIPELINE_COMPAT_VERSION
+from modules.compat import COMPAT_VERSION
 from modules.train_results import (
     EVAL_SUMMARY_NAME,
     PARAMS_NAME,
@@ -102,7 +102,7 @@ def test_prepare_run_dirs_writes_label_to_metadata(tmp_path: Path):
     metadata_path = Path(run_dirs[0]) / "metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert metadata["args"]["label"] == "obs-basic"
-    assert metadata["pipeline_compat_version"] == PIPELINE_COMPAT_VERSION
+    assert metadata["compat_version"] == COMPAT_VERSION
 
 
 def test_evaluate_run_dir_rejects_unversioned_params_by_default(tmp_path: Path):
@@ -112,5 +112,5 @@ def test_evaluate_run_dir_rejects_unversioned_params_by_default(tmp_path: Path):
     with (run_dir / PARAMS_NAME).open("wb") as file:
         pickle.dump({"w": [1.0]}, file)
 
-    with pytest.raises(ValueError, match="missing pipeline compatibility metadata"):
+    with pytest.raises(ValueError, match="missing compatibility metadata"):
         evaluate_run_dir(str(run_dir))

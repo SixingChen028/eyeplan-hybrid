@@ -8,13 +8,12 @@ import jax.numpy as jnp
 import numpy as np
 
 from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
-from .pipeline_compat import (
-    LEGACY_ENVIRONMENT_COMPAT_KEY,
+from .compat import (
+    COMPAT_KEY,
+    COMPAT_VERSION,
     PARAMS_FORMAT_VERSION,
-    PIPELINE_COMPAT_KEY,
-    PIPELINE_COMPAT_VERSION,
-    read_pipeline_compat_version,
-    assert_pipeline_compat_version,
+    assert_compat_version,
+    read_compat_version,
 )
 from .network import NETWORK_MLP, actor_critic_forward, init_actor_critic_params, sample_actions
 
@@ -113,7 +112,7 @@ def _is_params_payload(tree: Any) -> bool:
     return (
         isinstance(tree, dict)
         and "params_format_version" in tree
-        and (PIPELINE_COMPAT_KEY in tree or LEGACY_ENVIRONMENT_COMPAT_KEY in tree)
+        and COMPAT_KEY in tree
         and "params" in tree
     )
 
@@ -121,7 +120,7 @@ def _is_params_payload(tree: Any) -> bool:
 def save_jax_params(params: Any, path: str):
     payload = {
         "params_format_version": PARAMS_FORMAT_VERSION,
-        PIPELINE_COMPAT_KEY: PIPELINE_COMPAT_VERSION,
+        COMPAT_KEY: COMPAT_VERSION,
         "params": _tree_to_numpy(params),
     }
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -133,7 +132,7 @@ def load_jax_params(
     path: str,
     *,
     allow_unversioned: bool = False,
-    expected_pipeline_compat_version=None,
+    expected_compat_version=None,
 ):
     with open(path, "rb") as file:
         tree = pickle.load(file)
@@ -141,7 +140,7 @@ def load_jax_params(
     if not _is_params_payload(tree):
         if not allow_unversioned:
             raise ValueError(
-                f"Model params are missing pipeline compatibility metadata: {path}. "
+                f"Model params are missing compatibility metadata: {path}. "
                 "Pass --allow-unversioned-params only for legacy runs."
             )
         return _tree_from_numpy(tree)
@@ -153,14 +152,14 @@ def load_jax_params(
             f"{params_format_version}; expected {PARAMS_FORMAT_VERSION}."
         )
 
-    recorded_pipeline_version = read_pipeline_compat_version(tree, source=path)
-    assert_pipeline_compat_version(recorded_pipeline_version, source=path)
-    if expected_pipeline_compat_version is not None:
-        expected_pipeline_version = int(expected_pipeline_compat_version)
-        if int(recorded_pipeline_version) != expected_pipeline_version:
+    recorded_version = read_compat_version(tree, source=path)
+    assert_compat_version(recorded_version, source=path)
+    if expected_compat_version is not None:
+        expected_version = int(expected_compat_version)
+        if int(recorded_version) != expected_version:
             raise ValueError(
-                "Pipeline compatibility version mismatch: "
-                f"{path} has {int(recorded_pipeline_version)}, run metadata has {expected_pipeline_version}."
+                "Compatibility version mismatch: "
+                f"{path} has {int(recorded_version)}, run metadata has {expected_version}."
             )
     return _tree_from_numpy(tree["params"])
 

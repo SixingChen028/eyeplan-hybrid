@@ -9,7 +9,7 @@ from typing import Any
 from modules.a2c import load_jax_params
 from modules.config import DEFAULT_META, DEFAULT_PARAMS, ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
 from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
-from modules.pipeline_compat import get_pipeline_compat_version
+from modules.compat import get_compat_version
 from modules.simulation import JaxSimulator
 
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
@@ -228,7 +228,7 @@ def evaluate_run_dir(
     params = load_jax_params(
         params_path,
         allow_unversioned=allow_unversioned_params,
-        expected_pipeline_compat_version=get_pipeline_compat_version(metadata),
+        expected_compat_version=get_compat_version(metadata),
     )
     eval_summary = evaluate_params(
         params,

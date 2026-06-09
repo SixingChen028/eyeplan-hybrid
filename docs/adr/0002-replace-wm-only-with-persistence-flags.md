@@ -4,7 +4,7 @@ Date: 2026-06-05
 
 Status: Superseded by `disable_persistence`
 
-Recorded version: Pipeline compatibility version 1
+Recorded version: Compatibility version 1
 
 ## Context
 

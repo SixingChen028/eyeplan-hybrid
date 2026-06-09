@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from modules.a2c import load_jax_params, save_jax_params
-from modules.pipeline_compat import PARAMS_FORMAT_VERSION, PIPELINE_COMPAT_VERSION
+from modules.compat import PARAMS_FORMAT_VERSION, COMPAT_VERSION
 
 
 def test_save_load_jax_params_round_trips_versioned_payload(tmp_path: Path):
@@ -22,7 +22,7 @@ def test_save_load_jax_params_round_trips_versioned_payload(tmp_path: Path):
     with path.open("rb") as file:
         payload = pickle.load(file)
     assert payload["params_format_version"] == PARAMS_FORMAT_VERSION
-    assert payload["pipeline_compat_version"] == PIPELINE_COMPAT_VERSION
+    assert payload["compat_version"] == COMPAT_VERSION
     assert "params" in payload
 
 
@@ -31,7 +31,7 @@ def test_load_jax_params_rejects_unversioned_payload_by_default(tmp_path: Path):
     with path.open("wb") as file:
         pickle.dump({"w": np.asarray([1.0])}, file)
 
-    with pytest.raises(ValueError, match="missing pipeline compatibility metadata"):
+    with pytest.raises(ValueError, match="missing compatibility metadata"):
         load_jax_params(str(path))
 
 
@@ -45,33 +45,18 @@ def test_load_jax_params_allows_unversioned_payload_when_requested(tmp_path: Pat
     np.testing.assert_allclose(np.asarray(loaded["w"]), np.asarray([1.0]))
 
 
-def test_load_jax_params_rejects_pipeline_compat_mismatch(tmp_path: Path):
+def test_load_jax_params_rejects_compat_mismatch(tmp_path: Path):
     path = tmp_path / "net_jax.p"
     payload = {
         "params_format_version": PARAMS_FORMAT_VERSION,
-        "pipeline_compat_version": PIPELINE_COMPAT_VERSION + 1,
+        "compat_version": COMPAT_VERSION + 1,
         "params": {"w": np.asarray([1.0])},
     }
     with path.open("wb") as file:
         pickle.dump(payload, file)
 
-    with pytest.raises(ValueError, match="Pipeline compatibility version mismatch"):
+    with pytest.raises(ValueError, match="Compatibility version mismatch"):
         load_jax_params(str(path))
-
-
-def test_load_jax_params_accepts_legacy_environment_compat_key(tmp_path: Path):
-    path = tmp_path / "net_jax.p"
-    payload = {
-        "params_format_version": PARAMS_FORMAT_VERSION,
-        "environment_compat_version": PIPELINE_COMPAT_VERSION,
-        "params": {"w": np.asarray([1.0])},
-    }
-    with path.open("wb") as file:
-        pickle.dump(payload, file)
-
-    loaded = load_jax_params(str(path))
-
-    np.testing.assert_allclose(np.asarray(loaded["w"]), np.asarray([1.0]))
 
 
 def test_load_jax_params_rejects_metadata_compat_mismatch(tmp_path: Path):
@@ -79,4 +64,4 @@ def test_load_jax_params_rejects_metadata_compat_mismatch(tmp_path: Path):
     save_jax_params({"w": jnp.asarray([1.0])}, str(path))
 
     with pytest.raises(ValueError, match="run metadata"):
-        load_jax_params(str(path), expected_pipeline_compat_version=PIPELINE_COMPAT_VERSION + 1)
+        load_jax_params(str(path), expected_compat_version=COMPAT_VERSION + 1)
