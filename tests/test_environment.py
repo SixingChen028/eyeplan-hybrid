@@ -370,6 +370,31 @@ def test_activation_masks_observation_keeps_active_g_values():
     assert np.asarray(obs.is_terminal)[3] == 1.0
 
 
+def test_activation_masks_observation_hides_inactive_root_values():
+    env = _env(
+        num_nodes=3,
+        shuffle_nodes=False,
+        activation_masks_observation=True,
+    )
+    state = env._sample_initial_state(jax.random.PRNGKey(121))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(1, dtype=jnp.int32),
+        child_nodes=jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32),
+        parent_nodes=jnp.array([-1, 0, 0], dtype=jnp.int32),
+        g_values=jnp.array([4.0, 5.0, 6.0], dtype=jnp.float32),
+        q_values=jnp.array([7.0, 8.0, 9.0], dtype=jnp.float32),
+        n_visits=jnp.array([1, 2, 3], dtype=jnp.int32),
+        activation=jnp.array([0.0, 1.0, 0.0], dtype=jnp.float32),
+    )
+
+    obs = env._get_obs(state)
+
+    assert np.asarray(obs.g_values)[0] == 0.0
+    assert np.asarray(obs.q_values)[0] == 0.0
+    assert np.asarray(obs.n_visits)[0] == 0.0
+
+
 def test_observation_masking_decouples_known_path_from_activation():
     # With persistence enabled and activation_masks_observation, g_values uses the
     # observation mask only: active nodes are shown even if unknown.
@@ -503,6 +528,30 @@ def test_update_activation_refreshes_fixation_neighborhood_after_drop():
     np.testing.assert_array_equal(np.asarray(state.activation), expected_activation)
 
 
+def test_update_activation_does_not_refresh_root_outside_fixation_neighborhood():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+    )
+    params = _env_params(env, wm_decay=0.0)
+    state = env._sample_initial_state(jax.random.PRNGKey(181))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(3, dtype=jnp.int32),
+        child_nodes=jnp.array(
+            [[1, 2], [3, 4], [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1]],
+            dtype=jnp.int32,
+        ),
+        parent_nodes=jnp.array([-1, 0, 0, 1, 1, -1, -1], dtype=jnp.int32),
+        activation=jnp.ones((7,), dtype=jnp.float32),
+    )
+
+    state = env._update_activation(state, params)
+
+    expected_activation = np.array([0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    np.testing.assert_array_equal(np.asarray(state.activation), expected_activation)
+
+
 def test_update_activation_uses_neighbor_activation_without_reducing_activation():
     env = _env(
         num_nodes=7,
@@ -523,7 +572,7 @@ def test_update_activation_uses_neighbor_activation_without_reducing_activation(
 
     state = env._update_activation(state, params)
 
-    expected_activation = np.array([1.0, 1.0, 0.0, 1.0, 0.25, 0.0, 0.0], dtype=np.float32)
+    expected_activation = np.array([0.25, 1.0, 0.0, 1.0, 0.25, 0.0, 0.0], dtype=np.float32)
     np.testing.assert_array_equal(np.asarray(state.activation), expected_activation)
 
 
@@ -539,6 +588,20 @@ def test_update_activation_tracks_consumed_rng_key():
     state = env._update_activation(state, params)
 
     np.testing.assert_array_equal(np.asarray(state.rng_key), np.asarray(expected_key))
+
+
+def test_root_action_is_legal_when_root_is_inactive():
+    env = _env(num_nodes=3, shuffle_nodes=False)
+    state = env._sample_initial_state(jax.random.PRNGKey(182))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        time_elapsed=jnp.asarray(0, dtype=jnp.int32),
+        activation=jnp.array([0.0, 1.0, 0.0], dtype=jnp.float32),
+    )
+
+    mask = np.asarray(env._get_action_mask(state))
+
+    np.testing.assert_array_equal(mask, np.array([True, True, False, True]))
 
 
 def test_corrupt_memory_tracks_consumed_rng_key():
@@ -998,9 +1061,34 @@ def test_wm_decay_zero_multi_step_backup_uses_refreshed_activation():
 
     np.testing.assert_allclose(
         np.asarray(state.q_values),
-        np.array([11.0, 11.0, 110.0, 100.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        np.array([1.0, 11.0, 110.0, 100.0, 0.0, 0.0, 0.0], dtype=np.float32),
         atol=1e-6,
     )
+
+
+def test_inactive_root_stops_gated_ancestor_backup():
+    env = _env(
+        num_nodes=3,
+        shuffle_nodes=False,
+        activation_gates_backup_sink=True,
+        activation_gates_backup_source=False,
+    )
+    params = _env_params(env, learning_rate=1.0, lamda_backup=1.0, backup_steps=100, wm_decay=0.0)
+    state = env._sample_initial_state(jax.random.PRNGKey(961))
+    state = state._replace(
+        child_nodes=jnp.array([[1, -1], [2, -1], [-1, -1]], dtype=jnp.int32),
+        parent_nodes=jnp.array([-1, 0, 1], dtype=jnp.int32),
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(0, dtype=jnp.int32),
+        points=jnp.array([0.0, 1.0, 10.0], dtype=jnp.float32),
+        q_values=jnp.zeros((3,), dtype=jnp.float32),
+        activation=jnp.zeros((3,), dtype=jnp.float32),
+    )
+
+    state = env._look(state, _jax_action(2), params)
+
+    np.testing.assert_allclose(np.asarray(state.activation), np.array([0.0, 1.0, 1.0], dtype=np.float32), atol=1e-6)
+    np.testing.assert_allclose(np.asarray(state.q_values), np.array([0.0, 11.0, 10.0], dtype=np.float32), atol=1e-6)
 
 
 def test_backup_sink_gating_stops_at_inactive_ancestor():

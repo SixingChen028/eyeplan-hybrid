@@ -385,8 +385,6 @@ class JaxDecisionTreeEnv:
         )
         activation = safe_set(activation, parent, parent_activation)
         activation = safe_set(activation, children, child_activation)
-        # root is always active
-        activation = activation.at[state.root_node].set(1.0)
 
         return state._replace(
             rng_key=key,
@@ -470,6 +468,7 @@ class JaxDecisionTreeEnv:
             node_mask = (state.activation > 0) & fixation_allowed
         else:
             node_mask = jnp.full((self.num_nodes,), fixation_allowed, dtype=jnp.bool_)
+        node_mask = node_mask.at[state.root_node].set(fixation_allowed)
         term_mask = jnp.array([True], dtype=jnp.bool_)
         return jnp.concatenate([node_mask, term_mask], axis=0)
 
