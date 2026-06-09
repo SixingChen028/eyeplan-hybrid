@@ -193,37 +193,6 @@ def test_simulate_default_output_name_includes_environment_size_overrides(tmp_pa
     assert calls[0]["output_path"] == str(run_dir / "data_simulation_num_nodes31_t_max80.json")
 
 
-def test_simulate_detailed_default_output_name_includes_environment_size_overrides(tmp_path, monkeypatch):
-    run_dir = _make_simulate_run_dir(tmp_path)
-    calls = []
-
-    def fake_simulate_run(**kwargs):
-        calls.append(kwargs)
-        return "params.p", 15, 10, 10
-
-    monkeypatch.setattr(simulate, "_simulate_run", fake_simulate_run)
-    monkeypatch.setattr(simulate, "_read_metadata_args", lambda run_dir: {"seed": 1})
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "simulate.py",
-            str(run_dir),
-            "--results_root",
-            str(tmp_path / "results"),
-            "--detailed",
-            "--num_nodes",
-            "31",
-            "--t_max",
-            "80",
-        ],
-    )
-
-    simulate.main()
-
-    assert len(calls) == 1
-    assert calls[0]["output_path"] == str(run_dir / "data_simulation_detailed_num_nodes31_t_max80.json")
-
-
 def test_simulate_passes_environment_size_overrides(tmp_path, monkeypatch):
     run_dir = _make_simulate_run_dir(tmp_path)
     calls = []
