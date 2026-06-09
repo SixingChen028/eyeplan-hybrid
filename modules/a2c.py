@@ -132,6 +132,7 @@ def load_jax_params(
     path: str,
     *,
     allow_unversioned: bool = False,
+    allow_compat_mismatch: bool = False,
     expected_compat_version=None,
 ):
     with open(path, "rb") as file:
@@ -153,7 +154,6 @@ def load_jax_params(
         )
 
     recorded_version = read_compat_version(tree, source=path)
-    assert_compat_version(recorded_version, source=path)
     if expected_compat_version is not None:
         expected_version = int(expected_compat_version)
         if int(recorded_version) != expected_version:
@@ -161,6 +161,8 @@ def load_jax_params(
                 "Compatibility version mismatch: "
                 f"{path} has {int(recorded_version)}, run metadata has {expected_version}."
             )
+    if not allow_compat_mismatch:
+        assert_compat_version(recorded_version, source=path)
     return _tree_from_numpy(tree["params"])
 
 

@@ -176,6 +176,7 @@ def _simulate_run(
     skip_timeout_trials: bool,
     detailed: bool,
     allow_unversioned_params: bool,
+    allow_compat_mismatch: bool,
 ) -> tuple[str, int, int, int]:
 
     metadata = _read_metadata(run_dir)
@@ -184,6 +185,7 @@ def _simulate_run(
     params = load_jax_params(
         params_path,
         allow_unversioned=allow_unversioned_params,
+        allow_compat_mismatch=allow_compat_mismatch,
         expected_compat_version=get_compat_version(metadata),
     )
 
@@ -234,6 +236,14 @@ def main() -> None:
     parser.add_argument("--seed-filter", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--allow-unversioned-params", action="store_true")
+    parser.add_argument(
+        "--allow-compat-mismatch",
+        action="store_true",
+        help=(
+            "Load versioned params from a previous compatibility epoch. "
+            "Use only after confirming the compatibility change does not affect the run."
+        ),
+    )
     parser.add_argument("--gpu", action="store_true", help="Allow JAX to use GPU devices.")
     args = parser.parse_args()
     if args.viewer:
@@ -315,6 +325,7 @@ def main() -> None:
                 skip_timeout_trials=args.skip_timeout_trials,
                 detailed=args.detailed,
                 allow_unversioned_params=args.allow_unversioned_params,
+                allow_compat_mismatch=args.allow_compat_mismatch,
             )
             print(f"{idx:>2}/{total:<3} {output_path}")
             simulated_experiments.add(experiment)

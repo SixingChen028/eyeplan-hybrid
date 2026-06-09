@@ -73,9 +73,40 @@ def test_load_jax_params_rejects_previous_compat_version(tmp_path: Path):
         load_jax_params(str(path))
 
 
+def test_load_jax_params_allows_compat_mismatch_when_requested(tmp_path: Path):
+    path = tmp_path / "net_jax.p"
+    payload = {
+        "params_format_version": PARAMS_FORMAT_VERSION,
+        "compat_version": COMPAT_VERSION - 1,
+        "params": {"w": np.asarray([1.0])},
+    }
+    with path.open("wb") as file:
+        pickle.dump(payload, file)
+
+    loaded = load_jax_params(
+        str(path),
+        allow_compat_mismatch=True,
+        expected_compat_version=COMPAT_VERSION - 1,
+    )
+
+    np.testing.assert_allclose(np.asarray(loaded["w"]), np.asarray([1.0]))
+
+
 def test_load_jax_params_rejects_metadata_compat_mismatch(tmp_path: Path):
     path = tmp_path / "net_jax.p"
     save_jax_params({"w": jnp.asarray([1.0])}, str(path))
 
     with pytest.raises(ValueError, match="run metadata"):
         load_jax_params(str(path), expected_compat_version=COMPAT_VERSION + 1)
+
+
+def test_load_jax_params_rejects_metadata_compat_mismatch_even_when_current_mismatch_allowed(tmp_path: Path):
+    path = tmp_path / "net_jax.p"
+    save_jax_params({"w": jnp.asarray([1.0])}, str(path))
+
+    with pytest.raises(ValueError, match="run metadata"):
+        load_jax_params(
+            str(path),
+            allow_compat_mismatch=True,
+            expected_compat_version=COMPAT_VERSION + 1,
+        )
