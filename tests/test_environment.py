@@ -19,6 +19,7 @@ def _env(**overrides):
         scale_factor=float(params["scale_factor"]),
         shuffle_nodes=bool(params["shuffle_nodes"]),
         disable_persistence=bool(params["disable_persistence"]),
+        persist_terminal=bool(params["persist_terminal"]),
         activation_masks_actions=bool(params["activation_masks_actions"]),
         activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
         activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
@@ -303,6 +304,28 @@ def test_activation_protects_memory_allows_forgetting_inactive_node_memory():
     np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
 
 
+def test_disabling_activation_memory_protection_forgets_active_node_memory():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+        activation_protects_memory=False,
+    )
+    params = _env_params(env, q_decay=1.0, q_drift=0.0, forget_rate=1.0)
+    state = env._sample_initial_state(jax.random.PRNGKey(111))
+    state = state._replace(
+        q_values=jnp.arange(7, dtype=jnp.float32),
+        n_visits=jnp.ones((7,), dtype=jnp.int32),
+        fixation_recency=jnp.linspace(0.1, 0.7, 7, dtype=jnp.float32),
+        activation=jnp.ones((7,), dtype=jnp.float32),
+    )
+
+    state = env._corrupt_memory(state, params)
+
+    np.testing.assert_allclose(np.asarray(state.q_values), np.zeros(7), atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(state.n_visits), np.zeros(7))
+    np.testing.assert_allclose(np.asarray(state.fixation_recency), np.zeros(7), atol=1e-6)
+
+
 def test_disable_persistence_clears_inactive_node_memory_without_forget_rate():
     env = _env(
         num_nodes=7,
@@ -338,6 +361,11 @@ def test_disable_persistence_clears_inactive_node_memory_without_forget_rate():
     np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], 0.0, atol=1e-6)
     np.testing.assert_array_equal(np.asarray(state.n_visits)[inactive_mask], np.zeros(np.sum(inactive_mask)))
     np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
+
+
+def test_persist_terminal_cannot_be_enabled_when_persistence_is_disabled():
+    with pytest.raises(ValueError, match="persist_terminal cannot be true"):
+        _env(num_nodes=7, shuffle_nodes=False, disable_persistence=True, persist_terminal=True)
 
 
 def test_activation_masks_observation_keeps_active_g_values():
@@ -443,8 +471,8 @@ def test_terminal_memory_clears_inactive_nodes_by_default():
     )
 
 
-def test_disabling_activation_memory_protection_keeps_inactive_terminal_memory():
-    env = _env(num_nodes=7, shuffle_nodes=False, activation_protects_memory=False)
+def test_persist_terminal_keeps_inactive_terminal_memory():
+    env = _env(num_nodes=7, shuffle_nodes=False, activation_protects_memory=False, persist_terminal=True)
     state = env._sample_initial_state(jax.random.PRNGKey(15))
     state = state._replace(
         is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
@@ -456,6 +484,22 @@ def test_disabling_activation_memory_protection_keeps_inactive_terminal_memory()
     np.testing.assert_array_equal(
         np.asarray(state.is_terminal),
         np.array([False, False, False, True, False, False, True]),
+    )
+
+
+def test_unprotected_terminal_memory_clears_without_persistence():
+    env = _env(num_nodes=7, shuffle_nodes=False, activation_protects_memory=False, persist_terminal=False)
+    state = env._sample_initial_state(jax.random.PRNGKey(151))
+    state = state._replace(
+        is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
+        activation=jnp.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32),
+    )
+
+    state = env._clear_inactive_memory(state)
+
+    np.testing.assert_array_equal(
+        np.asarray(state.is_terminal),
+        np.array([False, False, False, False, False, False, False]),
     )
 
 

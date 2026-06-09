@@ -44,6 +44,7 @@ def require_metadata_keys(metadata_args: dict, keys: tuple[str, ...], section_na
 def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
     optional_static_keys = {
         "disable_persistence",
+        "persist_terminal",
         "activation_masks_actions",
         "activation_gates_backup_sink",
         "activation_gates_backup_source",
@@ -60,6 +61,7 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
         scale_factor=float(args["scale_factor"]),
         shuffle_nodes=bool(args["shuffle_nodes"]),
         disable_persistence=bool(args.get("disable_persistence", DEFAULT_PARAMS["disable_persistence"])),
+        persist_terminal=bool(args.get("persist_terminal", DEFAULT_PARAMS["persist_terminal"])),
         activation_masks_actions=bool(args.get("activation_masks_actions", DEFAULT_PARAMS["activation_masks_actions"])),
         activation_gates_backup_sink=bool(
             args.get("activation_gates_backup_sink", DEFAULT_PARAMS["activation_gates_backup_sink"])

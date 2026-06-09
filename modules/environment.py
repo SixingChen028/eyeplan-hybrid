@@ -44,8 +44,8 @@ class JaxDecisionTreeState(NamedTuple):
     # implementation detail
     rng_key: jax.Array
 
-# NOTE g_values is static because it's impossible for the agent to ever form an
-# incorrect g value. This is a consequence of action masking and parent activation.
+# NOTE g_values is static path-value information in the cognitive architecture,
+# not learned memory.
 
 class JaxDecisionTreeParams(NamedTuple):
     beta_move: jax.Array
@@ -92,6 +92,7 @@ class JaxDecisionTreeEnv:
         use_is_terminal_obs: bool,
         use_time_elapsed_obs: bool,
         disable_persistence: bool,
+        persist_terminal: bool,
         activation_masks_actions: bool,
         activation_gates_backup_sink: bool,
         activation_gates_backup_source: bool,
@@ -105,6 +106,7 @@ class JaxDecisionTreeEnv:
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
         self.disable_persistence = bool(disable_persistence)
+        self.persist_terminal = bool(persist_terminal)
         self.activation_masks_actions = bool(activation_masks_actions)
         self.activation_gates_backup_sink = bool(activation_gates_backup_sink)
         self.activation_gates_backup_source = bool(activation_gates_backup_source)
@@ -119,14 +121,15 @@ class JaxDecisionTreeEnv:
         self.use_time_elapsed_obs = bool(use_time_elapsed_obs)
 
         # enforce parameterization rules
+        if self.disable_persistence and self.persist_terminal:
+            raise ValueError("persist_terminal cannot be true when disable_persistence is true.")
         if self.disable_persistence: # assumes default activation behavior
             assert self.activation_gates_backup_sink
             assert self.activation_gates_backup_source
             assert self.activation_protects_memory
             assert self.activation_masks_observation
         
-        # We currently assume this (see NOTE above).
-        # Leaving the flag in place for explicitness and for possible future implementation
+        # Arbitrary node fixation would bypass the current path-availability assumptions.
         assert self.activation_masks_actions
 
         self.point_set = jnp.asarray(point_set, dtype=jnp.float32)
@@ -261,10 +264,11 @@ class JaxDecisionTreeEnv:
                 is_terminal=state.is_terminal & active,
             )
 
-        if not self.activation_protects_memory:
+        if self.persist_terminal:
             return state
 
-        return state._replace(is_terminal=state.is_terminal & active)
+        terminal_memory_mask = active if self.activation_protects_memory else self._zeros(jnp.bool_)
+        return state._replace(is_terminal=state.is_terminal & terminal_memory_mask)
 
     def _backup_target(self, state, node, params: JaxDecisionTreeParams):
         children = state.child_nodes[node]
@@ -355,7 +359,7 @@ class JaxDecisionTreeEnv:
         state = self._clear_inactive_memory(state)
         if not skip_q_update:
             state = self._update_q(state, params)
-        if self.activation_protects_memory and not self.disable_persistence:
+        if not self.disable_persistence:
             state = self._corrupt_memory(state, params)
         return state
 
@@ -393,15 +397,19 @@ class JaxDecisionTreeEnv:
 
     def _corrupt_memory(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
         key, q_drift_key, forget_key = jax.random.split(state.rng_key, 3)
-        inactive = state.activation == 0.0
+        corrupt_mask = (
+            state.activation == 0.0
+            if self.activation_protects_memory
+            else jnp.ones((self.num_nodes,), dtype=jnp.bool_)
+        )
 
-        # add noise/drift to q values outside of WM
-        q_values = jnp.where(inactive, state.q_values * params.q_decay, state.q_values)
+        # add noise/drift to unprotected q values
+        q_values = jnp.where(corrupt_mask, state.q_values * params.q_decay, state.q_values)
         q_noise = jax.random.normal(q_drift_key, shape=(self.num_nodes,)) * params.q_drift
-        q_values = jnp.where(inactive, q_values + q_noise, q_values)
+        q_values = jnp.where(corrupt_mask, q_values + q_noise, q_values)
 
-        # stochastically forget node-specific memory outside of WM
-        forget_mask = inactive & (
+        # stochastically forget unprotected node-specific memory
+        forget_mask = corrupt_mask & (
             jax.random.uniform(forget_key, shape=(self.num_nodes,)) < params.forget_rate
         )
         q_values = jnp.where(forget_mask, 0.0, q_values)

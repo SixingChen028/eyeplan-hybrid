@@ -19,6 +19,8 @@ PARAM_DEFAULTS = {
         "shuffle_nodes": True,
         # Mode where inactive nodes retain no node-specific information.
         "disable_persistence": False,
+        # Whether seen-terminal indicators persist outside working memory.
+        "persist_terminal": False,
         # Whether activation determines which fixation actions are legal.
         "activation_masks_actions": True,
         # Whether activation determines whether an ancestor can receive a backup update.
