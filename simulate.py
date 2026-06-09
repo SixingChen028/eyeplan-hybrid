@@ -232,7 +232,6 @@ def main() -> None:
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--skip_timeout_trials", action="store_true")
     parser.add_argument("--detailed", action="store_true")
-    parser.add_argument("--viewer", action="store_true")
     parser.add_argument("--seed-filter", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--allow-unversioned-params", action="store_true")
@@ -246,8 +245,6 @@ def main() -> None:
     )
     parser.add_argument("--gpu", action="store_true", help="Allow JAX to use GPU devices.")
     args = parser.parse_args()
-    if args.viewer:
-        args.detailed = True
     if args.seed_filter is None and args.detailed:
         args.seed_filter = 1
     num_trials = args.num_trials
@@ -344,7 +341,7 @@ def main() -> None:
             traceback.print_exc()
             continue
 
-    if args.viewer and simulated_experiments:
+    if args.detailed and simulated_experiments:
         viewer_root = os.path.expanduser("~/projects/eyeplan/tree-viewer")
         experiment_dirs = [
             os.path.abspath(os.path.join(args.results_root, "runs", experiment))
