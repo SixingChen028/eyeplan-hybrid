@@ -299,43 +299,38 @@ class JaxDecisionTreeEnv:
     def _update_q(self, state, params: JaxDecisionTreeParams):
         node = state.fixation_node
         q_values = state.q_values
-        children = state.child_nodes[node]
-        child_q = safe_get(q_values, children, fill_value=0.0)
-        target = state.points[node] + jnp.max(child_q)
-        node_step = params.learning_rate * (target - q_values[node])
-        q_values = q_values.at[node].add(node_step)
 
         def cond_fn(carry):
             current, weight, steps, _ = carry
-            parent = state.parent_nodes[current]
-            has_parent = parent >= 0
-            has_budget = steps < params.backup_steps
-            parent_active = safe_get(state.activation, parent, fill_value=0.0) > 0.0
-            activation_allows_backup = parent_active if self.activation_gates_backup_sink else True
+            has_current = current >= 0
+            is_fixated_node = steps < 0
+            has_budget = is_fixated_node | (steps < params.backup_steps)
+            current_active = safe_get(state.activation, current, fill_value=0.0) > 0.0
+            activation_allows_backup = (
+                is_fixated_node | current_active if self.activation_gates_backup_sink else True
+            )
             return (
                 (weight > 1e-6)
-                & (current != state.root_node)
-                & has_parent
+                & has_current
                 & has_budget
                 & activation_allows_backup
             )
 
         def body_fn(carry):
             current, weight, steps, q_values = carry
-            ancestor = state.parent_nodes[current]
-            target = self._backup_target(state._replace(q_values=q_values), ancestor, params)
+            target = self._backup_target(state._replace(q_values=q_values), current, params)
             step_size = params.learning_rate * weight
-            new_value = q_values[ancestor] + step_size * (target - q_values[ancestor])
-            q_values = q_values.at[ancestor].set(new_value)
-            return ancestor, weight * params.lamda_backup, steps + 1, q_values
+            new_value = q_values[current] + step_size * (target - q_values[current])
+            q_values = q_values.at[current].set(new_value)
+            return state.parent_nodes[current], weight * params.lamda_backup, steps + 1, q_values
 
         _, _, _, q_values = jax.lax.while_loop(
             cond_fn,
             body_fn,
             (
                 node,
-                jnp.asarray(params.lamda_backup, dtype=q_values.dtype),
-                jnp.asarray(0, dtype=jnp.int32),
+                jnp.asarray(1.0, dtype=q_values.dtype),
+                jnp.asarray(-1, dtype=jnp.int32),
                 q_values,
             ),
         )
