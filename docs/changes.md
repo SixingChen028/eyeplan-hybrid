@@ -4,14 +4,6 @@ Record every important result-producing change here. An important change is any 
 
 The compatibility version is an integer epoch attached to runs and checkpoint weights. Bump it only when a change makes existing checkpoint weights incompatible with the current code. Compatible changes stay under the current version.
 
-Use entries in this format:
-
-```md
-- <change phrase>; ADR <number>; commits `<sha>`, `<sha>`.
-```
-
-Prefer concise change phrases such as "rename `wm_only` to `disable_persistence`", "add `global_shared` architecture", or "remove `best_open_value` and `best_terminal_value` observations".
-
 ## Version 1
 
 - Apply `q_drift` noise during the movement phase; commit `4877f66`.
