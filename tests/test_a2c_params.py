@@ -59,6 +59,20 @@ def test_load_jax_params_rejects_compat_mismatch(tmp_path: Path):
         load_jax_params(str(path))
 
 
+def test_load_jax_params_rejects_previous_compat_version(tmp_path: Path):
+    path = tmp_path / "net_jax.p"
+    payload = {
+        "params_format_version": PARAMS_FORMAT_VERSION,
+        "compat_version": COMPAT_VERSION - 1,
+        "params": {"w": np.asarray([1.0])},
+    }
+    with path.open("wb") as file:
+        pickle.dump(payload, file)
+
+    with pytest.raises(ValueError, match="Compatibility version mismatch"):
+        load_jax_params(str(path))
+
+
 def test_load_jax_params_rejects_metadata_compat_mismatch(tmp_path: Path):
     path = tmp_path / "net_jax.p"
     save_jax_params({"w": jnp.asarray([1.0])}, str(path))
