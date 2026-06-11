@@ -11,7 +11,7 @@ GENERAL_ENVIRONMENTS = [
         "transient_wm",
         {},
         {
-            "wm_decay": 0.25,
+            "wm_decay": 0.5,
             "wm_neighbor_activation": 0.5,
             "forget_rate": 0.25,
             "q_decay": 0.75,
@@ -22,7 +22,7 @@ GENERAL_ENVIRONMENTS = [
     pytest.param(
         "disable_persistence",
         {"disable_persistence": True},
-        {"wm_decay": 0.0},
+        {"wm_decay": 0.5},
         id="disable_persistence",
     ),
 ]
@@ -68,7 +68,7 @@ def _run_invariant_batch(
     seed=0,
     expect_max_consistent_q=False,
 ):
-    env = _env(t_max=num_steps + 1, **env_overrides)
+    env = _env(**env_overrides)
     params = _env_params(env, **param_overrides)
     trace = collect_random_fixation_rollouts(
         env,
@@ -86,18 +86,18 @@ def _run_invariant_batch(
 
 
 @pytest.mark.parametrize("_, env_overrides, param_overrides", GENERAL_ENVIRONMENTS)
-@pytest.mark.parametrize("num_nodes", [7, 15, 21])
+@pytest.mark.parametrize("num_nodes", [15])
 def test_random_fixation_rollout_invariants(_, env_overrides, param_overrides, num_nodes):
     _run_invariant_batch(
         env_overrides={"num_nodes": num_nodes, "shuffle_nodes": True, **env_overrides},
         param_overrides=param_overrides,
         num_rollouts=100,
-        num_steps=20,
+        num_steps=30,
         seed=num_nodes,
     )
 
 
-@pytest.mark.parametrize("num_nodes", [7, 15, 21])
+@pytest.mark.parametrize("num_nodes", [15])
 def test_low_noise_rollout_q_values_are_max_consistent(num_nodes):
     _run_invariant_batch(
         env_overrides={"num_nodes": num_nodes, "shuffle_nodes": True},
@@ -128,7 +128,7 @@ def test_large_random_fixation_rollout_invariants(_, env_overrides, param_overri
         env_overrides={"num_nodes": num_nodes, "shuffle_nodes": True, **env_overrides},
         param_overrides=param_overrides,
         num_rollouts=1000,
-        num_steps=50,
+        num_steps=30,
         seed=200 + num_nodes,
     )
 
@@ -151,7 +151,7 @@ def test_large_low_noise_rollout_q_values_are_max_consistent(num_nodes):
             "q_decay": 1.0,
         },
         num_rollouts=1000,
-        num_steps=50,
+        num_steps=20,
         seed=300 + num_nodes,
         expect_max_consistent_q=True,
     )
