@@ -1,0 +1,56 @@
+[meta]
+array_vars = "ALL"
+
+[sbatch]
+time = "4:00:00"
+mem_per_cpu = "3000M"
+gpu = false
+
+[params]
+cost = [0.005]
+seed = [1, 2]
+beta_e_final = 0.001
+
+use_recency_obs = false
+
+# main model: WM gates actions, backup, and terminal memory
+[[conditions]]
+label = "main"
+wm_decay = 0.5
+
+# no memory constraints
+[[conditions]]
+label = "unbounded"
+wm_decay = 1.0
+# these flags should not be necessary because wm_decay=1, keeping as fallback for now
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+disable_corruption = true
+activation_masks_observation = false
+
+# activation only gates legal fixation actions
+[[conditions]]
+label = "actions_only"
+wm_decay = 0.5
+# these flags ARE necessary because wm_decay < 1
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+disable_corruption = true
+activation_masks_observation = false
+
+# inactive nodes retain no node-specific information
+[[conditions]]
+label = "no_persistence"
+wm_decay = 0.5
+disable_persistence = true
+
+# activation collapses to the current fixation neighborhood each step
+[[conditions]]
+label = "no_wm"
+wm_decay = 0.0
+
+# activation collapses and inactive node-specific memory is forgotten
+# [[conditions]]
+# label = "no_memory"
+# wm_decay = 0.0
+# disable_persistence = true
