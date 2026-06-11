@@ -344,7 +344,8 @@ class JaxDecisionTreeEnv:
             state = self._clear_inactive_memory(state)
         if not skip_q_update:
             state = self._update_q(state, params)
-        if not self.disable_persistence and not self.disable_corruption:
+        if not (self.disable_persistence or self.disable_corruption):
+            # skip under disable_persistence because any inactive info has already been cleared
             state = self._corrupt_memory(state, params)
         return state
 
@@ -396,6 +397,8 @@ class JaxDecisionTreeEnv:
         q_values = jnp.where(forget_mask, 0.0, q_values)
         n_visits = jnp.where(forget_mask, 0, state.n_visits)
         fixation_recency = jnp.where(forget_mask, 0.0, state.fixation_recency)
+
+        # deterministically is_terminal for inactive nodes (never persisted)
         is_terminal = state.is_terminal & ~inactive
 
         return state._replace(
