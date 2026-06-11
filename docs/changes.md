@@ -4,6 +4,12 @@ Record every important result-producing change here. An important change is any 
 
 The compatibility version is an integer epoch attached to runs and checkpoint weights. Bump it only when a change makes existing checkpoint weights incompatible with the current code. Compatible changes stay under the current version.
 
+## Version 4
+
+- Add discovered-node state to the cognitive architecture. When
+  `activation_masks_observation = false`, observations now expose discovered nodes rather
+  than all nodes, and inactive-memory corruption only applies to discovered nodes.
+
 ## Version 3
 
 - Replace `activation_protects_memory` with inverted `disable_corruption`, remove `persist_terminal`, and restore the previous semantics where disabled corruption also keeps terminal memory persistent; ADR 0005 is reverted/superseded.
@@ -24,4 +30,4 @@ The compatibility version is an integer epoch attached to runs and checkpoint we
 - Factor activation touch-point parameters; ADR 0001; commit `11d174c`.
 - Rename `wm_only` to `disable_persistence`; ADR 0002; commits `b13b075`, `ca0c535`.
 - Add `global_shared` architecture; ADR 0003; commit `eb91a3a`; checkpoint shape compatibility is distinguished by `network_type`.
-Current code defines `COMPAT_VERSION = 3`; do not document a later epoch unless the constant is also bumped and enforced by checkpoint loading.
+Current code defines `COMPAT_VERSION = 4`; do not document a later epoch unless the constant is also bumped and enforced by checkpoint loading.

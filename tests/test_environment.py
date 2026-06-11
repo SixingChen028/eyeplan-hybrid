@@ -293,6 +293,7 @@ def test_memory_corruption_forgets_inactive_node_memory():
         n_visits=jnp.ones((7,), dtype=jnp.int32),
         fixation_recency=jnp.linspace(0.1, 0.7, 7, dtype=jnp.float32),
         activation=jnp.ones((7,), dtype=jnp.float32),
+        is_discovered=jnp.ones((7,), dtype=jnp.bool_),
     )
 
     state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params)
@@ -461,6 +462,67 @@ def test_observation_masking_decouples_known_path_from_activation():
     assert np.asarray(obs.g_values)[4] == 5.0
     # node 5 is inactive: hidden from g_values regardless of being known.
     assert np.asarray(obs.g_values)[5] == 0.0
+
+
+def test_initial_state_discovers_only_root():
+    env = _env(num_nodes=7, shuffle_nodes=False)
+    state = env._sample_initial_state(jax.random.PRNGKey(130))
+
+    expected = np.zeros(env.num_nodes, dtype=bool)
+    expected[int(state.root_node)] = True
+    np.testing.assert_array_equal(np.asarray(state.is_discovered), expected)
+
+
+def test_unmasked_observation_uses_discovered_nodes():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+        activation_masks_observation=False,
+    )
+    state = env._sample_initial_state(jax.random.PRNGKey(131))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(2, dtype=jnp.int32),
+        child_nodes=jnp.array(
+            [[1, 2], [3, 4], [5, 6], [-1, -1], [-1, -1], [-1, -1], [-1, -1]],
+            dtype=jnp.int32,
+        ),
+        parent_nodes=jnp.array([-1, 0, 0, 1, 1, 2, 2], dtype=jnp.int32),
+        g_values=jnp.array([0.0, 1.0, 2.0, 100.0, 5.0, 90.0, 3.0], dtype=jnp.float32),
+        activation=jnp.array([1.0, 1.0, 1.0, 0.0, 1.0, 0.0, 1.0], dtype=jnp.float32),
+        is_discovered=jnp.array([True, True, True, False, False, True, False], dtype=jnp.bool_),
+    )
+
+    obs = env._get_obs(state)
+
+    assert np.asarray(obs.g_values)[4] == 0.0
+    assert np.asarray(obs.g_values)[5] == 90.0
+
+
+def test_look_discovers_fixated_node_children():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+    )
+    params = _env_params(env, wm_decay=1.0)
+    state = env._sample_initial_state(jax.random.PRNGKey(132))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(0, dtype=jnp.int32),
+        child_nodes=jnp.array(
+            [[1, 2], [3, 4], [5, 6], [-1, -1], [-1, -1], [-1, -1], [-1, -1]],
+            dtype=jnp.int32,
+        ),
+        parent_nodes=jnp.array([-1, 0, 0, 1, 1, 2, 2], dtype=jnp.int32),
+        is_discovered=jnp.array([True, True, False, False, False, False, False], dtype=jnp.bool_),
+    )
+
+    state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params, skip_q_update=True)
+
+    np.testing.assert_array_equal(
+        np.asarray(state.is_discovered),
+        np.array([True, True, False, True, True, False, False], dtype=bool),
+    )
 
 
 def test_clear_inactive_memory_always_clears_inactive_node_memory():
@@ -651,6 +713,7 @@ def test_forget_rate_resets_inactive_node_memory():
         n_visits=n_visits,
         fixation_recency=fixation_recency,
         activation=activation,
+        is_discovered=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
     )
 
     state = env._update_activation(state, params)
@@ -706,7 +769,11 @@ def test_q_decay_scales_inactive_q_values():
     state, _, _ = env.reset(jax.random.PRNGKey(14), params)
     q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
     activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
-    state = state._replace(q_values=q_values, activation=activation)
+    state = state._replace(
+        q_values=q_values,
+        activation=activation,
+        is_discovered=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
+    )
 
     state = env._update_activation(state, params)
     state = env._corrupt_memory(state, params)
@@ -719,7 +786,7 @@ def test_q_decay_scales_inactive_q_values():
     )
 
 
-def test_q_drift_adds_noise_to_inactive_q_values_only():
+def test_q_drift_adds_noise_to_discovered_inactive_q_values_only():
     env = _env(
         num_nodes=7,
         shuffle_nodes=False,
@@ -729,15 +796,19 @@ def test_q_drift_adds_noise_to_inactive_q_values_only():
     state = state._replace(
         q_values=jnp.zeros((env.num_nodes,), dtype=jnp.float32),
         activation=jnp.zeros((env.num_nodes,), dtype=jnp.float32),
+        is_discovered=jnp.array([True, True, False, True, False, False, False], dtype=jnp.bool_),
     )
 
     state = env._update_activation(state, params)
     state = env._corrupt_memory(state, params)
 
     active_mask = np.asarray(state.activation) > 0.0
-    inactive_mask = ~active_mask
+    discovered_mask = np.asarray(state.is_discovered)
+    corruptible_mask = ~active_mask & discovered_mask
+    undiscovered_mask = ~discovered_mask
     np.testing.assert_allclose(np.asarray(state.q_values)[active_mask], 0.0, atol=1e-6)
-    assert np.any(np.abs(np.asarray(state.q_values)[inactive_mask]) > 1e-6)
+    assert np.any(np.abs(np.asarray(state.q_values)[corruptible_mask]) > 1e-6)
+    np.testing.assert_allclose(np.asarray(state.q_values)[undiscovered_mask], 0.0, atol=1e-6)
 
 
 def test_q_decay_one_means_no_decay():
@@ -848,6 +919,7 @@ def test_movement_forgetting_changes_downstream_choice():
         points=jnp.array([0.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0], dtype=jnp.float32),
         q_values=jnp.array([0.0, 5.0, 0.0, 1.0, 10.0, 0.0, 0.0], dtype=jnp.float32),
         activation=jnp.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=jnp.float32),
+        is_discovered=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
     )
 
     _, _, reward, _, info = env.step(state, _jax_action(env.num_nodes), params)

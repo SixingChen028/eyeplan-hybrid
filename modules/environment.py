@@ -39,6 +39,7 @@ class JaxDecisionTreeState(NamedTuple):
     n_visits: jax.Array
     fixation_recency: jax.Array
     activation: jax.Array
+    is_discovered: jax.Array
     is_terminal: jax.Array
     time_elapsed: jax.Array
     # implementation detail
@@ -333,10 +334,12 @@ class JaxDecisionTreeEnv:
         *,
         skip_q_update: bool = False,
     ) -> JaxDecisionTreeState:
+        children = state.child_nodes[node]
         state = state._replace(
             fixation_node=node,
             n_visits=state.n_visits.at[node].add(1),
             fixation_recency=state.fixation_recency.at[node].set(1.0),
+            is_discovered=safe_set(state.is_discovered, children, True),
             is_terminal=state.is_terminal.at[node].set(state.child_nodes[node, 0] < 0),
         )
         state = self._update_activation(state, params)
@@ -384,14 +387,15 @@ class JaxDecisionTreeEnv:
     def _corrupt_memory(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
         key, q_drift_key, forget_key = jax.random.split(state.rng_key, 3)
         inactive = state.activation == 0.0
+        corruptible = inactive & state.is_discovered
 
         # add noise/drift to q values outside of WM
-        q_values = jnp.where(inactive, state.q_values * params.q_decay, state.q_values)
+        q_values = jnp.where(corruptible, state.q_values * params.q_decay, state.q_values)
         q_noise = jax.random.normal(q_drift_key, shape=(self.num_nodes,)) * params.q_drift
-        q_values = jnp.where(inactive, q_values + q_noise, q_values)
+        q_values = jnp.where(corruptible, q_values + q_noise, q_values)
 
         # stochastically forget node-specific memory outside of WM
-        forget_mask = inactive & (
+        forget_mask = corruptible & (
             jax.random.uniform(forget_key, shape=(self.num_nodes,)) < params.forget_rate
         )
         q_values = jnp.where(forget_mask, 0.0, q_values)
@@ -454,7 +458,7 @@ class JaxDecisionTreeEnv:
     def _get_observation_mask(self, state: JaxDecisionTreeState) -> jax.Array:
         if self.activation_masks_observation:
             return state.activation > 0.0
-        return jnp.ones((self.num_nodes,), dtype=jnp.bool_)
+        return state.is_discovered
 
     def _get_action_mask(self, state: JaxDecisionTreeState) -> jax.Array:
         fixation_allowed = state.time_elapsed != (self.t_max - 1)
@@ -536,6 +540,7 @@ class JaxDecisionTreeEnv:
             n_visits=self._zeros(jnp.int32),
             fixation_recency=self._zeros(),
             activation=self._zeros(),
+            is_discovered=self._zeros(jnp.bool_).at[root].set(True),
             is_terminal=self._zeros(jnp.bool_),
             time_elapsed=jnp.int32(0),
             rng_key=key,
