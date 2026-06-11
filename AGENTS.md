@@ -29,11 +29,6 @@ Note that WM stands for working memory (e.g. `wm_decay`).
 - Top-level scripts such as `train.py`, `simulate.py`, `plot_training.py`, and
   `generate_sbatch.py` are command-line entry points.
 
-## Rules
-
-- Do not edit files under `config/` unless instructed to. If edits might be
-  necessary, offer it as a suggestion.
-
 ## Running code
 
 Use .venv/bin/python if available. Next, try /Users/fred/.venvs/default/bin/python3.
@@ -78,7 +73,13 @@ new/updated test.
   difference instead of duplicating whole helper functions or dispatch layers.
 - Keep JAX code compatible with JIT/vectorized execution where surrounding code
   expects it.
-- Treat configuration names as part of the experiment record. Rename or remove
-  config fields only when the corresponding migration/update is intentional.
+- Do not edit files under `config/` unless instructed to. If edits might be
+  necessary, offer it as a suggestion.
 - Do not add compatibility branches for outdated conventions unless the
-  user explicitly asks for backward compatibility.
+  user explicitly asks for backward compatibility. This includes config variables and
+  files.
+- If a change makes previous config files or runs invalid, bump `COMPAT_VERSION`. This
+  includes changes that make the environment or network behave differently, even if the
+  checkpointed parameters could run without errors. It thus includes most changes to
+  `network.py` or `environment.py`. Exceptions are refactors and *optional* new
+  functionality that does not change default behavior.
