@@ -2,6 +2,7 @@ import pytest
 
 import simulate
 from modules import config
+from modules.compat import COMPAT_VERSION
 from modules.train_results import env_from_args
 
 
@@ -34,6 +35,27 @@ def test_normalize_config_rejects_unknown_section_key():
 def test_normalize_config_rejects_unknown_condition_key():
     with pytest.raises(ValueError, match=r"Unknown conditions\[0\] keys: num_episodes"):
         config.normalize_config({"conditions": [{"num_episodes": 8}]})
+
+
+def test_normalize_config_rejects_old_memory_protection_section_key():
+    with pytest.raises(ValueError, match=r"Unknown \[environment\] keys: activation_protects_memory"):
+        config.normalize_config({"environment": {"activation_protects_memory": True}})
+
+
+def test_normalize_config_rejects_old_terminal_persistence_section_key():
+    with pytest.raises(ValueError, match=r"Unknown \[environment\] keys: persist_terminal"):
+        config.normalize_config({"environment": {"persist_terminal": True}})
+
+
+def test_normalize_config_rejects_old_memory_keys_in_params_and_conditions():
+    with pytest.raises(ValueError, match=r"Unknown \[params\] keys: activation_protects_memory"):
+        config.normalize_config({"params": {"activation_protects_memory": True}})
+    with pytest.raises(ValueError, match=r"Unknown conditions\[0\] keys: persist_terminal"):
+        config.normalize_config({"conditions": [{"persist_terminal": True}]})
+
+
+def test_compat_version_is_bumped_for_disable_corruption():
+    assert COMPAT_VERSION == 3
 
 
 def test_normalize_config_converts_point_set_list_to_tuple():

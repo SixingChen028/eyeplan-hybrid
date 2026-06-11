@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Status: Implemented
+Status: Reverted/superseded by compatibility version 3
 
 Recorded version: Compatibility version 2
 
@@ -28,9 +28,9 @@ Keep `disable_persistence` as the stronger mode where inactive node-specific mem
 
 Do not change `activation_masks_actions` semantics in this ADR. Arbitrary node fixation remains unsupported because it would bypass the current path-availability assumptions in the cognitive architecture.
 
-## Current implementation
+## Historical implementation
 
-`JaxDecisionTreeEnv` has a new static config field, `persist_terminal`, defaulting to `false`.
+This ADR described the implementation in compatibility version 2. Compatibility version 3 reverted this split, removed `persist_terminal`, and replaced `activation_protects_memory` with inverted `disable_corruption`.
 
 Memory corruption now runs whenever persistence is enabled. The corruption mask is inactive nodes when `activation_protects_memory = true`, and all nodes when `activation_protects_memory = false`.
 
@@ -57,4 +57,4 @@ The flag names now match the cognitive architecture assumptions they encode: mem
 
 Historical configs that used `activation_protects_memory = false` to imply persistent terminal memory should set `persist_terminal = true` explicitly.
 
-This does not change checkpoint parameter shapes, so the compatibility version remains 2.
+This did not change checkpoint parameter shapes, so compatibility version 2 remained active at the time. The later reversion changes the environment config interface and is recorded under compatibility version 3.

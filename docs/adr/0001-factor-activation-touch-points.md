@@ -21,7 +21,7 @@ Replace bundled activation modes with explicit activation touch-point parameters
 - `activation_masks_actions`: activation determines which fixation actions are legal.
 - `activation_gates_backup_sink`: activation determines whether an ancestor can receive a backup update.
 - `activation_gates_backup_source`: activation determines whether child values are available when computing backup targets.
-- `activation_protects_memory`: activation protects node-specific memory from corruption, forgetting, and terminal-flag clearing.
+- `disable_corruption`: disables decay, drift, and stochastic forgetting of inactive node-specific memory.
 - `activation_masks_observation`: activation determines which node-specific information is available to the policy/value model.
 
 `activation_masks_observation` is implemented differently by different network architectures, but represents one cognitive mechanism. For flat observations, inactive node fields should be masked in the observation itself. For `node_shared`, inactive nodes can be excluded from shared pooling and may receive an explicit mask feature; this is the architecture's way of ignoring unavailable information rather than consuming zero-filled placeholders.
@@ -44,7 +44,7 @@ Current environment parameters include:
 - `activation_masks_actions`
 - `activation_gates_backup_sink`
 - `activation_gates_backup_source`
-- `activation_protects_memory`
+- `disable_corruption`
 - `activation_masks_observation`
 - `excluded_child_value`
 - `disable_persistence`
@@ -92,7 +92,7 @@ Conditions can be described by activation touch-point parameters rather than by 
 activation_masks_actions = true
 activation_gates_backup_sink = true
 activation_gates_backup_source = true
-activation_protects_memory = true
+disable_corruption = false
 activation_masks_observation = true
 # excluded_child_value omitted: default None
 disable_persistence = false

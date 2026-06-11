@@ -40,7 +40,7 @@ The proposed independent persistence fields are not recognized config keys.
 
 The proposed persistence flags would have complemented ADR 0001 rather than replacing it.
 
-In the current implementation, `activation_protects_memory` controls whether activation protects stored memory from ongoing decay, drift, forgetting, and terminal-memory clearing. `disable_persistence` defines whether inactive node-specific memory can exist outside WM at all.
+In the current implementation, `disable_corruption` controls whether stored memory skips ongoing decay, drift, and stochastic forgetting outside WM. `disable_persistence` defines whether inactive node-specific memory can exist outside WM at all.
 
 `activation_masks_observation` controls whether inactive-node information is available to the policy/value model. Persistence and observation masking are different. A value may persist in internal memory but be hidden from the policy/value model when inactive, or it may be cleared from memory entirely.
 

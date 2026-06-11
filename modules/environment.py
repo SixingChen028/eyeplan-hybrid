@@ -92,11 +92,10 @@ class JaxDecisionTreeEnv:
         use_is_terminal_obs: bool,
         use_time_elapsed_obs: bool,
         disable_persistence: bool,
-        persist_terminal: bool,
         activation_masks_actions: bool,
         activation_gates_backup_sink: bool,
         activation_gates_backup_source: bool,
-        activation_protects_memory: bool,
+        disable_corruption: bool,
         activation_masks_observation: bool,
         excluded_child_value: float | None,
         point_set: tuple,
@@ -106,11 +105,10 @@ class JaxDecisionTreeEnv:
         self.scale_factor = float(scale_factor)
         self.shuffle_nodes = bool(shuffle_nodes)
         self.disable_persistence = bool(disable_persistence)
-        self.persist_terminal = bool(persist_terminal)
         self.activation_masks_actions = bool(activation_masks_actions)
         self.activation_gates_backup_sink = bool(activation_gates_backup_sink)
         self.activation_gates_backup_source = bool(activation_gates_backup_source)
-        self.activation_protects_memory = bool(activation_protects_memory)
+        self.disable_corruption = bool(disable_corruption)
         self.activation_masks_observation = bool(activation_masks_observation)
         self.excluded_child_value = None if excluded_child_value is None else float(excluded_child_value)
         self.use_recency_obs = bool(use_recency_obs)
@@ -121,12 +119,10 @@ class JaxDecisionTreeEnv:
         self.use_time_elapsed_obs = bool(use_time_elapsed_obs)
 
         # enforce parameterization rules
-        if self.disable_persistence and self.persist_terminal:
-            raise ValueError("persist_terminal cannot be true when disable_persistence is true.")
         if self.disable_persistence: # assumes default activation behavior
             assert self.activation_gates_backup_sink
             assert self.activation_gates_backup_source
-            assert self.activation_protects_memory
+            assert not self.disable_corruption
             assert self.activation_masks_observation
         
         # Arbitrary node fixation would bypass the current path-availability assumptions.
@@ -256,19 +252,12 @@ class JaxDecisionTreeEnv:
 
     def _clear_inactive_memory(self, state: JaxDecisionTreeState):
         active = state.activation > 0.0
-        if self.disable_persistence:
-            return state._replace(
-                q_values=jnp.where(active, state.q_values, 0.0),
-                n_visits=jnp.where(active, state.n_visits, 0),
-                fixation_recency=jnp.where(active, state.fixation_recency, 0.0),
-                is_terminal=state.is_terminal & active,
-            )
-
-        if self.persist_terminal:
-            return state
-
-        terminal_memory_mask = active if self.activation_protects_memory else self._zeros(jnp.bool_)
-        return state._replace(is_terminal=state.is_terminal & terminal_memory_mask)
+        return state._replace(
+            q_values=jnp.where(active, state.q_values, 0.0),
+            n_visits=jnp.where(active, state.n_visits, 0),
+            fixation_recency=jnp.where(active, state.fixation_recency, 0.0),
+            is_terminal=state.is_terminal & active,
+        )
 
     def _backup_target(self, state, node, params: JaxDecisionTreeParams):
         children = state.child_nodes[node]
@@ -351,10 +340,11 @@ class JaxDecisionTreeEnv:
             is_terminal=state.is_terminal.at[node].set(state.child_nodes[node, 0] < 0),
         )
         state = self._update_activation(state, params)
-        state = self._clear_inactive_memory(state)
+        if self.disable_persistence:
+            state = self._clear_inactive_memory(state)
         if not skip_q_update:
             state = self._update_q(state, params)
-        if not self.disable_persistence:
+        if not self.disable_persistence and not self.disable_corruption:
             state = self._corrupt_memory(state, params)
         return state
 
@@ -392,29 +382,27 @@ class JaxDecisionTreeEnv:
 
     def _corrupt_memory(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
         key, q_drift_key, forget_key = jax.random.split(state.rng_key, 3)
-        corrupt_mask = (
-            state.activation == 0.0
-            if self.activation_protects_memory
-            else jnp.ones((self.num_nodes,), dtype=jnp.bool_)
-        )
+        inactive = state.activation == 0.0
 
-        # add noise/drift to unprotected q values
-        q_values = jnp.where(corrupt_mask, state.q_values * params.q_decay, state.q_values)
+        # add noise/drift to q values outside of WM
+        q_values = jnp.where(inactive, state.q_values * params.q_decay, state.q_values)
         q_noise = jax.random.normal(q_drift_key, shape=(self.num_nodes,)) * params.q_drift
-        q_values = jnp.where(corrupt_mask, q_values + q_noise, q_values)
+        q_values = jnp.where(inactive, q_values + q_noise, q_values)
 
-        # stochastically forget unprotected node-specific memory
-        forget_mask = corrupt_mask & (
+        # stochastically forget node-specific memory outside of WM
+        forget_mask = inactive & (
             jax.random.uniform(forget_key, shape=(self.num_nodes,)) < params.forget_rate
         )
         q_values = jnp.where(forget_mask, 0.0, q_values)
         n_visits = jnp.where(forget_mask, 0, state.n_visits)
         fixation_recency = jnp.where(forget_mask, 0.0, state.fixation_recency)
+        is_terminal = state.is_terminal & ~inactive
 
         return state._replace(
             q_values=q_values,
             n_visits=n_visits,
             fixation_recency=fixation_recency,
+            is_terminal=is_terminal,
             rng_key=key,
         )
 

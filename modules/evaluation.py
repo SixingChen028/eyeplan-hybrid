@@ -44,11 +44,10 @@ def require_metadata_keys(metadata_args: dict, keys: tuple[str, ...], section_na
 def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
     optional_static_keys = {
         "disable_persistence",
-        "persist_terminal",
         "activation_masks_actions",
         "activation_gates_backup_sink",
         "activation_gates_backup_source",
-        "activation_protects_memory",
+        "disable_corruption",
         "activation_masks_observation",
         "excluded_child_value",
     }
@@ -61,7 +60,6 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
         scale_factor=float(args["scale_factor"]),
         shuffle_nodes=bool(args["shuffle_nodes"]),
         disable_persistence=bool(args.get("disable_persistence", DEFAULT_PARAMS["disable_persistence"])),
-        persist_terminal=bool(args.get("persist_terminal", DEFAULT_PARAMS["persist_terminal"])),
         activation_masks_actions=bool(args.get("activation_masks_actions", DEFAULT_PARAMS["activation_masks_actions"])),
         activation_gates_backup_sink=bool(
             args.get("activation_gates_backup_sink", DEFAULT_PARAMS["activation_gates_backup_sink"])
@@ -69,9 +67,7 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
         activation_gates_backup_source=bool(
             args.get("activation_gates_backup_source", DEFAULT_PARAMS["activation_gates_backup_source"])
         ),
-        activation_protects_memory=bool(
-            args.get("activation_protects_memory", DEFAULT_PARAMS["activation_protects_memory"])
-        ),
+        disable_corruption=bool(args.get("disable_corruption", DEFAULT_PARAMS["disable_corruption"])),
         activation_masks_observation=bool(
             args.get("activation_masks_observation", DEFAULT_PARAMS["activation_masks_observation"])
         ),

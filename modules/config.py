@@ -19,16 +19,14 @@ PARAM_DEFAULTS = {
         "shuffle_nodes": True,
         # Mode where inactive nodes retain no node-specific information.
         "disable_persistence": False,
-        # Whether seen-terminal indicators persist outside working memory.
-        "persist_terminal": False,
         # Whether activation determines which fixation actions are legal.
         "activation_masks_actions": True,
         # Whether activation determines whether an ancestor can receive a backup update.
         "activation_gates_backup_sink": True,
         # Whether activation determines whether child values are available for backup targets.
         "activation_gates_backup_source": True,
-        # Whether activation protects node-specific memory from corruption and forgetting.
-        "activation_protects_memory": True,
+        # Whether to skip decay, drift, and stochastic forgetting of inactive node-specific memory.
+        "disable_corruption": False,
         # Whether activation determines which node-specific information is observable.
         "activation_masks_observation": True,
         # Value substituted for inactive child values when backup-source gating keeps full child support.
