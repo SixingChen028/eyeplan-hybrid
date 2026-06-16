@@ -46,6 +46,11 @@ The transition order for a look should be:
    Q-values, and incremental G-values.
 4. Return the observation for the state after those fixation updates.
 
+The corruption scope is controlled by `activation_prevents_corruption`, which
+defaults to true. When true, corruption applies only to discovered nodes outside
+working memory. When false, corruption applies to all discovered nodes, including
+nodes currently active in working memory.
+
 This keeps corruption within `_look`, so explicit movement sampling still applies
 corruption between internal movement looks. It also ensures that a just-fixated
 node's newly learned information survives into the immediate observation.
@@ -92,10 +97,11 @@ for the first implicit move.
 
 ## Consequences
 
-This timing decision does not by itself decide the corruption scope. With the
-current inactive-discovered scope, a node that drops out of working memory during
-the activation update can be corrupted before the current fixation's learning and
-before the policy observes the resulting state.
+With the default inactive-discovered scope, a node that drops out of working
+memory during the activation update can be corrupted before the current fixation's
+learning and before the policy observes the resulting state. If
+`activation_prevents_corruption = false`, active discovered nodes can also be
+corrupted before the current fixation's learning.
 
 The observation returned by `reset` should still describe the post-root-look
 state. `reset` should call `_look(..., skip_corruption=True)` so that initial
@@ -116,10 +122,6 @@ because it changes environment dynamics and therefore training, evaluation, and
 simulation results.
 
 ## Non-goals
-
-This ADR does not decide the exact parameter name for selecting corruption scope.
-A string-valued scope such as `inactive_discovered` versus `all_discovered` may be
-clearer than restoring the old `activation_protects_memory` boolean.
 
 This ADR does not make undiscovered nodes corruptible. Unless a future design
 explicitly chooses otherwise, corruption should still apply only to discovered

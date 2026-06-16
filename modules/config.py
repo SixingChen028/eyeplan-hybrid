@@ -27,6 +27,8 @@ PARAM_DEFAULTS = {
         "activation_gates_backup_source": True,
         # Whether to skip decay, drift, and stochastic forgetting of inactive node-specific memory.
         "disable_corruption": False,
+        # Whether working-memory activation protects node-specific memory from corruption.
+        "activation_prevents_corruption": True,
         # Whether activation determines which node-specific information is observable.
         "activation_masks_observation": True,
         # Value substituted for inactive child values when backup-source gating keeps full child support.

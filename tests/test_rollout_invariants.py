@@ -41,6 +41,7 @@ def _env(**overrides):
         activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
         activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
         disable_corruption=bool(params["disable_corruption"]),
+        activation_prevents_corruption=bool(params["activation_prevents_corruption"]),
         activation_masks_observation=bool(params["activation_masks_observation"]),
         excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),

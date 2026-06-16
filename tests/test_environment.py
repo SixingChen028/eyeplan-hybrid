@@ -23,6 +23,7 @@ def _env(**overrides):
         activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
         activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
         disable_corruption=bool(params["disable_corruption"]),
+        activation_prevents_corruption=bool(params["activation_prevents_corruption"]),
         activation_masks_observation=bool(params["activation_masks_observation"]),
         excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
@@ -586,6 +587,7 @@ def test_corrupt_memory_clears_inactive_terminal_memory():
     state = state._replace(
         is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
         activation=jnp.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32),
+        is_discovered=jnp.array([True, True, False, True, False, False, True], dtype=jnp.bool_),
     )
 
     state = env._corrupt_memory(state, params)
@@ -840,6 +842,58 @@ def test_q_drift_adds_noise_to_discovered_inactive_q_values_only():
     np.testing.assert_allclose(np.asarray(state.q_values)[active_mask], 0.0, atol=1e-6)
     assert np.any(np.abs(np.asarray(state.q_values)[corruptible_mask]) > 1e-6)
     np.testing.assert_allclose(np.asarray(state.q_values)[undiscovered_mask], 0.0, atol=1e-6)
+
+
+def test_activation_prevents_corruption_keeps_active_memory_uncorrupted():
+    env = _env(num_nodes=7, shuffle_nodes=False)
+    params = _env_params(env, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    state, _, _ = env.reset(jax.random.PRNGKey(151), params)
+    state = state._replace(
+        q_values=jnp.arange(env.num_nodes, dtype=jnp.float32),
+        n_visits=jnp.arange(env.num_nodes, dtype=jnp.int32) + 1,
+        fixation_recency=jnp.linspace(0.1, 0.7, env.num_nodes, dtype=jnp.float32),
+        activation=jnp.ones((env.num_nodes,), dtype=jnp.float32),
+        is_discovered=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
+        is_terminal=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
+    )
+
+    state = env._corrupt_memory(state, params)
+
+    np.testing.assert_allclose(np.asarray(state.q_values), np.arange(env.num_nodes, dtype=np.float32), atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(state.n_visits), np.arange(env.num_nodes, dtype=np.int32) + 1)
+    np.testing.assert_allclose(
+        np.asarray(state.fixation_recency),
+        np.linspace(0.1, 0.7, env.num_nodes, dtype=np.float32),
+        atol=1e-6,
+    )
+    np.testing.assert_array_equal(np.asarray(state.is_terminal), np.ones(env.num_nodes, dtype=bool))
+
+
+def test_activation_prevents_corruption_false_corrupts_active_discovered_memory():
+    env = _env(num_nodes=7, shuffle_nodes=False, activation_prevents_corruption=False)
+    params = _env_params(env, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    state, _, _ = env.reset(jax.random.PRNGKey(152), params)
+    state = state._replace(
+        q_values=jnp.arange(env.num_nodes, dtype=jnp.float32),
+        n_visits=jnp.arange(env.num_nodes, dtype=jnp.int32) + 1,
+        fixation_recency=jnp.linspace(0.1, 0.7, env.num_nodes, dtype=jnp.float32),
+        activation=jnp.ones((env.num_nodes,), dtype=jnp.float32),
+        is_discovered=jnp.array([True, True, False, True, False, False, False], dtype=jnp.bool_),
+        is_terminal=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
+    )
+
+    state = env._corrupt_memory(state, params)
+
+    discovered = np.array([True, True, False, True, False, False, False], dtype=bool)
+    np.testing.assert_allclose(np.asarray(state.q_values)[discovered], 0.0, atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(state.n_visits)[discovered], 0)
+    np.testing.assert_allclose(np.asarray(state.fixation_recency)[discovered], 0.0, atol=1e-6)
+    np.testing.assert_array_equal(np.asarray(state.is_terminal)[discovered], False)
+    np.testing.assert_allclose(
+        np.asarray(state.q_values)[~discovered],
+        np.arange(env.num_nodes, dtype=np.float32)[~discovered],
+        atol=1e-6,
+    )
 
 
 def test_q_decay_one_means_no_decay():

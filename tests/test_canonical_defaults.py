@@ -23,6 +23,7 @@ def test_canonical_defaults_come_from_param_defaults():
     assert config.DEFAULT_META == config.PARAM_DEFAULTS["meta"]
     assert "label" in config.DEFAULT_META
     assert config.DEFAULT_PARAMS["num_nodes"] == config.PARAM_DEFAULTS["environment"]["num_nodes"]
+    assert config.DEFAULT_PARAMS["activation_prevents_corruption"] is True
     assert config.DEFAULT_PARAMS["lr"] == config.PARAM_DEFAULTS["training"]["lr"]
     assert config.DEFAULT_PARAMS["network_type"] == config.PARAM_DEFAULTS["network"]["network_type"]
 
@@ -40,6 +41,11 @@ def test_normalize_config_rejects_unknown_condition_key():
 def test_normalize_config_rejects_old_memory_protection_section_key():
     with pytest.raises(ValueError, match=r"Unknown \[environment\] keys: activation_protects_memory"):
         config.normalize_config({"environment": {"activation_protects_memory": True}})
+
+
+def test_normalize_config_accepts_activation_prevents_corruption():
+    normalized = config.normalize_config({"environment": {"activation_prevents_corruption": False}})
+    assert normalized["params"]["activation_prevents_corruption"] is False
 
 
 def test_normalize_config_rejects_old_terminal_persistence_section_key():

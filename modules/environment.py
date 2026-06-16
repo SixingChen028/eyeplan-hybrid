@@ -94,6 +94,7 @@ class DecisionTreeEnv:
         activation_gates_backup_sink: bool,
         activation_gates_backup_source: bool,
         disable_corruption: bool,
+        activation_prevents_corruption: bool,
         activation_masks_observation: bool,
         excluded_child_value: float | None,
         point_set: tuple,
@@ -107,6 +108,7 @@ class DecisionTreeEnv:
         self.activation_gates_backup_sink = bool(activation_gates_backup_sink)
         self.activation_gates_backup_source = bool(activation_gates_backup_source)
         self.disable_corruption = bool(disable_corruption)
+        self.activation_prevents_corruption = bool(activation_prevents_corruption)
         self.activation_masks_observation = bool(activation_masks_observation)
         self.excluded_child_value = None if excluded_child_value is None else float(excluded_child_value)
         self.use_recency_obs = bool(use_recency_obs)
@@ -377,7 +379,8 @@ class DecisionTreeEnv:
     def _corrupt_memory(self, state: DecisionTreeState, params: DecisionTreeParams):
         key, q_drift_key, forget_key = jax.random.split(state.rng_key, 3)
         inactive = state.activation == 0.0
-        corruptible = inactive & state.is_discovered
+        protection_mask = inactive if self.activation_prevents_corruption else True
+        corruptible = protection_mask & state.is_discovered
 
         # add noise/drift to q values outside of WM
         q_values = jnp.where(corruptible, state.q_values * params.q_decay, state.q_values)
@@ -392,8 +395,8 @@ class DecisionTreeEnv:
         n_visits = jnp.where(forget_mask, 0, state.n_visits)
         fixation_recency = jnp.where(forget_mask, 0.0, state.fixation_recency)
 
-        # deterministically is_terminal for inactive nodes (never persisted)
-        is_terminal = state.is_terminal & ~inactive
+        # deterministically clear terminal memory for corruptible nodes
+        is_terminal = state.is_terminal & ~corruptible
 
         return state._replace(
             q_values=q_values,

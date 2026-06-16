@@ -50,6 +50,7 @@ def test_num_nodes_9_sampling_matches_explicit_probabilities():
         activation_gates_backup_sink=False,
         activation_gates_backup_source=False,
         disable_corruption=False,
+        activation_prevents_corruption=True,
         activation_masks_observation=True,
         excluded_child_value=None,
         point_set=(-8, -4, -2, -1, 1, 2, 4, 8),
