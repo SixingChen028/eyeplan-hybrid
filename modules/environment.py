@@ -394,6 +394,7 @@ class DecisionTreeEnv:
         )
         q_values = jnp.where(forget_mask, 0.0, q_values)
         n_visits = jnp.where(forget_mask, 0, state.n_visits)
+        g_values = jnp.where(forget_mask, self.min_path_value, state.g_values)
         fixation_recency = jnp.where(forget_mask, 0.0, state.fixation_recency)
 
         # deterministically clear terminal memory for corruptible nodes
@@ -402,6 +403,7 @@ class DecisionTreeEnv:
         return state._replace(
             q_values=q_values,
             n_visits=n_visits,
+            g_values=g_values,
             fixation_recency=fixation_recency,
             is_terminal=is_terminal,
             rng_key=key,

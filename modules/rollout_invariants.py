@@ -161,11 +161,13 @@ def _assert_tree_invariants(
         f"rollout={rollout_idx}: non-root parent counts are invalid."
     )
 
-    expected_g = _path_values(child_nodes, points, root)
-    for step_idx in range(np.asarray(states.g_values).shape[1]):
-        g_values = np.asarray(states.g_values[rollout_idx, step_idx])
-        is_discovered = np.asarray(states.is_discovered[rollout_idx, step_idx])
-        np.testing.assert_allclose(g_values[is_discovered], expected_g[is_discovered], atol=atol)
+    # Validates the tree is acyclic and fully reachable from the root.
+    #
+    # We deliberately do not assert g_values equal their true path values:
+    # g is subject to forgetting like other node-specific memory, so forgetting
+    # resets it to min_path_value and a later look re-derives children's g from
+    # the (possibly forgotten) parent g, propagating the corruption.
+    _path_values(child_nodes, points, root)
 
 
 def _path_values(child_nodes: np.ndarray, points: np.ndarray, root: int) -> np.ndarray:

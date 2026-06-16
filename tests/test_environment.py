@@ -292,6 +292,7 @@ def test_memory_corruption_forgets_inactive_node_memory():
         parent_nodes=jnp.array([-1, 0, 0, 1, 1, 2, 2], dtype=jnp.int32),
         q_values=jnp.arange(7, dtype=jnp.float32),
         n_visits=jnp.ones((7,), dtype=jnp.int32),
+        g_values=jnp.arange(1, 8, dtype=jnp.float32),
         fixation_recency=jnp.linspace(0.1, 0.7, 7, dtype=jnp.float32),
         activation=jnp.ones((7,), dtype=jnp.float32),
         is_discovered=jnp.ones((7,), dtype=jnp.bool_),
@@ -302,6 +303,9 @@ def test_memory_corruption_forgets_inactive_node_memory():
     inactive_mask = np.asarray(state.activation) == 0.0
     np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], 0.0, atol=1e-6)
     np.testing.assert_array_equal(np.asarray(state.n_visits)[inactive_mask], np.zeros(np.sum(inactive_mask)))
+    np.testing.assert_allclose(
+        np.asarray(state.g_values)[inactive_mask], env.min_path_value, atol=1e-6
+    )
     np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
 
 
