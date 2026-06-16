@@ -245,6 +245,7 @@ class DecisionTreeEnv:
         return state._replace(
             q_values=jnp.where(active, state.q_values, 0.0),
             n_visits=jnp.where(active, state.n_visits, 0),
+            g_values=jnp.where(active, state.g_values, self.min_path_value),
             fixation_recency=jnp.where(active, state.fixation_recency, 0.0),
             is_terminal=state.is_terminal & active,
         )

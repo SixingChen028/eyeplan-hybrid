@@ -619,6 +619,7 @@ def test_clear_inactive_memory_always_clears_inactive_node_memory():
     state = state._replace(
         q_values=jnp.arange(env.num_nodes, dtype=jnp.float32),
         n_visits=jnp.ones((env.num_nodes,), dtype=jnp.int32),
+        g_values=jnp.arange(1, env.num_nodes + 1, dtype=jnp.float32),
         fixation_recency=jnp.ones((env.num_nodes,), dtype=jnp.float32),
         is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
         activation=jnp.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32),
@@ -629,6 +630,9 @@ def test_clear_inactive_memory_always_clears_inactive_node_memory():
     inactive_mask = np.asarray(state.activation) == 0.0
     np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], 0.0, atol=1e-6)
     np.testing.assert_array_equal(np.asarray(state.n_visits)[inactive_mask], np.zeros(np.sum(inactive_mask)))
+    np.testing.assert_allclose(
+        np.asarray(state.g_values)[inactive_mask], env.min_path_value, atol=1e-6
+    )
     np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
     np.testing.assert_array_equal(
         np.asarray(state.is_terminal),
