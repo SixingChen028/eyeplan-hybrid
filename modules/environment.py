@@ -273,7 +273,10 @@ class DecisionTreeEnv:
             child_q = jnp.where(child_active, child_q, self.excluded_child_value)
             probs = self._softmax(child_q, params)
 
-        return state.points[node] + jnp.sum(probs * child_q)
+        # The node's reward is only available once it has been observed (fixated).
+        # n_visits > 0 tracks this, with the same forgetting/clearing dynamics.
+        reward = jnp.where(state.n_visits[node] > 0, state.points[node], 0.0)
+        return reward + jnp.sum(probs * child_q)
 
     def _update_q(self, state, params: DecisionTreeParams):
         node = state.fixation_node

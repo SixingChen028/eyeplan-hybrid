@@ -4,6 +4,19 @@ Record every important result-producing change here. An important change is any 
 
 The compatibility version is an integer epoch attached to runs and checkpoint weights. Bump it only when a change makes existing checkpoint weights incompatible with the current code. Compatible changes stay under the current version. Here, "incompatible" means that simulating an old run with the new code would mean evaluating a policy on an environment that is different from the one it was trained on (excluding RNG behavior).
 
+## Version 6
+
+- Gate a node's own reward in the value backup on whether it has been observed.
+  `_backup_target` now contributes `points[node]` only when `n_visits[node] > 0`,
+  so a node that is active merely as a neighbor of the fixated node (and was never
+  fixated, or has been forgotten) no longer injects its reward into its own Q value.
+  The reward thus shares the memory dynamics of `n_visits`: set on fixation, cleared
+  by forgetting/corruption and by `disable_persistence` WM eviction.
+- Subject `g_values` to forgetting like `n_visits`: forgotten nodes reset their
+  `g_values` to `min_path_value` in `_corrupt_memory`, and `_look` re-derives
+  children's `g` from the parent's `g`, so forgetting propagates downstream. Bumped
+  `COMPAT_VERSION` 5 -> 6.
+
 ## Version 5
 
 - Store incremental remembered path values online. Undiscovered nodes now keep the

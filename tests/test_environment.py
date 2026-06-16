@@ -340,6 +340,58 @@ def test_look_corrupts_memory_before_q_update():
     np.testing.assert_allclose(float(state.q_values[2]), 0.0, atol=1e-6)
 
 
+def test_backup_excludes_reward_of_unobserved_node():
+    # Fixating child C activates its parent P as a neighbor, so the backup walks into P.
+    # P has never been fixated (n_visits == 0), so its reward must not enter the target:
+    # Q(P) should back up only the child value, not points[P].
+    env = _env(num_nodes=3, shuffle_nodes=False)
+    params = _env_params(env, wm_decay=1.0, learning_rate=1.0, lamda_backup=1.0)
+    state = env._sample_initial_state(jax.random.PRNGKey(7))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(0, dtype=jnp.int32),
+        child_nodes=jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32),
+        parent_nodes=jnp.array([-1, 0, 0], dtype=jnp.int32),
+        points=jnp.array([5.0, 3.0, 0.0], dtype=jnp.float32),
+        q_values=jnp.zeros((3,), dtype=jnp.float32),
+        n_visits=jnp.zeros((3,), dtype=jnp.int32),
+        activation=jnp.ones((3,), dtype=jnp.float32),
+        is_discovered=jnp.ones((3,), dtype=jnp.bool_),
+    )
+
+    # Fixate child C=1. C becomes observed (n_visits -> 1) and backs up its own reward.
+    # Parent P=0 stays unobserved (n_visits == 0).
+    state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params)
+
+    assert int(state.n_visits[0]) == 0
+    # Q(C) = points[C]; Q(P) = Q(C) only (points[P] excluded because P is unobserved).
+    np.testing.assert_allclose(float(state.q_values[1]), 3.0, atol=1e-6)
+    np.testing.assert_allclose(float(state.q_values[0]), 3.0, atol=1e-6)
+
+
+def test_backup_includes_reward_of_observed_node():
+    # Same structure, but P has been observed (n_visits > 0), so its reward is available.
+    env = _env(num_nodes=3, shuffle_nodes=False)
+    params = _env_params(env, wm_decay=1.0, learning_rate=1.0, lamda_backup=1.0)
+    state = env._sample_initial_state(jax.random.PRNGKey(7))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(0, dtype=jnp.int32),
+        child_nodes=jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32),
+        parent_nodes=jnp.array([-1, 0, 0], dtype=jnp.int32),
+        points=jnp.array([5.0, 3.0, 0.0], dtype=jnp.float32),
+        q_values=jnp.zeros((3,), dtype=jnp.float32),
+        n_visits=jnp.array([1, 0, 0], dtype=jnp.int32),
+        activation=jnp.ones((3,), dtype=jnp.float32),
+        is_discovered=jnp.ones((3,), dtype=jnp.bool_),
+    )
+
+    state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params)
+
+    # Q(P) = points[P] + Q(C) = 5 + 3.
+    np.testing.assert_allclose(float(state.q_values[0]), 8.0, atol=1e-6)
+
+
 def test_disable_corruption_skips_corruption_and_keeps_terminal_memory_persistent():
     env = _env(
         num_nodes=7,
@@ -1163,6 +1215,7 @@ def test_backup_steps_zero_disables_ancestor_backup():
         root_node=jnp.asarray(0, dtype=jnp.int32),
         fixation_node=jnp.asarray(1, dtype=jnp.int32),
         points=points,
+        n_visits=jnp.ones((3,), dtype=jnp.int32),
         activation=jnp.ones((3,), dtype=jnp.float32),
     )
     updated = env._update_q(state, params=params)
@@ -1190,6 +1243,7 @@ def test_backup_steps_limits_ancestor_depth():
         root_node=jnp.asarray(4, dtype=jnp.int32),
         fixation_node=jnp.asarray(0, dtype=jnp.int32),
         points=points,
+        n_visits=jnp.ones((5,), dtype=jnp.int32),
         activation=jnp.ones((5,), dtype=jnp.float32),
     )
     updated = env._update_q(state, params=params)
@@ -1260,6 +1314,7 @@ def test_inactive_root_stops_gated_ancestor_backup():
         fixation_node=jnp.asarray(0, dtype=jnp.int32),
         points=jnp.array([0.0, 1.0, 10.0], dtype=jnp.float32),
         q_values=jnp.zeros((3,), dtype=jnp.float32),
+        n_visits=jnp.ones((3,), dtype=jnp.int32),
         activation=jnp.zeros((3,), dtype=jnp.float32),
     )
 
@@ -1307,6 +1362,7 @@ def test_backup_sink_gating_stops_at_inactive_ancestor():
         root_node=jnp.asarray(0, dtype=jnp.int32),
         fixation_node=jnp.asarray(3, dtype=jnp.int32),
         points=points,
+        n_visits=jnp.ones((5,), dtype=jnp.int32),
         activation=activation,
     )
     updated_full = full_env._update_q(
@@ -1343,6 +1399,7 @@ def test_backup_sink_gating_stops_at_inactive_ancestor():
         root_node=jnp.asarray(0, dtype=jnp.int32),
         fixation_node=jnp.asarray(3, dtype=jnp.int32),
         points=points,
+        n_visits=jnp.ones((5,), dtype=jnp.int32),
         activation=activation,
     )
     updated_wm_zero = wm_zero_env._update_q(
@@ -1400,6 +1457,7 @@ def test_backup_source_gating_handles_inactive_child_variants():
             root_node=jnp.asarray(0, dtype=jnp.int32),
             fixation_node=jnp.asarray(1, dtype=jnp.int32),
             points=points,
+            n_visits=jnp.ones((3,), dtype=jnp.int32),
             activation=activation,
         )
         updated = env._update_q(state, params=params)
@@ -1438,6 +1496,7 @@ def test_excluded_child_backup_keeps_negative_active_child_when_softmax_underflo
         root_node=jnp.asarray(0, dtype=jnp.int32),
         fixation_node=jnp.asarray(1, dtype=jnp.int32),
         points=points,
+        n_visits=jnp.ones((3,), dtype=jnp.int32),
         activation=activation,
     )
 
@@ -1475,6 +1534,7 @@ def test_backup_sink_flag_controls_whether_inactive_parents_update():
             root_node=jnp.asarray(0, dtype=jnp.int32),
             fixation_node=jnp.asarray(1, dtype=jnp.int32),
             points=points,
+            n_visits=jnp.ones((3,), dtype=jnp.int32),
             activation=activation,
         )
         updated = env._update_q(state, params=params)
@@ -1519,6 +1579,7 @@ def test_backup_source_variants_agree_when_both_children_are_active():
             root_node=jnp.asarray(0, dtype=jnp.int32),
             fixation_node=jnp.asarray(1, dtype=jnp.int32),
             points=points,
+            n_visits=jnp.ones((3,), dtype=jnp.int32),
             activation=activation,
         )
         updated = env._update_q(state, params=params)
