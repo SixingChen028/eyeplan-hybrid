@@ -31,10 +31,15 @@ corruption between movement steps.
 Move memory corruption to the beginning of `_look`, before the current fixation's
 new learning and refresh operations.
 
+Add a `skip_corruption` option to `_look`. `reset` should use this option for the
+initial root look, because there is no preceding action interval before the first
+observation.
+
 The transition order for a look should be:
 
 1. Apply ordinary memory corruption for previously stored node-specific memory,
-   unless corruption is disabled or persistence is disabled.
+   unless corruption is disabled, persistence is disabled, or `skip_corruption`
+   is true.
 2. Set the new fixation.
 3. Update visit count, fixation recency, discovered children, terminal status,
    activation, Q-values, and incremental G-values.
@@ -44,16 +49,50 @@ This keeps corruption within `_look`, so explicit movement sampling still applie
 corruption between internal movement looks. It also ensures that a just-fixated
 node's newly learned information survives into the immediate observation.
 
+The intended event semantics are that corruption happens between actions. In an
+ordinary fixation action, the corruption event belongs to the interval after the
+previous action and before the new fixation learns anything. In a termination
+action, corruption still occurs because termination is also an action. Explicit
+movement sampling then unrolls additional implicit move actions, each with its
+own between-action corruption event.
+
+Unrolled around a terminal choice, starting with the second-to-last explicit look.
+Here, a move means the moved-to fixation and learning event; the corruption event
+belongs immediately before that event.
+
+1. Corruption for explicit look `L[n-1]` has already happened.
+2. `L[n-1]` refreshes activation, updates visit count and recency, discovers
+   children, records terminal status, and updates Q/G values.
+3. The policy observes the post-`L[n-1]` state and chooses explicit look `L[n]`.
+4. Corruption for explicit look `L[n]` occurs.
+5. `L[n]` refreshes activation, updates visit count and recency, discovers
+   children, records terminal status, and performs the last explicit Q/G update.
+6. The policy observes the post-`L[n]` state and chooses termination.
+7. Corruption for the termination action occurs.
+8. The movement sampler starts at the root without an explicit Q update.
+9. Corruption for implicit move `M[1]` occurs.
+10. `M[1]` chooses and fixates the first moved-to node.
+11. Corruption for implicit move `M[2]` occurs.
+12. `M[2]` chooses and fixates the second moved-to node.
+13. Corruption for implicit move `M[3]` occurs.
+14. The state is now immediately before the third moved-to node is learned.
+
+This means there are two corruption events between the last explicit Q/G update
+and the first moved-to node being learned: one for termination and one for the
+first implicit move.
+
 ## Consequences
 
-Active nodes may be corrupted before they are refreshed by the current look. This
-is intentional: the corruption event belongs to the interval before the new
-fixation operation, not after it.
+This timing decision does not by itself decide the corruption scope. If the
+chosen scope includes active discovered nodes, those nodes may be corrupted before
+they are refreshed by the current look. This is intentional under that scope: the
+corruption event belongs to the interval before the new fixation operation, not
+after it.
 
-The observation returned by `reset` should still describe the post-root-look state.
-Because reset starts with empty node-specific memory, beginning-of-look corruption
-should be a no-op for the initial root look, but tests should make this explicit
-when the implementation changes.
+The observation returned by `reset` should still describe the post-root-look
+state. `reset` should call `_look(..., skip_corruption=True)` so that initial
+state generation does not consume a corruption event before any action has
+occurred. Tests should make this explicit when the implementation changes.
 
 The model's detailed simulation traces should record the same post-look state that
 the policy observes at each decision point. If incremental G-values become
@@ -77,4 +116,3 @@ clearer than restoring the old `activation_protects_memory` boolean.
 This ADR does not make undiscovered nodes corruptible. Unless a future design
 explicitly chooses otherwise, corruption should still apply only to discovered
 node-specific memory.
-
