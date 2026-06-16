@@ -1,0 +1,20 @@
+[meta]
+array_vars = []
+
+[sbatch]
+gpu = true
+
+[params]
+cost = [0.005]
+seed = [1, 2]
+beta_e_final = 0.001
+forget_rate = [0.05, 0.1, 0.15, 0.2]
+wm_decay = [0.5]
+use_recency_obs = false
+num_envs = 64
+
+# activation only gates legal fixation actions; corruption can affect active memory
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+activation_masks_observation = false
+activation_prevents_corruption = false
