@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
+from .environment import DecisionTreeEnv, DecisionTreeParams
 from .network import actor_critic_forward, apply_action_mask, sample_actions
 
 
@@ -78,8 +78,8 @@ def append_simulation_trial(
     return True
 
 
-class JaxSimulator:
-    def __init__(self, env: JaxDecisionTreeEnv, env_params: JaxDecisionTreeParams):
+class Simulator:
+    def __init__(self, env: DecisionTreeEnv, env_params: DecisionTreeParams):
         self.env = env
         self.env_params = env_params
         self._trial_jit = jax.jit(self._run_trial, static_argnames=("greedy",))

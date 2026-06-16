@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .environment import DecisionTreeObs, JaxDecisionTreeEnv, JaxDecisionTreeParams
+from .environment import DecisionTreeObs, DecisionTreeEnv, DecisionTreeParams
 from .network import actor_critic_forward, apply_action_mask
 
 
@@ -317,8 +317,8 @@ def _get_policy_action(
 
 
 def evaluate_baseline_policies(
-    env: JaxDecisionTreeEnv,
-    env_params: JaxDecisionTreeParams,
+    env: DecisionTreeEnv,
+    env_params: DecisionTreeParams,
     policy_names: List[str],
     reset_keys: jax.Array,
 ) -> Tuple[List[PolicyStats], float, float]:
@@ -401,8 +401,8 @@ def evaluate_baseline_policies(
 
 
 def evaluate_network_greedy(
-    env: JaxDecisionTreeEnv,
-    env_params: JaxDecisionTreeParams,
+    env: DecisionTreeEnv,
+    env_params: DecisionTreeParams,
     params: Any,
     reset_keys: jax.Array,
 ) -> PolicyStats:

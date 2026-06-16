@@ -11,7 +11,7 @@ import numpy as np
 
 from modules.a2c import save_jax_params
 from modules.config import DEFAULT_META, DEFAULT_PARAMS, ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
-from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
+from modules.environment import DecisionTreeEnv, DecisionTreeParams
 from modules.evaluation import (
     EVAL_SUMMARY_NAME,
     build_simulator,
@@ -26,11 +26,11 @@ TRAINING_DATA_NAME = "data_training_jax.p"
 PARAMS_NAME = "net_jax.p"
 
 
-def env_from_args(args: dict) -> JaxDecisionTreeEnv:
+def env_from_args(args: dict) -> DecisionTreeEnv:
     return env_from_run_args(args)
 
 
-def env_params_from_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecisionTreeParams:
+def env_params_from_args(env: DecisionTreeEnv, args: dict) -> DecisionTreeParams:
     return env_params_from_run_args(env, args)
 
 

@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 
-from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
+from modules.a2c import A2CTrainParams, BatchMaskA2C
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
-from modules.environment import JaxDecisionTreeEnv
-from modules.simulation import JaxSimulator, append_simulation_trial, empty_simulation_data
+from modules.environment import DecisionTreeEnv
+from modules.simulation import Simulator, append_simulation_trial, empty_simulation_data
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
 
@@ -12,7 +12,7 @@ _, _DEFAULT_PARAMS = load_canonical_defaults()
 def _env(**overrides):
     params = dict(_DEFAULT_PARAMS)
     params.update(overrides)
-    return JaxDecisionTreeEnv(
+    return DecisionTreeEnv(
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
@@ -61,7 +61,7 @@ def test_jax_train_step_compiles_and_runs():
         point_set=np.array([1.0], dtype=np.float32),
     )
 
-    trainer = JaxBatchMaskA2C(
+    trainer = BatchMaskA2C(
         env=env,
         action_size=env.action_size,
         hidden_size=32,
@@ -95,7 +95,7 @@ def test_jax_train_step_runs_node_shared_network():
         point_set=np.array([1.0], dtype=np.float32),
     )
 
-    trainer = JaxBatchMaskA2C(
+    trainer = BatchMaskA2C(
         env=env,
         action_size=env.action_size,
         hidden_size=16,
@@ -128,7 +128,7 @@ def test_jax_train_step_runs_global_shared_network():
         point_set=np.array([1.0], dtype=np.float32),
     )
 
-    trainer = JaxBatchMaskA2C(
+    trainer = BatchMaskA2C(
         env=env,
         action_size=env.action_size,
         hidden_size=16,
@@ -161,7 +161,7 @@ def test_jax_simulator_runs_trials():
         point_set=np.array([1.0], dtype=np.float32),
     )
 
-    trainer = JaxBatchMaskA2C(
+    trainer = BatchMaskA2C(
         env=env,
         action_size=env.action_size,
         hidden_size=32,
@@ -176,7 +176,7 @@ def test_jax_simulator_runs_trials():
 
     env_params = _env_params(env)
     state = trainer.init_state(seed=1, env_params=env_params)
-    simulator = JaxSimulator(env, env_params)
+    simulator = Simulator(env, env_params)
     data = simulator.simulate(
         params=state.params,
         seed=1,
@@ -200,7 +200,7 @@ def test_jax_simulator_runs_node_shared_trials():
         point_set=np.array([1.0], dtype=np.float32),
     )
 
-    trainer = JaxBatchMaskA2C(
+    trainer = BatchMaskA2C(
         env=env,
         action_size=env.action_size,
         hidden_size=16,
@@ -216,7 +216,7 @@ def test_jax_simulator_runs_node_shared_trials():
 
     env_params = _env_params(env)
     state = trainer.init_state(seed=1, env_params=env_params)
-    simulator = JaxSimulator(env, env_params)
+    simulator = Simulator(env, env_params)
     data = simulator.simulate(
         params=state.params,
         seed=1,
@@ -239,7 +239,7 @@ def test_jax_simulator_runs_detailed_trials():
         point_set=np.array([1.0], dtype=np.float32),
     )
 
-    trainer = JaxBatchMaskA2C(
+    trainer = BatchMaskA2C(
         env=env,
         action_size=env.action_size,
         hidden_size=32,
@@ -254,7 +254,7 @@ def test_jax_simulator_runs_detailed_trials():
 
     env_params = _env_params(env)
     state = trainer.init_state(seed=1, env_params=env_params)
-    simulator = JaxSimulator(env, env_params)
+    simulator = Simulator(env, env_params)
     data = simulator.simulate(
         params=state.params,
         seed=1,
@@ -295,7 +295,7 @@ def test_jax_simulator_records_forced_terminal_action():
         point_set=np.array([1.0], dtype=np.float32),
     )
 
-    trainer = JaxBatchMaskA2C(
+    trainer = BatchMaskA2C(
         env=env,
         action_size=env.action_size,
         hidden_size=32,
@@ -310,7 +310,7 @@ def test_jax_simulator_records_forced_terminal_action():
 
     env_params = _env_params(env)
     state = trainer.init_state(seed=3, env_params=env_params)
-    simulator = JaxSimulator(env, env_params)
+    simulator = Simulator(env, env_params)
     data = simulator.simulate(
         params=state.params,
         seed=3,
@@ -333,7 +333,7 @@ def test_jax_simulator_evaluate_policy_returns_summary_stats():
         point_set=np.array([1.0], dtype=np.float32),
     )
 
-    trainer = JaxBatchMaskA2C(
+    trainer = BatchMaskA2C(
         env=env,
         action_size=env.action_size,
         hidden_size=32,
@@ -348,7 +348,7 @@ def test_jax_simulator_evaluate_policy_returns_summary_stats():
 
     env_params = _env_params(env)
     state = trainer.init_state(seed=2, env_params=env_params)
-    simulator = JaxSimulator(env, env_params)
+    simulator = Simulator(env, env_params)
     summary = simulator.evaluate_policy(
         params=state.params,
         seed=2,

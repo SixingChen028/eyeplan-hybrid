@@ -48,7 +48,7 @@ Branch-target update with a policy-derived learning-rate weight. The weight can 
 ## Implementation Notes
 
 - `backup_mode` lives in the environment constructor and config static keys.
-- Ancestor target logic is centralized in `JaxDecisionTreeEnv._backup_target(state, node, params)`.
+- Ancestor target logic is centralized in `DecisionTreeEnv._backup_target(state, node, params)`.
 - Ancestor parent eligibility is handled in `_update_q`: `full` ignores working-memory activation for parents; the working-memory modes (`wm_both`, `wm_zero`, and `wm_partial`) require the parent to be active.
 - `backup_steps` remains the ancestor horizon and `lamda_backup` remains the depth-dependent learning-rate decay.
 - Existing configs were migrated from `wm_backup` to `backup_mode`. Former `wm_backup = false` configs use `backup_mode = "full"`; former `wm_backup = true` configs use `backup_mode = "wm_zero"`.

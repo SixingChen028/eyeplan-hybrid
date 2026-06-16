@@ -27,7 +27,7 @@ from modules.evaluation import (
     resolve_params_path_from_metadata as _resolve_params_path_from_metadata,
 )
 from modules.results_layout import resolve_analysis_target
-from modules.simulation import JaxSimulator
+from modules.simulation import Simulator
 from modules.compat import get_compat_version
 
 
@@ -199,7 +199,7 @@ def _simulate_run(
     env_params = _build_env_params_from_metadata_args(env, metadata_args)
 
     seed = int(metadata_args.get("seed", 15))
-    simulator = JaxSimulator(env, env_params=env_params)
+    simulator = Simulator(env, env_params=env_params)
     data = simulator.simulate(
         params=params,
         seed=seed,

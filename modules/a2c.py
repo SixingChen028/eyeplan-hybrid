@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
+from .environment import DecisionTreeEnv, DecisionTreeParams
 from .compat import (
     COMPAT_KEY,
     COMPAT_VERSION,
@@ -24,7 +24,7 @@ class AdamState(NamedTuple):
     v: Any
 
 
-class JaxTrainState(NamedTuple):
+class TrainState(NamedTuple):
     params: Any
     optimizer: AdamState
     rollout_state: Any
@@ -32,7 +32,7 @@ class JaxTrainState(NamedTuple):
 
 
 class A2CTrainParams(NamedTuple):
-    env: JaxDecisionTreeParams
+    env: DecisionTreeParams
     lr: jax.Array
     gamma: jax.Array
     lamda: jax.Array
@@ -184,10 +184,10 @@ def _select_reset_on_done(done: jax.Array, stepped: jax.Array, reset: jax.Array)
     return jnp.where(selector, reset, stepped)
 
 
-class JaxBatchMaskA2C:
+class BatchMaskA2C:
     def __init__(
         self,
-        env: JaxDecisionTreeEnv,
+        env: DecisionTreeEnv,
         action_size: int,
         hidden_size: int,
         num_envs: int,
@@ -227,10 +227,10 @@ class JaxBatchMaskA2C:
         self._train_many_jit = jax.jit(self._train_many)
         self._train_many_mean_metrics_jit = jax.jit(self._train_many_mean_metrics)
 
-    def init_state(self, seed: int, env_params: JaxDecisionTreeParams) -> JaxTrainState:
+    def init_state(self, seed: int, env_params: DecisionTreeParams) -> TrainState:
         return self.init_state_with_params(seed, env_params)
 
-    def init_state_with_params(self, seed: int, env_params: JaxDecisionTreeParams) -> JaxTrainState:
+    def init_state_with_params(self, seed: int, env_params: DecisionTreeParams) -> TrainState:
         key = jax.random.PRNGKey(seed)
         key, init_key, reset_key = jax.random.split(key, 3)
 
@@ -258,7 +258,7 @@ class JaxBatchMaskA2C:
             running_length=jnp.zeros((self.num_envs,), dtype=jnp.float32),
         )
 
-        return JaxTrainState(params=params, optimizer=optimizer, rollout_state=rollout_state, rng_key=key)
+        return TrainState(params=params, optimizer=optimizer, rollout_state=rollout_state, rng_key=key)
 
     def _rollout(
         self,
@@ -544,7 +544,7 @@ class JaxBatchMaskA2C:
 
         return params, AdamState(step=step, m=m, v=v)
 
-    def _train_step(self, state: JaxTrainState, beta_e: jax.Array, train_params: A2CTrainParams):
+    def _train_step(self, state: TrainState, beta_e: jax.Array, train_params: A2CTrainParams):
         (loss, (metrics, next_rollout_state, new_key)), grads = jax.value_and_grad(
             self._loss_and_metrics,
             has_aux=True,
@@ -565,7 +565,7 @@ class JaxBatchMaskA2C:
             grad_norm=grad_norm,
             param_norm=param_norm,
         )
-        new_state = JaxTrainState(
+        new_state = TrainState(
             params=params,
             optimizer=optimizer,
             rollout_state=next_rollout_state,
@@ -576,7 +576,7 @@ class JaxBatchMaskA2C:
 
     def _train_many(
         self,
-        state: JaxTrainState,
+        state: TrainState,
         entropy_schedule: jax.Array,
         train_params: A2CTrainParams,
     ):
@@ -588,7 +588,7 @@ class JaxBatchMaskA2C:
 
     def _train_many_mean_metrics(
         self,
-        state: JaxTrainState,
+        state: TrainState,
         entropy_schedule: jax.Array,
         train_params: A2CTrainParams,
     ):
@@ -614,7 +614,7 @@ class JaxBatchMaskA2C:
 
     def train_step(
         self,
-        state: JaxTrainState,
+        state: TrainState,
         train_params: A2CTrainParams,
         beta_e: float | None = None,
     ):
@@ -626,7 +626,7 @@ class JaxBatchMaskA2C:
 
     def train(
         self,
-        state: JaxTrainState,
+        state: TrainState,
         num_updates: int,
         train_params: A2CTrainParams,
         entropy_schedule=None,
@@ -682,7 +682,7 @@ class JaxBatchMaskA2C:
 
     def train_compiled(
         self,
-        state: JaxTrainState,
+        state: TrainState,
         entropy_schedule,
         train_params: A2CTrainParams,
     ):
@@ -691,7 +691,7 @@ class JaxBatchMaskA2C:
 
     def train_compiled_mean_metrics(
         self,
-        state: JaxTrainState,
+        state: TrainState,
         entropy_schedule,
         train_params: A2CTrainParams,
     ):

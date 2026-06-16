@@ -8,11 +8,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
+from modules.a2c import A2CTrainParams, BatchMaskA2C
 from modules.a2c_sweep import VmappedA2CTrainer, build_hypers
 from modules.config import expand_sweep
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
-from modules.environment import JaxDecisionTreeEnv
+from modules.environment import DecisionTreeEnv
 from modules.evaluation import evaluate_run_dir
 from modules.network import flatten_observation
 from modules.train_progress import StartupTrainingTimeout, train_with_progress
@@ -21,14 +21,14 @@ from modules.train_results import save_results
 _, _DEFAULT_PARAMS = load_canonical_defaults()
 
 
-def _obs_size(env: JaxDecisionTreeEnv) -> int:
+def _obs_size(env: DecisionTreeEnv) -> int:
     return int(flatten_observation(env.observation_template).shape[0])
 
 
 def _env(**overrides):
     params = dict(_DEFAULT_PARAMS)
     params.update(overrides)
-    return JaxDecisionTreeEnv(
+    return DecisionTreeEnv(
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
@@ -402,7 +402,7 @@ def test_parallel_single_combo_matches_existing_a2c():
         dtype=np.float32,
     )
 
-    reference_trainer = JaxBatchMaskA2C(
+    reference_trainer = BatchMaskA2C(
         env=env,
         action_size=env.action_size,
         hidden_size=fixed["hidden_size"],
@@ -445,10 +445,10 @@ def test_default_shape_compiled_a2c_materializes_metrics():
 import numpy as np
 import jax
 
-from modules.a2c import A2CTrainParams, JaxBatchMaskA2C
-from modules.environment import JaxDecisionTreeEnv
+from modules.a2c import A2CTrainParams, BatchMaskA2C
+from modules.environment import DecisionTreeEnv
 
-env = JaxDecisionTreeEnv(
+env = DecisionTreeEnv(
     num_nodes=15,
     t_max=100,
     scale_factor=1 / 8,
@@ -468,7 +468,7 @@ env = JaxDecisionTreeEnv(
     excluded_child_value=None,
     point_set=(-8, -4, -2, -1, 1, 2, 4, 8),
 )
-trainer = JaxBatchMaskA2C(
+trainer = BatchMaskA2C(
     env=env,
     action_size=env.action_size,
     hidden_size=128,

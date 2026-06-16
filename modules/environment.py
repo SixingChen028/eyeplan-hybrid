@@ -26,7 +26,7 @@ def safe_set(arr: jax.Array, idx: jax.Array, value) -> jax.Array:
     )
 
 
-class JaxDecisionTreeState(NamedTuple):
+class DecisionTreeState(NamedTuple):
     # problem definition (static within episode)
     root_node: jax.Array
     points: jax.Array
@@ -45,7 +45,7 @@ class JaxDecisionTreeState(NamedTuple):
     # implementation detail
     rng_key: jax.Array
 
-class JaxDecisionTreeParams(NamedTuple):
+class DecisionTreeParams(NamedTuple):
     beta_move: jax.Array
     eps_move: jax.Array
     learning_rate: jax.Array
@@ -74,7 +74,7 @@ class DecisionTreeObs(NamedTuple):
     time_elapsed: jax.Array | None
 
 
-class JaxDecisionTreeEnv:
+class DecisionTreeEnv:
     metadata = {"render_modes": ["human", "rgb_array"]}
 
     def __init__(
@@ -158,7 +158,7 @@ class JaxDecisionTreeEnv:
         recency_decay,
         cost: float,
         move_cost_scale: float = 0.0,
-    ) -> JaxDecisionTreeParams:
+    ) -> DecisionTreeParams:
 
         assert beta_move >= 0.0, "beta_move must be non-negative."
         assert 0.0 <= eps_move <= 1.0, "eps_move must between 0 and 1"
@@ -174,7 +174,7 @@ class JaxDecisionTreeEnv:
         assert cost >= 0.0, "cost must be non-negative."
         assert move_cost_scale >= 0.0, "move_cost_scale must be non-negative."
 
-        return JaxDecisionTreeParams(
+        return DecisionTreeParams(
             beta_move=jnp.asarray(beta_move, dtype=jnp.float32),
             eps_move=jnp.asarray(eps_move, dtype=jnp.float32),
             learning_rate=jnp.asarray(learning_rate, dtype=jnp.float32),
@@ -199,7 +199,7 @@ class JaxDecisionTreeEnv:
         mask = label >= 0
         return jax.nn.one_hot(idx, self.num_nodes, dtype=jnp.float32) * mask.astype(jnp.float32)
 
-    def _softmax(self, x: jax.Array, params: JaxDecisionTreeParams) -> jax.Array:
+    def _softmax(self, x: jax.Array, params: DecisionTreeParams) -> jax.Array:
         z = params.beta_move * (x - jnp.max(x, axis=-1, keepdims=True))
         p = jnp.exp(z)
         p = p / jnp.sum(p, axis=-1, keepdims=True)
@@ -238,7 +238,7 @@ class JaxDecisionTreeEnv:
 
         return key, root, child_nodes, parent_nodes
 
-    def _clear_inactive_memory(self, state: JaxDecisionTreeState):
+    def _clear_inactive_memory(self, state: DecisionTreeState):
         active = state.activation > 0.0
         return state._replace(
             q_values=jnp.where(active, state.q_values, 0.0),
@@ -247,7 +247,7 @@ class JaxDecisionTreeEnv:
             is_terminal=state.is_terminal & active,
         )
 
-    def _backup_target(self, state, node, params: JaxDecisionTreeParams):
+    def _backup_target(self, state, node, params: DecisionTreeParams):
         children = state.child_nodes[node]
         child_q = safe_get(state.q_values, children, fill_value=0.0)
         child_active = safe_get(state.activation, children, fill_value=0.0) > 0.0
@@ -273,7 +273,7 @@ class JaxDecisionTreeEnv:
 
         return state.points[node] + jnp.sum(probs * child_q)
 
-    def _update_q(self, state, params: JaxDecisionTreeParams):
+    def _update_q(self, state, params: DecisionTreeParams):
         node = state.fixation_node
         q_values = state.q_values
 
@@ -315,12 +315,12 @@ class JaxDecisionTreeEnv:
 
     def _look(
         self,
-        state: JaxDecisionTreeState,
+        state: DecisionTreeState,
         node: jax.Array,
-        params: JaxDecisionTreeParams,
+        params: DecisionTreeParams,
         *,
         skip_q_update: bool = False,
-    ) -> JaxDecisionTreeState:
+    ) -> DecisionTreeState:
         children = state.child_nodes[node]
         state = state._replace(
             fixation_node=node,
@@ -340,7 +340,7 @@ class JaxDecisionTreeEnv:
             state = self._corrupt_memory(state, params)
         return state
 
-    def _update_activation(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams) -> JaxDecisionTreeState:
+    def _update_activation(self, state: DecisionTreeState, params: DecisionTreeParams) -> DecisionTreeState:
         node = state.fixation_node
 
         # apply decay
@@ -372,7 +372,7 @@ class JaxDecisionTreeEnv:
             activation=activation,
         )
 
-    def _corrupt_memory(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
+    def _corrupt_memory(self, state: DecisionTreeState, params: DecisionTreeParams):
         key, q_drift_key, forget_key = jax.random.split(state.rng_key, 3)
         inactive = state.activation == 0.0
         corruptible = inactive & state.is_discovered
@@ -401,7 +401,7 @@ class JaxDecisionTreeEnv:
             rng_key=key,
         )
 
-    def _get_obs(self, state: JaxDecisionTreeState) -> DecisionTreeObs:
+    def _get_obs(self, state: DecisionTreeState) -> DecisionTreeObs:
         observation_mask = self._get_observation_mask(state)
 
         child1, child2 = state.child_nodes[state.fixation_node]
@@ -443,12 +443,12 @@ class JaxDecisionTreeEnv:
             ),
         )
 
-    def _get_observation_mask(self, state: JaxDecisionTreeState) -> jax.Array:
+    def _get_observation_mask(self, state: DecisionTreeState) -> jax.Array:
         if self.activation_masks_observation:
             return state.activation > 0.0
         return state.is_discovered
 
-    def _get_action_mask(self, state: JaxDecisionTreeState) -> jax.Array:
+    def _get_action_mask(self, state: DecisionTreeState) -> jax.Array:
         fixation_allowed = state.time_elapsed != (self.t_max - 1)
         if self.activation_masks_actions:
             node_mask = (state.activation > 0) & fixation_allowed
@@ -458,13 +458,13 @@ class JaxDecisionTreeEnv:
         term_mask = jnp.array([True], dtype=jnp.bool_)
         return jnp.concatenate([node_mask, term_mask], axis=0)
 
-    def _get_info(self, state: JaxDecisionTreeState) -> dict[str, jax.Array]:
+    def _get_info(self, state: DecisionTreeState) -> dict[str, jax.Array]:
         return {
             "mask": self._get_action_mask(state),
             "observation_mask": self._get_observation_mask(state),
         }
 
-    def _sample_move_path(self, state: JaxDecisionTreeState, params: JaxDecisionTreeParams):
+    def _sample_move_path(self, state: DecisionTreeState, params: DecisionTreeParams):
         path = self.empty_path
         state = self._look(state, state.root_node, params, skip_q_update=True)
 
@@ -517,7 +517,7 @@ class JaxDecisionTreeEnv:
         key, root, child_nodes, parent_nodes = self._sample_tree(key)
         key, points = self._sample_points(key, root)
 
-        return JaxDecisionTreeState(
+        return DecisionTreeState(
             root_node=root,
             points=points,
             child_nodes=child_nodes,
@@ -534,14 +534,14 @@ class JaxDecisionTreeEnv:
             rng_key=key,
         )
 
-    def reset(self, key: jax.Array, params: JaxDecisionTreeParams):
+    def reset(self, key: jax.Array, params: DecisionTreeParams):
         state = self._sample_initial_state(key)
         state = self._look(state, state.root_node, params)
         obs = self._get_obs(state)
         info = self._get_info(state)
         return state, obs, info
 
-    def step(self, state: JaxDecisionTreeState, action: jax.Array, params: JaxDecisionTreeParams):
+    def step(self, state: DecisionTreeState, action: jax.Array, params: DecisionTreeParams):
         state = state._replace(
             time_elapsed=state.time_elapsed + 1,
             fixation_recency=state.fixation_recency * params.recency_decay,

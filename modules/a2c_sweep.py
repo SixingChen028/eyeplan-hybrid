@@ -5,13 +5,13 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from modules.a2c import A2CTrainParams, JaxBatchMaskA2C, JaxTrainState, StepMetrics
+from modules.a2c import A2CTrainParams, BatchMaskA2C, TrainState, StepMetrics
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, TRAIN_SWEEP_KEYS
-from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
+from modules.environment import DecisionTreeEnv, DecisionTreeParams
 
 
 class A2CHyperParams(NamedTuple):
-    env: JaxDecisionTreeParams
+    env: DecisionTreeParams
     seed: jax.Array
     lr: jax.Array
     gamma: jax.Array
@@ -23,7 +23,7 @@ class A2CHyperParams(NamedTuple):
 
 
 class A2CSweepResult(NamedTuple):
-    states: JaxTrainState
+    states: TrainState
     metrics: StepMetrics
 
 
@@ -36,7 +36,7 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
         key: array(key, dtype=jnp.int32 if key in int_keys else jnp.float32)
         for key in ENV_DYNAMIC_PARAM_KEYS
     }
-    env = JaxDecisionTreeParams(**env_values)
+    env = DecisionTreeParams(**env_values)
 
     train_values = {
         key: array(key, dtype=jnp.int32 if key in int_keys else jnp.float32)
@@ -48,7 +48,7 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
 class VmappedA2CTrainer:
     def __init__(
         self,
-        env: JaxDecisionTreeEnv,
+        env: DecisionTreeEnv,
         action_size: int,
         hidden_size: int,
         num_envs: int,
@@ -57,7 +57,7 @@ class VmappedA2CTrainer:
         network_type: str = "mlp",
     ):
         self.num_updates = int(num_updates)
-        self.trainer = JaxBatchMaskA2C(
+        self.trainer = BatchMaskA2C(
             env=env,
             action_size=action_size,
             hidden_size=hidden_size,
@@ -98,7 +98,7 @@ class VmappedA2CTrainer:
 
     def _train_one_from_state(
         self,
-        state: JaxTrainState,
+        state: TrainState,
         hyper: A2CHyperParams,
         entropy_schedule: jax.Array,
     ):
@@ -113,7 +113,7 @@ class VmappedA2CTrainer:
 
     def _train_sweep_chunk(
         self,
-        states: JaxTrainState,
+        states: TrainState,
         hypers: A2CHyperParams,
         entropy_schedule: jax.Array,
     ):
@@ -132,7 +132,7 @@ class VmappedA2CTrainer:
 
     def train_sweep_chunk(
         self,
-        states: JaxTrainState,
+        states: TrainState,
         hypers: A2CHyperParams,
         entropy_schedule,
     ):
@@ -140,7 +140,7 @@ class VmappedA2CTrainer:
 
     def compile_train_sweep_chunk(
         self,
-        states: JaxTrainState,
+        states: TrainState,
         hypers: A2CHyperParams,
         entropy_schedule,
     ) -> None:

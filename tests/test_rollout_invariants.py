@@ -1,7 +1,7 @@
 import pytest
 
 from modules.config import DEFAULT_PARAMS, ENV_DYNAMIC_PARAM_KEYS
-from modules.environment import JaxDecisionTreeEnv
+from modules.environment import DecisionTreeEnv
 from modules.rollout_invariants import collect_random_fixation_rollouts, assert_fixation_rollout_invariants
 
 
@@ -31,7 +31,7 @@ GENERAL_ENVIRONMENTS = [
 def _env(**overrides):
     params = dict(DEFAULT_PARAMS)
     params.update(overrides)
-    return JaxDecisionTreeEnv(
+    return DecisionTreeEnv(
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),

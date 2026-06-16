@@ -49,7 +49,7 @@ Current environment parameters include:
 - `excluded_child_value`
 - `disable_persistence`
 
-The implementation does not support every combination proposed here. In particular, `JaxDecisionTreeEnv` currently asserts that `activation_masks_actions` is true, so the original "actions only" and unbounded examples are not valid current configs. `disable_persistence` also remains a broad representation flag rather than the independent persistence flags proposed in ADR 0002.
+The implementation does not support every combination proposed here. In particular, `DecisionTreeEnv` currently asserts that `activation_masks_actions` is true, so the original "actions only" and unbounded examples are not valid current configs. `disable_persistence` also remains a broad representation flag rather than the independent persistence flags proposed in ADR 0002.
 
 ## Legacy mode mapping
 

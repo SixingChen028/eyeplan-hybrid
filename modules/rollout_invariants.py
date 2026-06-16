@@ -6,11 +6,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from modules.environment import DecisionTreeObs, JaxDecisionTreeEnv, JaxDecisionTreeParams, JaxDecisionTreeState
+from modules.environment import DecisionTreeObs, DecisionTreeEnv, DecisionTreeParams, DecisionTreeState
 
 
 class FixationRolloutTrace(NamedTuple):
-    states: JaxDecisionTreeState
+    states: DecisionTreeState
     observations: DecisionTreeObs
     action_masks: jax.Array
     observation_masks: jax.Array
@@ -20,8 +20,8 @@ class FixationRolloutTrace(NamedTuple):
 
 
 def collect_random_fixation_rollouts(
-    env: JaxDecisionTreeEnv,
-    params: JaxDecisionTreeParams,
+    env: DecisionTreeEnv,
+    params: DecisionTreeParams,
     *,
     seed: int,
     num_rollouts: int,
@@ -91,8 +91,8 @@ def collect_random_fixation_rollouts(
 
 
 def assert_fixation_rollout_invariants(
-    env: JaxDecisionTreeEnv,
-    params: JaxDecisionTreeParams,
+    env: DecisionTreeEnv,
+    params: DecisionTreeParams,
     trace: FixationRolloutTrace,
     *,
     expect_max_consistent_q: bool = False,
@@ -113,7 +113,7 @@ def assert_fixation_rollout_invariants(
             _assert_action_invariants(env, params, trace, rollout_idx, step_idx, atol)
 
 
-def _state_at(states: JaxDecisionTreeState, rollout_idx: int, step_idx: int) -> JaxDecisionTreeState:
+def _state_at(states: DecisionTreeState, rollout_idx: int, step_idx: int) -> DecisionTreeState:
     return jax.tree_util.tree_map(lambda value: np.asarray(value[rollout_idx, step_idx]), states)
 
 
@@ -129,8 +129,8 @@ def _context(rollout_idx: int, step_idx: int, message: str) -> str:
 
 
 def _assert_tree_invariants(
-    env: JaxDecisionTreeEnv,
-    states: JaxDecisionTreeState,
+    env: DecisionTreeEnv,
+    states: DecisionTreeState,
     rollout_idx: int,
     atol: float,
 ) -> None:
@@ -190,7 +190,7 @@ def _path_values(child_nodes: np.ndarray, points: np.ndarray, root: int) -> np.n
 
 
 def _assert_state_obs_info_invariants(
-    env: JaxDecisionTreeEnv,
+    env: DecisionTreeEnv,
     trace: FixationRolloutTrace,
     rollout_idx: int,
     step_idx: int,
@@ -256,8 +256,8 @@ def _assert_state_obs_info_invariants(
 
 
 def _assert_observation_matches_state(
-    env: JaxDecisionTreeEnv,
-    state: JaxDecisionTreeState,
+    env: DecisionTreeEnv,
+    state: DecisionTreeState,
     obs: DecisionTreeObs,
     observation_mask: np.ndarray,
     atol: float,
@@ -299,8 +299,8 @@ def _assert_observation_matches_state(
 
 
 def _assert_action_invariants(
-    env: JaxDecisionTreeEnv,
-    params: JaxDecisionTreeParams,
+    env: DecisionTreeEnv,
+    params: DecisionTreeParams,
     trace: FixationRolloutTrace,
     rollout_idx: int,
     step_idx: int,
@@ -318,7 +318,7 @@ def _assert_action_invariants(
 
 
 def _assert_max_consistent_q(
-    states: JaxDecisionTreeState,
+    states: DecisionTreeState,
     rollout_idx: int,
     step_idx: int,
     atol: float,

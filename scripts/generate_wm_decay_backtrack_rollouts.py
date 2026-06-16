@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
-from modules.environment import JaxDecisionTreeEnv
+from modules.environment import DecisionTreeEnv
 from modules.simulation import append_simulation_trial, empty_simulation_data
 
 
@@ -39,8 +39,8 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _build_env(params: dict[str, Any]) -> JaxDecisionTreeEnv:
-    return JaxDecisionTreeEnv(
+def _build_env(params: dict[str, Any]) -> DecisionTreeEnv:
+    return DecisionTreeEnv(
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
@@ -62,7 +62,7 @@ def _build_env(params: dict[str, Any]) -> JaxDecisionTreeEnv:
     )
 
 
-def _make_env_params(env: JaxDecisionTreeEnv, params: dict[str, Any]):
+def _make_env_params(env: DecisionTreeEnv, params: dict[str, Any]):
     dynamic = {key: params[key] for key in ENV_DYNAMIC_PARAM_KEYS}
     return env.make_params(**dynamic)
 
@@ -134,7 +134,7 @@ def _choose_action(
 
 
 def _run_trial(
-    env: JaxDecisionTreeEnv,
+    env: DecisionTreeEnv,
     reset_fn,
     step_fn,
     choice_fn,

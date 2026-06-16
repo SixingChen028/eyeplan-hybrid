@@ -8,9 +8,9 @@ from typing import Any
 
 from modules.a2c import load_jax_params
 from modules.config import DEFAULT_META, DEFAULT_PARAMS, ENV_DYNAMIC_PARAM_KEYS, ENV_STATIC_PARAM_KEYS
-from modules.environment import JaxDecisionTreeEnv, JaxDecisionTreeParams
+from modules.environment import DecisionTreeEnv, DecisionTreeParams
 from modules.compat import get_compat_version
-from modules.simulation import JaxSimulator
+from modules.simulation import Simulator
 
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 PARAMS_NAME = "net_jax.p"
@@ -41,7 +41,7 @@ def require_metadata_keys(metadata_args: dict, keys: tuple[str, ...], section_na
         )
 
 
-def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
+def env_from_run_args(args: dict) -> DecisionTreeEnv:
     optional_static_keys = {
         "disable_persistence",
         "activation_masks_actions",
@@ -54,7 +54,7 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
     required_keys = tuple(key for key in ENV_STATIC_PARAM_KEYS if key not in optional_static_keys)
     require_metadata_keys(args, required_keys, "environment static")
 
-    return JaxDecisionTreeEnv(
+    return DecisionTreeEnv(
         num_nodes=int(args["num_nodes"]),
         t_max=int(args["t_max"]),
         scale_factor=float(args["scale_factor"]),
@@ -82,7 +82,7 @@ def env_from_run_args(args: dict) -> JaxDecisionTreeEnv:
     )
 
 
-def env_params_from_run_args(env: JaxDecisionTreeEnv, args: dict) -> JaxDecisionTreeParams:
+def env_params_from_run_args(env: DecisionTreeEnv, args: dict) -> DecisionTreeParams:
     optional_dynamic_keys = {"wm_neighbor_activation", "move_cost_scale"}
     required_keys = tuple(key for key in ENV_DYNAMIC_PARAM_KEYS if key not in optional_dynamic_keys)
     require_metadata_keys(args, required_keys, "environment dynamic")
@@ -141,9 +141,9 @@ def resolve_params_path_from_metadata(run_dir: str, metadata: dict) -> str:
     )
 
 
-def build_simulator(args: dict) -> JaxSimulator:
+def build_simulator(args: dict) -> Simulator:
     env = env_from_run_args(args)
-    return JaxSimulator(env, env_params=env_params_from_run_args(env, args))
+    return Simulator(env, env_params=env_params_from_run_args(env, args))
 
 
 def evaluate_params(
@@ -153,7 +153,7 @@ def evaluate_params(
     train_elapsed_seconds: float,
     eval_episodes: int | None = None,
     batch_size: int | None = None,
-    simulator: JaxSimulator | None = None,
+    simulator: Simulator | None = None,
 ) -> dict:
     if simulator is None:
         simulator = build_simulator(args)

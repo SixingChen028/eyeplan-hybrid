@@ -4,7 +4,7 @@ import pytest
 
 from modules.baselines import evaluate_baseline_policies
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
-from modules.environment import JaxDecisionTreeEnv
+from modules.environment import DecisionTreeEnv
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
 
@@ -12,7 +12,7 @@ _, _DEFAULT_PARAMS = load_canonical_defaults()
 def _env(**overrides):
     params = dict(_DEFAULT_PARAMS)
     params.update(overrides)
-    return JaxDecisionTreeEnv(
+    return DecisionTreeEnv(
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),

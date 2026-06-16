@@ -5,7 +5,7 @@ import jax
 import numpy as np
 import pytest
 
-from modules.environment import JaxDecisionTreeEnv
+from modules.environment import DecisionTreeEnv
 from modules.tree_generation import enumerate_tree_probs
 
 pytestmark = pytest.mark.skipif(
@@ -34,7 +34,7 @@ def _canonical_from_arrays(child_nodes: np.ndarray, parent_nodes: np.ndarray):
 def test_num_nodes_9_sampling_matches_explicit_probabilities():
     num_nodes = 9
     expected = enumerate_tree_probs(num_nodes)
-    env = JaxDecisionTreeEnv(
+    env = DecisionTreeEnv(
         num_nodes=num_nodes,
         t_max=8,
         scale_factor=1.0,
