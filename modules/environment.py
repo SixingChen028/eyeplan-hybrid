@@ -313,25 +313,33 @@ class DecisionTreeEnv:
         )
         return state._replace(q_values=q_values)
 
-    def _look(self, state: DecisionTreeState, node: jax.Array, params: DecisionTreeParams, *, skip_q_update: bool = False):
+    def _look(
+        self,
+        state: DecisionTreeState,
+        node: jax.Array,
+        params: DecisionTreeParams,
+        *,
+        skip_q_update: bool = False,
+        skip_corruption: bool = False,
+    ):
 
+        state = state._replace(fixation_node=node)
+        state = self._update_activation(state, params)
+        if self.disable_persistence:
+            state = self._clear_inactive_memory(state)
+        if not (skip_corruption or self.disable_persistence or self.disable_corruption):
+            # skip under disable_persistence because any inactive info has already been cleared
+            state = self._corrupt_memory(state, params)
         children = state.child_nodes[node]
         state = state._replace(
-            fixation_node=node,
             g_values=safe_set(state.g_values, children, state.g_values[node] + state.points[node]),
             n_visits=state.n_visits.at[node].add(1),
             fixation_recency=state.fixation_recency.at[node].set(1.0),
             is_discovered=safe_set(state.is_discovered, children, True),
             is_terminal=state.is_terminal.at[node].set(state.child_nodes[node, 0] < 0),
         )
-        state = self._update_activation(state, params)
-        if self.disable_persistence:
-            state = self._clear_inactive_memory(state)
         if not skip_q_update:
             state = self._update_q(state, params)
-        if not (self.disable_persistence or self.disable_corruption):
-            # skip under disable_persistence because any inactive info has already been cleared
-            state = self._corrupt_memory(state, params)
         return state
 
     def _update_activation(self, state: DecisionTreeState, params: DecisionTreeParams) -> DecisionTreeState:
@@ -530,7 +538,7 @@ class DecisionTreeEnv:
 
     def reset(self, key: jax.Array, params: DecisionTreeParams):
         state = self._sample_initial_state(key)
-        state = self._look(state, state.root_node, params)
+        state = self._look(state, state.root_node, params, skip_corruption=True)
         obs = self._get_obs(state)
         info = self._get_info(state)
         return state, obs, info

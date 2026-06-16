@@ -304,6 +304,37 @@ def test_memory_corruption_forgets_inactive_node_memory():
     np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
 
 
+def test_reset_skips_initial_corruption_event():
+    env = _env(num_nodes=3, shuffle_nodes=False)
+    params = _env_params(env)
+    key = jax.random.PRNGKey(21)
+
+    initial_state = env._sample_initial_state(key)
+    expected_state = env._look(initial_state, initial_state.root_node, params, skip_corruption=True)
+    corrupted_state = env._look(initial_state, initial_state.root_node, params)
+    reset_state, _, _ = env.reset(key, params)
+
+    np.testing.assert_array_equal(np.asarray(reset_state.rng_key), np.asarray(expected_state.rng_key))
+    assert not np.array_equal(np.asarray(reset_state.rng_key), np.asarray(corrupted_state.rng_key))
+
+
+def test_look_corrupts_memory_before_q_update():
+    env = _env(num_nodes=3, shuffle_nodes=False, activation_gates_backup_source=False)
+    params = _env_params(env, wm_decay=0.0, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    state, _, _ = env.reset(jax.random.PRNGKey(22), params)
+    state = state._replace(
+        points=jnp.zeros((env.num_nodes,), dtype=jnp.float32),
+        q_values=jnp.array([0.0, 0.0, 10.0], dtype=jnp.float32),
+        activation=jnp.zeros((env.num_nodes,), dtype=jnp.float32),
+        is_discovered=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
+    )
+
+    state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params)
+
+    np.testing.assert_allclose(float(state.q_values[0]), 0.0, atol=1e-6)
+    np.testing.assert_allclose(float(state.q_values[2]), 0.0, atol=1e-6)
+
+
 def test_disable_corruption_skips_corruption_and_keeps_terminal_memory_persistent():
     env = _env(
         num_nodes=7,
