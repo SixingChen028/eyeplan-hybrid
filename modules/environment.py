@@ -313,14 +313,8 @@ class DecisionTreeEnv:
         )
         return state._replace(q_values=q_values)
 
-    def _look(
-        self,
-        state: DecisionTreeState,
-        node: jax.Array,
-        params: DecisionTreeParams,
-        *,
-        skip_q_update: bool = False,
-    ) -> DecisionTreeState:
+    def _look(self, state: DecisionTreeState, node: jax.Array, params: DecisionTreeParams, *, skip_q_update: bool = False):
+
         children = state.child_nodes[node]
         state = state._replace(
             fixation_node=node,
