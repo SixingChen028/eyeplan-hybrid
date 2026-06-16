@@ -1,0 +1,16 @@
+[meta]
+array_vars = []
+
+[sbatch]
+gpu = true
+
+[params]
+cost = [0.005]
+seed = [1, 2]
+beta_e_final = 0.001
+wm_decay = [0.5, 0.6, 0.7, 0.8, 0.9]
+wm_neighbor_activation = [0.5, 0.8, 1.0]
+use_recency_obs = false  # perhaps reconsider
+num_envs = 64
+
+disable_persistence = true
