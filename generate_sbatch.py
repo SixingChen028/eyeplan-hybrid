@@ -255,6 +255,7 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append(f"#SBATCH -o {log_path}")
     if gpu_enabled:
         lines.append("#SBATCH --gres=gpu:1")
+        lines.append("#SBATCH --constraint='l40s'")
     for directive in sbatch.get("extra_directives", []):
         lines.append(f"#SBATCH {directive}")
     lines.append(f"#SBATCH --array=0-{array_size - 1}")
