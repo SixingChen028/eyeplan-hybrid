@@ -32,7 +32,7 @@ class JaxDecisionTreeState(NamedTuple):
     points: jax.Array
     child_nodes: jax.Array
     parent_nodes: jax.Array
-    g_values: jax.Array  # conceptually search state but static in practice (see NOTE)
+    g_values: jax.Array
     # search state
     fixation_node: jax.Array
     q_values: jax.Array
@@ -44,9 +44,6 @@ class JaxDecisionTreeState(NamedTuple):
     time_elapsed: jax.Array
     # implementation detail
     rng_key: jax.Array
-
-# NOTE g_values is static path-value information in the cognitive architecture,
-# not learned memory.
 
 class JaxDecisionTreeParams(NamedTuple):
     beta_move: jax.Array
@@ -241,16 +238,6 @@ class JaxDecisionTreeEnv:
 
         return key, root, child_nodes, parent_nodes
 
-    def _compute_path_values(self, parent_nodes, points):
-        g_values = self._zeros()
-
-        def body_fn(_, g_values):
-            parent_safe = jnp.maximum(parent_nodes, 0)
-            parent_values = g_values[parent_safe] + points[parent_safe]
-            return jnp.where(parent_nodes >= 0, parent_values, 0.0)
-
-        return jax.lax.fori_loop(0, math.ceil(self.num_nodes / 2), body_fn, g_values)
-
     def _clear_inactive_memory(self, state: JaxDecisionTreeState):
         active = state.activation > 0.0
         return state._replace(
@@ -337,6 +324,7 @@ class JaxDecisionTreeEnv:
         children = state.child_nodes[node]
         state = state._replace(
             fixation_node=node,
+            g_values=safe_set(state.g_values, children, state.g_values[node] + state.points[node]),
             n_visits=state.n_visits.at[node].add(1),
             fixation_recency=state.fixation_recency.at[node].set(1.0),
             is_discovered=safe_set(state.is_discovered, children, True),
@@ -534,7 +522,7 @@ class JaxDecisionTreeEnv:
             points=points,
             child_nodes=child_nodes,
             parent_nodes=parent_nodes,
-            g_values=self._compute_path_values(parent_nodes, points),
+            g_values=jnp.full((self.num_nodes,), self.min_path_value, dtype=jnp.float32).at[root].set(0.0),
             fixation_node=root,
             q_values=self._zeros(),
             n_visits=self._zeros(jnp.int32),

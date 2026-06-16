@@ -164,7 +164,8 @@ def _assert_tree_invariants(
     expected_g = _path_values(child_nodes, points, root)
     for step_idx in range(np.asarray(states.g_values).shape[1]):
         g_values = np.asarray(states.g_values[rollout_idx, step_idx])
-        np.testing.assert_allclose(g_values, expected_g, atol=atol)
+        is_discovered = np.asarray(states.is_discovered[rollout_idx, step_idx])
+        np.testing.assert_allclose(g_values[is_discovered], expected_g[is_discovered], atol=atol)
 
 
 def _path_values(child_nodes: np.ndarray, points: np.ndarray, root: int) -> np.ndarray:
