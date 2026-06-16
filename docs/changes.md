@@ -4,6 +4,19 @@ Record every important result-producing change here. An important change is any 
 
 The compatibility version is an integer epoch attached to runs and checkpoint weights. Bump it only when a change makes existing checkpoint weights incompatible with the current code. Compatible changes stay under the current version.
 
+## Version 5
+
+- Store incremental remembered path values online. Undiscovered nodes now keep the
+  initial minimum path value until their parent is fixated and discovers them.
+- Apply memory corruption after working-memory activation refresh and before the
+  current fixation's learning updates; reset skips the initial corruption event;
+  ADR 0006.
+- Add `activation_prevents_corruption`, defaulting to true. When false,
+  corruption applies to all discovered node-specific memory, including nodes
+  currently active in working memory.
+- Fix `generate_wm_decay_backtrack_rollouts.py` to pass the full environment
+  static parameter set, including `activation_prevents_corruption`.
+
 ## Version 4
 
 - Add discovered-node state to the cognitive architecture. When
@@ -30,4 +43,5 @@ The compatibility version is an integer epoch attached to runs and checkpoint we
 - Factor activation touch-point parameters; ADR 0001; commit `11d174c`.
 - Rename `wm_only` to `disable_persistence`; ADR 0002; commits `b13b075`, `ca0c535`.
 - Add `global_shared` architecture; ADR 0003; commit `eb91a3a`; checkpoint shape compatibility is distinguished by `network_type`.
-Current code defines `COMPAT_VERSION = 4`; do not document a later epoch unless the constant is also bumped and enforced by checkpoint loading.
+
+Current code defines `COMPAT_VERSION = 5`; do not document a later epoch unless the constant is also bumped and enforced by checkpoint loading.
