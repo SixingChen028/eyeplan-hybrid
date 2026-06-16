@@ -1,0 +1,19 @@
+[meta]
+array_vars = []
+
+[sbatch]
+gpu = true
+
+
+[params]
+seed = [1,2]
+beta_e_final = 0.001
+cost = 0.005
+forget_rate = [0.05, 0.1, 0.15, 0.2]
+wm_decay = [0.5]
+
+# basic: disable extra observations
+use_recency_obs = false
+
+num_envs = 64
+
