@@ -377,6 +377,7 @@ class DecisionTreeEnv:
         )
 
     def _corrupt_memory(self, state: DecisionTreeState, params: DecisionTreeParams):
+        assert not self.disable_persistence
         key, q_drift_key, forget_key = jax.random.split(state.rng_key, 3)
         inactive = state.activation == 0.0
         protection_mask = inactive if self.activation_prevents_corruption else True
