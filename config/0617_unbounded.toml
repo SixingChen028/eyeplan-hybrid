@@ -1,0 +1,25 @@
+[meta]
+array_vars = []
+
+[sbatch]
+time = "1:00:00"
+gpu = true
+
+[params]
+cost = [0.001, 0.01, 0.02, 0.03, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24]
+t_max = 100
+beta_e_final = 0.005  # bumped
+use_recency_obs = false  # perhaps reconsider
+
+# cheap training
+seed = [1,2]
+num_envs = 64
+
+# expensive training
+# seed = [1, 2, 3, 4]
+# num_envs = 128
+# num_updates = 50_000
+
+wm_decay = 1.0
+disable_corruption = true
+
