@@ -1,5 +1,5 @@
 [meta]
-array_vars = ["seed"]
+array_vars = []
 
 [sbatch]
 time = "2:00:00"
@@ -19,14 +19,65 @@ num_updates = 50_000
 [[conditions]]
 label = "wm_only"
 disable_persistence = true
-wm_decay = [0.6, 0.8, 0.9, 0.95]
+wm_decay = 0.6
+wm_neighbor_activation = 0.5
+
+[[conditions]]
+label = "wm_only"
+disable_persistence = true
+wm_decay = 0.8
+wm_neighbor_activation = 0.5
+
+[[conditions]]
+label = "wm_only"
+disable_persistence = true
+wm_decay = 0.9
+wm_neighbor_activation = 0.5
+
+[[conditions]]
+label = "wm_only"
+disable_persistence = true
+wm_decay = 0.95
 wm_neighbor_activation = 0.5
 
 [[conditions]]
 label = "persist_only"
 wm_decay = 0.5
 wm_neighbor_activation = 1.0
-forget_rate = [0.05, 0.1, 0.2, 0.4]
+forget_rate = 0.05
+# activation only gates legal fixation actions
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+activation_masks_observation = false
+activation_prevents_corruption = false
+
+[[conditions]]
+label = "persist_only"
+wm_decay = 0.5
+wm_neighbor_activation = 1.0
+forget_rate = 0.1
+# activation only gates legal fixation actions
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+activation_masks_observation = false
+activation_prevents_corruption = false
+
+[[conditions]]
+label = "persist_only"
+wm_decay = 0.5
+wm_neighbor_activation = 1.0
+forget_rate = 0.2
+# activation only gates legal fixation actions
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+activation_masks_observation = false
+activation_prevents_corruption = false
+
+[[conditions]]
+label = "persist_only"
+wm_decay = 0.5
+wm_neighbor_activation = 1.0
+forget_rate = 0.4
 # activation only gates legal fixation actions
 activation_gates_backup_sink = false
 activation_gates_backup_source = false
@@ -35,7 +86,28 @@ activation_prevents_corruption = false
 
 [[conditions]]
 label = "both-drift"
-wm_decay = [0.6, 0.8, 0.9, 0.95]
+wm_decay = 0.6
+wm_neighbor_activation = 0.5
+q_drift = 4
+q_decay = 0.99
+
+[[conditions]]
+label = "both-drift"
+wm_decay = 0.8
+wm_neighbor_activation = 0.5
+q_drift = 4
+q_decay = 0.99
+
+[[conditions]]
+label = "both-drift"
+wm_decay = 0.9
+wm_neighbor_activation = 0.5
+q_drift = 4
+q_decay = 0.99
+
+[[conditions]]
+label = "both-drift"
+wm_decay = 0.95
 wm_neighbor_activation = 0.5
 q_drift = 4
 q_decay = 0.99
@@ -43,7 +115,31 @@ q_decay = 0.99
 [[conditions]]
 label = "wm-backup"
 disable_persistence = true
-wm_decay = [0.6, 0.8, 0.9, 0.95]
+wm_decay = 0.6
+wm_neighbor_activation = 0.5
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+
+[[conditions]]
+label = "wm-backup"
+disable_persistence = true
+wm_decay = 0.8
+wm_neighbor_activation = 0.5
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+
+[[conditions]]
+label = "wm-backup"
+disable_persistence = true
+wm_decay = 0.9
+wm_neighbor_activation = 0.5
+activation_gates_backup_sink = false
+activation_gates_backup_source = false
+
+[[conditions]]
+label = "wm-backup"
+disable_persistence = true
+wm_decay = 0.95
 wm_neighbor_activation = 0.5
 activation_gates_backup_sink = false
 activation_gates_backup_source = false
