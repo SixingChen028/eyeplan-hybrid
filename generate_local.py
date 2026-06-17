@@ -10,6 +10,7 @@ from generate_sbatch import (
     _as_dict,
     _format_summary_value,
     _format_cli_overrides,
+    _condition_array_keys,
     _condition_task_overrides,
     _resolve_config_path,
     _selected_array_axes,
@@ -56,8 +57,8 @@ def _render_script(config: dict, config_path: Path, *, gpus: list[str] | None = 
     params = _as_dict(normalized_config.get("params"), "params")
 
     _, array_params = _split_params(params)
-    selected_axes = _selected_array_axes(meta, array_params)
     conditions = normalized_config.get("conditions", [])
+    selected_axes = _selected_array_axes(meta, array_params, _condition_array_keys(conditions))
     task_overrides = _condition_task_overrides(conditions, selected_axes, array_params)
 
     experiment = str(meta.get("experiment") or config_path.stem)
@@ -224,31 +225,44 @@ def _build_local_summary_lines(config: dict, config_path: Path, gpus: list[str])
     params = _as_dict(normalized_config.get("params"), "params")
 
     _, array_params = _split_params(params)
-    selected_axes = set(_selected_array_axes(meta, array_params))
     conditions = normalized_config.get("conditions", [])
+    selected_axes = set(_selected_array_axes(meta, array_params, _condition_array_keys(conditions)))
     task_overrides = _condition_task_overrides(conditions, list(selected_axes), array_params)
 
-    array_combination_count = 1
-    for key in sorted(selected_axes):
-        array_combination_count *= len(array_params[key])
     if task_overrides:
         array_combination_count = len(task_overrides)
+    else:
+        array_combination_count = 1
+        for key in sorted(selected_axes):
+            array_combination_count *= len(array_params[key])
 
     vmap_keys = sorted(key for key in array_params if key not in selected_axes)
-    vmap_combination_count = 1
-    for key in vmap_keys:
-        vmap_combination_count *= len(array_params[key])
 
     lines: list[str] = []
     if conditions:
         lines.append(f"Condition tables: {len(conditions)}")
     lines.append(f"Local tasks: {array_combination_count} process launches")
-    if selected_axes:
+    if selected_axes and not conditions:
         for key in sorted(selected_axes):
             lines.append(f"  - {key}: {_format_summary_value(array_params[key])}")
 
-    lines.append(f"Per-process vmap sweep: {vmap_combination_count} combinations")
-    if vmap_keys:
+    if conditions:
+        # Vmap behavior varies per condition (each may add or pin sweep arrays).
+        for condition_idx, condition in enumerate(conditions):
+            vmap_count = 1
+            for key in vmap_keys:
+                if key not in condition:
+                    vmap_count *= len(array_params[key])
+            for key, value in condition.items():
+                if isinstance(value, list) and key not in selected_axes:
+                    vmap_count *= len(value)
+            label = condition.get("label", condition_idx)
+            lines.append(f"Per-process vmap (condition {condition_idx} '{label}'): {vmap_count}")
+    else:
+        vmap_combination_count = 1
+        for key in vmap_keys:
+            vmap_combination_count *= len(array_params[key])
+        lines.append(f"Per-process vmap sweep: {vmap_combination_count} combinations")
         for key in vmap_keys:
             lines.append(f"  - {key}: {_format_summary_value(array_params[key])}")
 

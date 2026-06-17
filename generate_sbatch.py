@@ -162,12 +162,29 @@ def _split_params(params: dict) -> tuple[dict[str, object], dict[str, list[objec
     return scalars, arrays
 
 
-def _selected_array_axes(meta: dict, array_params: dict[str, list[object]]) -> list[str]:
+def _condition_array_keys(conditions: list[dict[str, object]]) -> set[str]:
+    return {
+        key
+        for condition in conditions
+        for key, value in condition.items()
+        if isinstance(value, list)
+    }
+
+
+def _selected_array_axes(
+    meta: dict,
+    array_params: dict[str, list[object]],
+    condition_array_keys: set[str] = frozenset(),
+) -> list[str]:
+    sweep_keys = set(array_params) | set(condition_array_keys)
     array_vars_raw = meta.get("array_vars")
     if array_vars_raw == "ALL":
-        return list(array_params.keys())
+        return [key for key in array_params if key in sweep_keys] + [
+            key for key in condition_array_keys if key not in array_params
+        ]
 
     axes: list[str] = [key for key in array_params if key in SHAPE_KEYS]
+    axes += [key for key in condition_array_keys if key in SHAPE_KEYS and key not in axes]
 
     if array_vars_raw is not None:
         if not isinstance(array_vars_raw, list):
@@ -175,8 +192,10 @@ def _selected_array_axes(meta: dict, array_params: dict[str, list[object]]) -> l
         for item in array_vars_raw:
             if not isinstance(item, str):
                 raise ValueError("meta.array_vars entries must be strings.")
-            if item not in array_params:
-                raise ValueError(f"meta.array_vars contains '{item}', but params.{item} is not an array.")
+            if item not in sweep_keys:
+                raise ValueError(
+                    f"meta.array_vars contains '{item}', but it is not an array in params or any condition."
+                )
             if item not in axes:
                 axes.append(item)
 
@@ -208,10 +227,20 @@ def _condition_task_overrides(
 
     tasks: list[dict[str, object]] = []
     for condition_idx, condition in enumerate(conditions):
-        active_axes = [key for key in selected_axes if key not in condition]
+        # Each axis varies across array tasks. A condition-local array overrides the
+        # top-level values for that condition; a top-level array applies only when the
+        # condition does not pin the key to a scalar.
+        axis_values: dict[str, list[object]] = {}
+        for key in selected_axes:
+            condition_value = condition.get(key)
+            if isinstance(condition_value, list):
+                axis_values[key] = condition_value
+            elif key not in condition:
+                axis_values[key] = array_params[key]
+        active_axes = list(axis_values)
         base_task = {"condition": condition_idx}
         if active_axes:
-            for values in itertools.product(*(array_params[key] for key in active_axes)):
+            for values in itertools.product(*(axis_values[key] for key in active_axes)):
                 task = dict(base_task)
                 task.update(dict(zip(active_axes, values)))
                 tasks.append(task)
@@ -227,8 +256,8 @@ def _render_script(config: dict, config_path: Path) -> str:
     params = _as_dict(normalized_config.get("params"), "params")
 
     _, array_params = _split_params(params)
-    selected_axes = _selected_array_axes(meta, array_params)
     conditions = normalized_config.get("conditions", [])
+    selected_axes = _selected_array_axes(meta, array_params, _condition_array_keys(conditions))
     task_overrides = _condition_task_overrides(conditions, selected_axes, array_params)
 
     experiment = str(meta.get("experiment") or config_path.stem)
@@ -467,31 +496,45 @@ def _build_job_summary_lines(config: dict, config_path: Path) -> list[str]:
     params = _as_dict(normalized_config.get("params"), "params")
 
     _, array_params = _split_params(params)
-    selected_axes = set(_selected_array_axes(meta, array_params))
     conditions = normalized_config.get("conditions", [])
+    selected_axes = set(_selected_array_axes(meta, array_params, _condition_array_keys(conditions)))
     task_overrides = _condition_task_overrides(conditions, list(selected_axes), array_params)
 
-    array_combination_count = 1
-    for key in sorted(selected_axes):
-        array_combination_count *= len(array_params[key])
     if task_overrides:
         array_combination_count = len(task_overrides)
+    else:
+        array_combination_count = 1
+        for key in sorted(selected_axes):
+            array_combination_count *= len(array_params[key])
 
     vmap_keys = sorted(key for key in array_params if key not in selected_axes)
-    vmap_combination_count = 1
-    for key in vmap_keys:
-        vmap_combination_count *= len(array_params[key])
 
     lines: list[str] = []
     if conditions:
         lines.append(f"Condition tables: {len(conditions)}")
-    lines.append(f"Array parameters: {array_combination_count} combinations")
-    if selected_axes:
+    lines.append(f"Array tasks: {array_combination_count} total")
+    if selected_axes and not conditions:
         for key in sorted(selected_axes):
             lines.append(f"  - {key}: {_format_summary_value(array_params[key])}")
 
-    lines.append(f"Vmap parameters: {vmap_combination_count} combinations")
-    if vmap_keys:
+    if conditions:
+        # Vmap behavior varies per condition (each may add or pin sweep arrays), so
+        # report the in-process run count per condition rather than a single global grid.
+        for condition_idx, condition in enumerate(conditions):
+            vmap_count = 1
+            for key in vmap_keys:
+                if key not in condition:
+                    vmap_count *= len(array_params[key])
+            for key, value in condition.items():
+                if isinstance(value, list) and key not in selected_axes:
+                    vmap_count *= len(value)
+            label = condition.get("label", condition_idx)
+            lines.append(f"Vmap runs (condition {condition_idx} '{label}'): {vmap_count}")
+    else:
+        vmap_combination_count = 1
+        for key in vmap_keys:
+            vmap_combination_count *= len(array_params[key])
+        lines.append(f"Vmap parameters: {vmap_combination_count} combinations")
         for key in vmap_keys:
             lines.append(f"  - {key}: {_format_summary_value(array_params[key])}")
 

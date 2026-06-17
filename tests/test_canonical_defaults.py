@@ -74,6 +74,37 @@ def test_normalize_config_converts_condition_point_set_list_to_tuple():
     assert normalized["conditions"][0]["point_set"] == (1, 3, 9)
 
 
+def test_normalize_config_keeps_condition_sweep_array_as_list():
+    normalized = config.normalize_config(
+        {"conditions": [{"wm_decay": [0.6, 0.8, 0.9]}]}
+    )
+    assert normalized["conditions"][0]["wm_decay"] == [0.6, 0.8, 0.9]
+
+
+def test_normalize_config_rejects_array_for_non_sweepable_condition_key():
+    with pytest.raises(ValueError, match=r"conditions\[0\].label cannot be swept"):
+        config.normalize_config({"conditions": [{"label": ["a", "b"]}]})
+
+
+def test_expand_config_runs_expands_condition_sweep_array():
+    normalized = config.normalize_config(
+        {
+            "params": {"cost": [0.01, 0.02]},
+            "conditions": [{"label": "wm_only", "wm_decay": [0.6, 0.8]}],
+        }
+    )
+
+    fixed, runs, varied_keys, label, condition_index = config.expand_config_runs(
+        normalized,
+        condition_index=0,
+    )
+
+    assert sorted(varied_keys) == ["cost", "wm_decay"]
+    assert {run["wm_decay"] for run in runs} == {0.6, 0.8}
+    assert {run["cost"] for run in runs} == {0.01, 0.02}
+    assert len(runs) == 4
+
+
 def test_expand_config_runs_selects_condition_before_sweep_expansion():
     normalized = config.normalize_config(
         {

@@ -308,16 +308,21 @@ def normalize_conditions(raw_conditions) -> list[dict]:
         condition: dict = {}
         for key, value in raw_condition.items():
             if isinstance(value, list):
-                template = DEFAULT_PARAMS.get(key)
-                if not isinstance(template, tuple):
-                    raise ValueError(f"conditions[{condition_idx}].{key} must be scalar.")
                 for item_idx, item in enumerate(value):
                     if not is_scalar(item):
                         raise ValueError(
                             f"conditions[{condition_idx}].{key}[{item_idx}] must be scalar, "
                             f"got {type(item).__name__}."
                         )
-                condition[key] = tuple(value)
+                template = DEFAULT_PARAMS.get(key)
+                if isinstance(template, tuple):
+                    # Tuple-valued params (e.g. point_set) take the list as a single value.
+                    condition[key] = tuple(value)
+                elif key in SWEEP_KEYS or key in SHAPE_KEYS:
+                    # A sweep array within a condition; expanded like a top-level sweep array.
+                    condition[key] = list(value)
+                else:
+                    raise ValueError(f"conditions[{condition_idx}].{key} cannot be swept; must be scalar.")
                 continue
             if not is_scalar(value):
                 raise ValueError(f"conditions[{condition_idx}].{key} must be scalar.")

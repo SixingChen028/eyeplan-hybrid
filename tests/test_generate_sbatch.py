@@ -153,6 +153,44 @@ def test_render_script_expands_condition_tables_with_array_axes():
     assert "--label=" not in script
 
 
+def test_render_script_vmaps_condition_sweep_array_by_default():
+    config = {
+        "params": {"seed": [1, 2]},
+        "meta": {"array_vars": ["seed"]},
+        "conditions": [
+            {"label": "wm_only", "wm_decay": [0.6, 0.8, 0.9]},
+        ],
+    }
+
+    script = _render_script(config, config_path=Path("config/test.toml"))
+
+    # One Slurm task per seed; the condition-local wm_decay array is vmapped in-process.
+    assert "#SBATCH --array=0-1" in script
+    assert "--condition=0 --seed=1" in script
+    assert "--condition=0 --seed=2" in script
+    assert "--wm_decay=" not in script
+
+
+def test_render_script_makes_condition_sweep_array_an_axis_via_array_vars():
+    config = {
+        "params": {"seed": 1},
+        "meta": {"array_vars": ["wm_decay"]},
+        "conditions": [
+            {"label": "wm_only", "wm_decay": [0.6, 0.8, 0.9]},
+            {"label": "fixed", "wm_decay": 0.5},
+        ],
+    }
+
+    script = _render_script(config, config_path=Path("config/test.toml"))
+
+    # Three tasks for the swept condition plus one for the scalar condition.
+    assert "#SBATCH --array=0-3" in script
+    assert "--condition=0 --wm_decay=0.6" in script
+    assert "--condition=0 --wm_decay=0.9" in script
+    assert "--condition=1" in script
+    assert "--condition=1 --wm_decay" not in script
+
+
 def test_render_script_rejects_unknown_condition_key():
     config = {
         "conditions": [
