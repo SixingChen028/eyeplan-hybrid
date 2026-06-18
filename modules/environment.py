@@ -95,6 +95,7 @@ class DecisionTreeEnv:
         activation_gates_backup_source: bool,
         disable_corruption: bool,
         activation_prevents_corruption: bool,
+        forget_discovered: bool,
         activation_masks_observation: bool,
         excluded_child_value: float | None,
         point_set: tuple,
@@ -109,6 +110,7 @@ class DecisionTreeEnv:
         self.activation_gates_backup_source = bool(activation_gates_backup_source)
         self.disable_corruption = bool(disable_corruption)
         self.activation_prevents_corruption = bool(activation_prevents_corruption)
+        self.forget_discovered = bool(forget_discovered)
         self.activation_masks_observation = bool(activation_masks_observation)
         self.excluded_child_value = None if excluded_child_value is None else float(excluded_child_value)
         self.use_recency_obs = bool(use_recency_obs)
@@ -383,9 +385,8 @@ class DecisionTreeEnv:
     def _corrupt_memory(self, state: DecisionTreeState, params: DecisionTreeParams):
         assert not self.disable_persistence
         key, q_drift_key, forget_key = jax.random.split(state.rng_key, 3)
-        inactive = state.activation == 0.0
-        protection_mask = inactive if self.activation_prevents_corruption else True
-        corruptible = protection_mask & state.is_discovered
+        not_protected = (state.activation == 0.0) if self.activation_prevents_corruption else True
+        corruptible = not_protected & state.is_discovered
 
         # add noise/drift to q values outside of WM
         q_values = jnp.where(corruptible, state.q_values * params.q_decay, state.q_values)
@@ -400,6 +401,11 @@ class DecisionTreeEnv:
         n_visits = jnp.where(forget_mask, 0, state.n_visits)
         g_values = jnp.where(forget_mask, self.min_path_value, state.g_values)
         fixation_recency = jnp.where(forget_mask, 0.0, state.fixation_recency)
+        is_discovered = (
+            jnp.where(forget_mask, False, state.is_discovered)
+            if self.forget_discovered
+            else state.is_discovered
+        )
 
         # deterministically clear terminal memory for corruptible nodes
         is_terminal = state.is_terminal & ~corruptible
@@ -410,6 +416,7 @@ class DecisionTreeEnv:
             g_values=g_values,
             fixation_recency=fixation_recency,
             is_terminal=is_terminal,
+            is_discovered=is_discovered,
             rng_key=key,
         )
 

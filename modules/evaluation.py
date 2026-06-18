@@ -49,6 +49,7 @@ def env_from_run_args(args: dict) -> DecisionTreeEnv:
         "activation_gates_backup_source",
         "disable_corruption",
         "activation_prevents_corruption",
+        "forget_discovered",
         "activation_masks_observation",
         "excluded_child_value",
     }
@@ -72,6 +73,7 @@ def env_from_run_args(args: dict) -> DecisionTreeEnv:
         activation_prevents_corruption=bool(
             args.get("activation_prevents_corruption", DEFAULT_PARAMS["activation_prevents_corruption"])
         ),
+        forget_discovered=bool(args.get("forget_discovered", DEFAULT_PARAMS["forget_discovered"])),
         activation_masks_observation=bool(
             args.get("activation_masks_observation", DEFAULT_PARAMS["activation_masks_observation"])
         ),

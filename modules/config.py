@@ -29,6 +29,8 @@ PARAM_DEFAULTS = {
         "disable_corruption": False,
         # Whether working-memory activation protects node-specific memory from corruption.
         "activation_prevents_corruption": True,
+        # Whether stochastic forgetting also clears the discovered status of a node.
+        "forget_discovered": False,
         # Whether activation determines which node-specific information is observable.
         "activation_masks_observation": True,
         # Value substituted for inactive child values when backup-source gating keeps full child support.
