@@ -339,11 +339,20 @@ class DecisionTreeEnv:
             # skip under disable_persistence because any inactive info has already been cleared
             state = self._corrupt_memory(state, params)
         children = state.child_nodes[node]
+        child_activation = jnp.maximum(
+            safe_get(state.activation, children, fill_value=0.0),
+            params.wm_neighbor_activation,
+        )
+        activation = state.activation.at[node].set(1.0)
+        activation = safe_set(activation, children, child_activation)
+        is_discovered = state.is_discovered.at[node].set(True)
+        is_discovered = safe_set(is_discovered, children, True)
         state = state._replace(
             g_values=safe_set(state.g_values, children, state.g_values[node] + state.points[node]),
             n_visits=state.n_visits.at[node].add(1),
             fixation_recency=state.fixation_recency.at[node].set(1.0),
-            is_discovered=safe_set(state.is_discovered, children, True),
+            activation=activation,
+            is_discovered=is_discovered,
             is_terminal=state.is_terminal.at[node].set(state.child_nodes[node, 0] < 0),
         )
         if not skip_q_update:
@@ -406,6 +415,11 @@ class DecisionTreeEnv:
             if self.forget_discovered
             else state.is_discovered
         )
+        activation = (
+            jnp.where(forget_mask, 0.0, state.activation)
+            if self.forget_discovered
+            else state.activation
+        )
 
         # deterministically clear terminal memory for corruptible nodes
         is_terminal = state.is_terminal & ~corruptible
@@ -415,6 +429,7 @@ class DecisionTreeEnv:
             n_visits=n_visits,
             g_values=g_values,
             fixation_recency=fixation_recency,
+            activation=activation,
             is_terminal=is_terminal,
             is_discovered=is_discovered,
             rng_key=key,

@@ -588,7 +588,7 @@ def test_unmasked_observation_uses_discovered_nodes():
     assert np.asarray(obs.g_values)[5] == 90.0
 
 
-def test_look_discovers_fixated_node_children():
+def test_look_discovers_fixated_node_and_children():
     env = _env(
         num_nodes=7,
         shuffle_nodes=False,
@@ -603,7 +603,7 @@ def test_look_discovers_fixated_node_children():
             dtype=jnp.int32,
         ),
         parent_nodes=jnp.array([-1, 0, 0, 1, 1, 2, 2], dtype=jnp.int32),
-        is_discovered=jnp.array([True, True, False, False, False, False, False], dtype=jnp.bool_),
+        is_discovered=jnp.array([True, False, False, False, False, False, False], dtype=jnp.bool_),
     )
 
     state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params, skip_q_update=True)
@@ -954,6 +954,50 @@ def test_activation_prevents_corruption_false_corrupts_active_discovered_memory(
         np.asarray(state.q_values)[~discovered],
         np.arange(env.num_nodes, dtype=np.float32)[~discovered],
         atol=1e-6,
+    )
+
+
+def test_forget_discovered_clears_forgotten_activation():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+        activation_prevents_corruption=False,
+        forget_discovered=True,
+    )
+    params = _env_params(env, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    state, _, _ = env.reset(jax.random.PRNGKey(153), params)
+    state = state._replace(
+        activation=jnp.ones((env.num_nodes,), dtype=jnp.float32),
+        is_discovered=jnp.array([True, True, False, True, False, False, False], dtype=jnp.bool_),
+    )
+
+    state = env._corrupt_memory(state, params)
+
+    forgotten = np.array([True, True, False, True, False, False, False], dtype=bool)
+    np.testing.assert_array_equal(np.asarray(state.is_discovered)[forgotten], False)
+    np.testing.assert_allclose(np.asarray(state.activation)[forgotten], 0.0, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(state.activation)[~forgotten], 1.0, atol=1e-6)
+
+
+def test_pure_forget_look_does_not_leave_active_undiscovered_nodes():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+        activation_gates_backup_sink=False,
+        activation_gates_backup_source=False,
+        activation_masks_observation=False,
+        activation_prevents_corruption=False,
+        forget_discovered=True,
+    )
+    params = _env_params(env, wm_decay=1.0, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    state, _, info = env.reset(jax.random.PRNGKey(154), params)
+
+    action = np.flatnonzero(np.asarray(info["mask"][:-1]))[1]
+    state, _, _, _, info = env.step(state, jnp.asarray(action, dtype=jnp.int32), params)
+
+    np.testing.assert_array_equal(
+        np.asarray(state.activation) > 0.0,
+        np.asarray(state.is_discovered),
     )
 
 
