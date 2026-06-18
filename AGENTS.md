@@ -1,5 +1,16 @@
 # Project Instructions
 
+## Rules
+
+All changes to environment.py must be directly instructed or approved by the user. If
+making the requested change requires (or motivates) an additional change, stop and ask for
+permission.
+
+Questions about how the environment or its parameters work must be answered with the
+utmost care. The environment dynamics involve complex interactions between parameters.
+Think very carefully about your answers to such questions. Ruthlessly check your own
+assumptions and clearly indicate them to the user.
+
 ## Purpose
 
 This repository defines the optimal/rational model for a larger project studying
@@ -83,3 +94,4 @@ new/updated test.
   checkpointed parameters could run without errors. It thus includes most changes to
   `network.py` or `environment.py`. Exceptions are refactors and *optional* new
   functionality that does not change default behavior.
+
