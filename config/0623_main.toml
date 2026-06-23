@@ -1,8 +1,8 @@
 [meta]
-array_vars = ["seed"]
+array_vars = ["wm_decay"]
 
 [sbatch]
-time = "3:00:00"
+time = "1:00:00"
 gpu = true
 
 [params]
@@ -11,11 +11,14 @@ beta_e_final = 0.005  # bumped
 use_recency_obs = false  # perhaps reconsider
 
 t_max = 100
-seed = [1, 2]
+seed = 3
 num_envs = 128
 num_updates = 30_000
 
 label = "main"
-wm_decay = [0.2, 0.6, 0.8, 0.9, 0.95]
+# THIS VERSION RAN ON DARING-MENDEL
+# wm_decay = [0.2, 0.6, 0.8, 0.9, 0.95]
+# THIS VERSION USED FOR 4x L40
+wm_decay = [0.6, 0.8, 0.9, 0.95]
 wm_neighbor_activation = 0.5
 forget_rate = [0.05, 0.1, 0.2, 0.3, 0.4]
