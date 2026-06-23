@@ -29,3 +29,7 @@ activation_gates_backup_source = false
 activation_masks_observation = false
 activation_prevents_corruption = false  # this one matters
 forget_discovered = true
+
+# NOTE: this config is non-sensical because it allows backups to flow
+# through forgotten nodes (where values are always zero, so it just clears ancestors).
+# This should NOT be kept in future versions!
