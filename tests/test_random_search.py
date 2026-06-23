@@ -1,6 +1,7 @@
 import numpy as np
 import jax
 
+from generate_random_search import _spread_extra_fixation_means
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import DecisionTreeEnv
 from modules.random_search import RANDOM_SEARCH_STOP_MAX_FIXATIONS, RandomSearchSimulator
@@ -43,7 +44,7 @@ def _env_params(env, **overrides):
 
 def test_random_search_fixation_target_accounts_for_root_fixation():
     env = _env(num_nodes=3, t_max=5, shuffle_nodes=False, point_set=np.array([1.0], dtype=np.float32))
-    simulator = RandomSearchSimulator(env, _env_params(env))
+    simulator = RandomSearchSimulator(env, _env_params(env), target_extra_fixations_mean=10.0)
 
     keys = jax.random.split(jax.random.PRNGKey(0), 100)
     targets = jax.vmap(simulator._sample_fixation_target)(keys)
@@ -54,7 +55,7 @@ def test_random_search_fixation_target_accounts_for_root_fixation():
 
 def test_random_search_simulation_writes_existing_simulation_shape():
     env = _env(num_nodes=3, t_max=5, shuffle_nodes=False, point_set=np.array([1.0], dtype=np.float32))
-    simulator = RandomSearchSimulator(env, _env_params(env))
+    simulator = RandomSearchSimulator(env, _env_params(env), target_extra_fixations_mean=2.0)
 
     data = simulator.simulate(seed=1, num_trials=5, batch_size=2, skip_timeout_trials=False)
 
@@ -62,3 +63,9 @@ def test_random_search_simulation_writes_existing_simulation_shape():
     assert len(data["actions"]) == 5
     assert all(actions[0] == start for actions, start in zip(data["actions"], data["starts"]))
     assert all(actions[-1] == env.num_nodes for actions in data["actions"])
+
+
+def test_random_search_spreads_extra_fixation_means_across_runs():
+    means = _spread_extra_fixation_means([{}, {}, {}], min_mean=0.0, max_mean=30.0)
+
+    assert means == [0.0, 15.0, 30.0]
