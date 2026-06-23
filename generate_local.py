@@ -23,7 +23,6 @@ from modules.config import normalize_config
 
 DEFAULT_LOCAL = {
     "cpus_per_task": 4,
-    "gpus": [0],
     "log": "./log/local",
     "processes_per_gpu": 1,
 }
@@ -36,11 +35,28 @@ def _parse_gpus(raw: str) -> list[str]:
     return gpus
 
 
+def _detect_gpus() -> list[str]:
+    """Detect all visible GPUs via nvidia-smi, falling back to a single CPU slot."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return ["0"]
+    gpus = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return gpus if gpus else ["0"]
+
+
 def _local_gpus(local: dict, cli_gpus: str | None) -> list[str]:
     if cli_gpus is not None:
         return _parse_gpus(cli_gpus)
 
-    raw = local.get("gpus", DEFAULT_LOCAL["gpus"])
+    raw = local.get("gpus")
+    if raw is None:
+        return _detect_gpus()
     if isinstance(raw, str):
         return _parse_gpus(raw)
     if not isinstance(raw, list):
