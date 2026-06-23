@@ -32,7 +32,7 @@ num_updates = 30_000
 # label = "wm_only"
 # disable_persistence = true  # behaviorally equivalent (not yet human-confirmed)
 forget_rate = 1.0  # forget everything outside of WM
-wm_decay = [0.6, 0.8, 0.9, 0.95]
+wm_decay = [0.6, 0.8, 0.9, 0.95, 0.99]
 wm_neighbor_activation = 0.5
 
 # [[conditions]]
