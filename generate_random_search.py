@@ -74,7 +74,7 @@ def main() -> None:
     parser.add_argument("--path", help="Override output path from [meta].result_path.")
     parser.add_argument("--experiment", help="Override experiment name. Defaults to <config stem>_random_search.")
     parser.add_argument("--condition", type=int, help="0-based [[conditions]] table index to generate.")
-    parser.add_argument("--num_trials", type=int, default=5000)
+    parser.add_argument("--num_trials", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=512)
     parser.add_argument("--skip_timeout_trials", action="store_true")
     parser.add_argument("--min_extra_fixations_mean", type=float, default=0.0)
