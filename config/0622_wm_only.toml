@@ -1,5 +1,4 @@
 [meta]
-array_vars = ["seed"]
 
 [sbatch]
 time = "2:00:00"
