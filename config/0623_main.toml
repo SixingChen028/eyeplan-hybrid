@@ -15,8 +15,6 @@ seed = [1, 2]
 num_envs = 128
 num_updates = 30_000
 
-
-[[conditions]]
 label = "main"
 wm_decay = [0.2, 0.6, 0.8, 0.9, 0.95]
 wm_neighbor_activation = 0.5
