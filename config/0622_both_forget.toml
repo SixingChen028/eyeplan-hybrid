@@ -21,5 +21,6 @@ num_envs = 64
 # num_updates = 50_000
 
 wm_decay = [0.8, 0.9, 0.95]
-forget_rate = [0.05, 0.1, 0.2]
+# forget_rate = [0.05, 0.1, 0.2]
+forget_rate = [0.3, 0.4, 0.5]
 wm_neighbor_activation = 0.5
