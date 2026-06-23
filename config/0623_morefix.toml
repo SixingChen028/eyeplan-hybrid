@@ -1,0 +1,21 @@
+[meta]
+# array_vars = ["seed"]
+
+[sbatch]
+time = "1:00:00"
+gpu = true
+
+[params]
+cost = [0.001, 0.003, 0.005, 0.01]
+beta_e_final = [0.005, 0.01, 0.02, 0.04]
+use_recency_obs = false  # perhaps reconsider
+
+t_max = 100
+seed = 1
+num_envs = 64
+num_updates = [15_000, 30_000]
+
+label = "wm_only"
+wm_decay = [0.9, 0.95, 0.975, 0.99]
+wm_neighbor_activation = 0.5
+forget_rate = 1.0  # forget everything outside of WM
