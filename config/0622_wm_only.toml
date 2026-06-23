@@ -1,0 +1,45 @@
+[meta]
+array_vars = ["seed"]
+
+[sbatch]
+time = "2:00:00"
+gpu = true
+
+[params]
+cost = [0.001, 0.0025, 0.005, 0.01, 0.02, 0.04, 0.08]
+beta_e_final = 0.005  # bumped
+use_recency_obs = false  # perhaps reconsider
+
+# # expensive training
+# t_max = 100
+# seed = [1, 2, 3, 4]
+# num_envs = 128
+# num_updates = 50_000
+
+# cheap training
+seed = 1
+num_envs = 64
+num_updates = 30_000
+
+
+# main = 0622_both_forget
+# [[conditions]]
+# label = "main"
+# wm_decay = [0.6, 0.8, 0.9, 0.95]
+# wm_neighbor_activation = 0.5
+# forget_rate = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+
+# [[conditions]]
+# label = "wm_only"
+# disable_persistence = true  # behaviorally equivalent (not yet human-confirmed)
+forget_rate = 1.0  # forget everything outside of WM
+wm_decay = [0.6, 0.8, 0.9, 0.95]
+wm_neighbor_activation = 0.5
+
+# [[conditions]]
+# label = "persist_only"
+# forget_rate = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+# wm_decay = 1.0
+# activation_prevents_corruption = false
+# forget_discovered = true
+
