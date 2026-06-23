@@ -32,9 +32,9 @@ class DecisionTreeState(NamedTuple):
     points: jax.Array
     child_nodes: jax.Array
     parent_nodes: jax.Array
-    g_values: jax.Array
     # search state
     fixation_node: jax.Array
+    g_values: jax.Array
     q_values: jax.Array
     n_visits: jax.Array
     fixation_recency: jax.Array
