@@ -4,6 +4,14 @@ Record every important result-producing change here. An important change is any 
 
 The compatibility version is an integer epoch attached to runs and checkpoint weights. Bump it only when a change makes existing checkpoint weights incompatible with the current code. Compatible changes stay under the current version. Here, "incompatible" means that simulating an old run with the new code would mean evaluating a policy on an environment that is different from the one it was trained on (excluding RNG behavior).
 
+## Version 9
+
+- Exclude invalid child slots from value-backup target support. This fixes terminal
+  node backups when `activation_gates_backup_source = true` and
+  `excluded_child_value` is numeric: terminal targets are now the node's observed
+  reward rather than observed reward plus the substituted child value. Bumped
+  `COMPAT_VERSION` 8 -> 9.
+
 ## Version 8
 
 - Clear activation for nodes that remain undiscovered after a look update. This

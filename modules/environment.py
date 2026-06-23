@@ -212,6 +212,27 @@ class DecisionTreeEnv:
 
         return p
 
+    def _supported_child_probs(
+        self,
+        child_values: jax.Array,
+        support: jax.Array,
+        params: DecisionTreeParams,
+    ) -> jax.Array:
+        support = support.astype(jnp.bool_)
+        support_float = support.astype(jnp.float32)
+        support_count = jnp.sum(support_float)
+        max_q = jnp.max(jnp.where(support, child_values, -jnp.inf))
+        max_q = jnp.where(support_count > 0.0, max_q, 0.0)
+        z = params.beta_move * jnp.where(support, child_values - max_q, 0.0)
+        exp_z = jnp.where(support, jnp.exp(z), 0.0)
+        softmax_probs = exp_z / jnp.maximum(jnp.sum(exp_z), 1e-20)
+        random_probs = support_float / jnp.maximum(support_count, 1.0)
+        return jnp.where(
+            support_count > 0.0,
+            (1.0 - params.eps_move) * softmax_probs + params.eps_move * random_probs,
+            0.0,
+        )
+
     def _sample_tree(self, key: jax.Array):
         key, tree_key = jax.random.split(key)
         tree_idx = jax.random.choice(
@@ -254,27 +275,18 @@ class DecisionTreeEnv:
 
     def _backup_target(self, state, node, params: DecisionTreeParams):
         children = state.child_nodes[node]
+        valid_child = children >= 0
         child_q = safe_get(state.q_values, children, fill_value=0.0)
-        child_active = safe_get(state.activation, children, fill_value=0.0) > 0.0
+        child_active = valid_child & (safe_get(state.activation, children, fill_value=0.0) > 0.0)
 
         if not self.activation_gates_backup_source:
-            probs = self._softmax(child_q, params)
+            probs = self._supported_child_probs(child_q, valid_child, params)
         elif self.excluded_child_value is None:
-            active = child_active.astype(jnp.float32)
-            active_count = jnp.sum(active)
-            max_q = jnp.max(jnp.where(child_active, child_q, -jnp.inf))
-            z = params.beta_move * jnp.where(child_active, child_q - max_q, 0.0)
-            exp_z = jnp.where(child_active, jnp.exp(z), 0.0)
-            softmax_probs = exp_z / jnp.maximum(jnp.sum(exp_z), 1e-20)
-            random_probs = active / jnp.maximum(active_count, 1.0)
-            probs = jnp.where(
-                active_count > 0.0,
-                (1.0 - params.eps_move) * softmax_probs + params.eps_move * random_probs,
-                0.0,
-            )
+            probs = self._supported_child_probs(child_q, child_active, params)
         else:
             child_q = jnp.where(child_active, child_q, self.excluded_child_value)
-            probs = self._softmax(child_q, params)
+            child_q = jnp.where(valid_child, child_q, 0.0)
+            probs = self._supported_child_probs(child_q, valid_child, params)
 
         # The node's reward is only available once it has been observed (fixated).
         # n_visits > 0 tracks this, with the same forgetting/clearing dynamics.

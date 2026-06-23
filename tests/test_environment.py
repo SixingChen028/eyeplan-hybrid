@@ -393,6 +393,40 @@ def test_backup_includes_reward_of_observed_node():
     np.testing.assert_allclose(float(state.q_values[0]), 8.0, atol=1e-6)
 
 
+def test_terminal_backup_ignores_numeric_excluded_child_value():
+    env = _env(
+        num_nodes=3,
+        shuffle_nodes=False,
+        disable_corruption=True,
+        activation_gates_backup_source=True,
+        excluded_child_value=5.0,
+    )
+    params = _env_params(
+        env,
+        beta_move=0.0,
+        wm_decay=1.0,
+        learning_rate=1.0,
+        lamda_backup=1.0,
+        backup_steps=0,
+    )
+    state = env._sample_initial_state(jax.random.PRNGKey(71))
+    state = state._replace(
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(0, dtype=jnp.int32),
+        child_nodes=jnp.array([[1, 2], [-1, -1], [-1, -1]], dtype=jnp.int32),
+        parent_nodes=jnp.array([-1, 0, 0], dtype=jnp.int32),
+        points=jnp.array([0.0, 3.0, 0.0], dtype=jnp.float32),
+        q_values=jnp.zeros((3,), dtype=jnp.float32),
+        n_visits=jnp.zeros((3,), dtype=jnp.int32),
+        activation=jnp.ones((3,), dtype=jnp.float32),
+        is_discovered=jnp.ones((3,), dtype=jnp.bool_),
+    )
+
+    state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params)
+
+    np.testing.assert_allclose(float(state.q_values[1]), 3.0, atol=1e-6)
+
+
 def test_disable_corruption_skips_corruption_and_keeps_terminal_memory_persistent():
     env = _env(
         num_nodes=7,

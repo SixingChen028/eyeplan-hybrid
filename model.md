@@ -121,6 +121,8 @@ gating:
 - if it is true and `excluded_child_value` is numeric, inactive children remain
   in the child set with that substituted value.
 
+Invalid child slots are always excluded from backup support.
+
 The softmax/random mixture is:
 
 ```text
@@ -128,10 +130,8 @@ p(c | i) = (1 - eps_move) * softmax(beta_move * child_value_c)
          + eps_move * uniform_over_supported_children
 ```
 
-With the default `excluded_child_value = None`, terminal nodes have no supported
-children, so their target is their observed reward. If `excluded_child_value` is
-numeric, invalid terminal child slots receive that substituted value just like
-inactive child slots. The Q-value update is:
+Terminal nodes have no supported children, so their target is their observed
+reward. The Q-value update is:
 
 ```text
 Q_i <- Q_i + learning_rate * backup_weight * (T_i - Q_i)
