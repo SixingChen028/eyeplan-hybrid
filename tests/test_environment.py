@@ -1001,6 +1001,35 @@ def test_pure_forget_look_does_not_leave_active_undiscovered_nodes():
     )
 
 
+def test_pure_forget_does_not_reactivate_forgotten_parent():
+    env = _env(
+        num_nodes=7,
+        shuffle_nodes=False,
+        activation_prevents_corruption=False,
+        forget_discovered=True,
+    )
+    params = _env_params(env, wm_decay=1.0, forget_rate=0.0, q_drift=0.0, q_decay=1.0)
+    state, _, info = env.reset(jax.random.PRNGKey(155), params)
+    child = np.flatnonzero(np.asarray(info["mask"][:-1]))[1]
+    state, _, _, _, _ = env.step(state, jnp.asarray(child, dtype=jnp.int32), params)
+
+    parent = int(state.parent_nodes[child])
+    state = state._replace(
+        activation=state.activation.at[parent].set(0.0),
+        is_discovered=state.is_discovered.at[parent].set(False),
+        fixation_node=child,
+    )
+
+    state = env._look(state, jnp.asarray(child, dtype=jnp.int32), params, skip_corruption=True)
+
+    assert not bool(state.is_discovered[parent])
+    np.testing.assert_allclose(np.asarray(state.activation)[parent], 0.0, atol=1e-6)
+    np.testing.assert_array_equal(
+        np.asarray(state.activation) > 0.0,
+        np.asarray(state.is_discovered),
+    )
+
+
 def test_q_decay_one_means_no_decay():
     env = _env(
         num_nodes=7,
@@ -1365,6 +1394,7 @@ def test_inactive_root_stops_gated_ancestor_backup():
         q_values=jnp.zeros((3,), dtype=jnp.float32),
         n_visits=jnp.ones((3,), dtype=jnp.int32),
         activation=jnp.zeros((3,), dtype=jnp.float32),
+        is_discovered=jnp.ones((3,), dtype=jnp.bool_),
     )
 
     state = env._look(state, _jax_action(2), params)

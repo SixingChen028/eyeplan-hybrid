@@ -347,6 +347,7 @@ class DecisionTreeEnv:
         activation = safe_set(activation, children, child_activation)
         is_discovered = state.is_discovered.at[node].set(True)
         is_discovered = safe_set(is_discovered, children, True)
+        activation = jnp.where(is_discovered, activation, 0.0)
         state = state._replace(
             g_values=safe_set(state.g_values, children, state.g_values[node] + state.points[node]),
             n_visits=state.n_visits.at[node].add(1),

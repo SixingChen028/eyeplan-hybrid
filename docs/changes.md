@@ -4,6 +4,13 @@ Record every important result-producing change here. An important change is any 
 
 The compatibility version is an integer epoch attached to runs and checkpoint weights. Bump it only when a change makes existing checkpoint weights incompatible with the current code. Compatible changes stay under the current version. Here, "incompatible" means that simulating an old run with the new code would mean evaluating a policy on an environment that is different from the one it was trained on (excluding RNG behavior).
 
+## Version 8
+
+- Clear activation for nodes that remain undiscovered after a look update. This
+  prevents an already-forgotten parent from being reactivated as a fixation
+  neighbor without being rediscovered, preserving the invariant that active
+  nodes are discovered. Bumped `COMPAT_VERSION` 7 -> 8.
+
 ## Version 6
 
 - Gate a node's own reward in the value backup on whether it has been observed.

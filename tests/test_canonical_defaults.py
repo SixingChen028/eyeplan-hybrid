@@ -60,8 +60,8 @@ def test_normalize_config_rejects_old_memory_keys_in_params_and_conditions():
         config.normalize_config({"conditions": [{"persist_terminal": True}]})
 
 
-def test_compat_version_is_bumped_for_corruption_timing():
-    assert COMPAT_VERSION == 7
+def test_compat_version_is_bumped_for_forgotten_parent_activation_fix():
+    assert COMPAT_VERSION == 8
 
 
 def test_normalize_config_converts_point_set_list_to_tuple():
