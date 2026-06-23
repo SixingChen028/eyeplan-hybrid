@@ -34,4 +34,15 @@ else
 fi
 uv pip install numpy pandas matplotlib pytest
 
-pytest
+echo "Running train.py smoke test..."
+SMOKE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nn-python-smoke.XXXXXX")"
+cleanup_smoke() {
+    rm -rf "$SMOKE_ROOT"
+}
+trap cleanup_smoke EXIT
+
+JAX_PLATFORMS=cpu python train.py config/test_single.toml \
+    --path "$SMOKE_ROOT/results" \
+    --num_updates 1 \
+    --num_envs 4 \
+    --rollout_length 4
