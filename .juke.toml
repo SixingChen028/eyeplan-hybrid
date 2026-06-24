@@ -1,0 +1,16 @@
+[paths]
+DEFAULT = "~/eyeplan-hybrid"
+
+[push]
+exclude = [
+  "results",
+  ".claude",
+  ".pytest*",
+]
+
+[pull]
+path = "results/runs/"
+exclude = [
+  "data_train*",
+  "checkpoints",
+]
