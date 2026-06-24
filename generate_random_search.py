@@ -6,6 +6,8 @@ import time
 
 from modules.config import DEFAULT_META, expand_config_runs, load_config
 from modules.random_search import (
+    RANDOM_SEARCH_STOP_GAMMA_SCALE,
+    RANDOM_SEARCH_STOP_GAMMA_SHAPE,
     RANDOM_SEARCH_STOP_MAX_FIXATIONS,
     RandomSearchSimulator,
 )
@@ -29,7 +31,6 @@ def _write_training_log(
     seed: int,
     elapsed_seconds: float,
     num_trials: int,
-    target_extra_fixations_mean: float,
 ) -> None:
     log_path = os.path.join(run_dir, "training.log")
     with open(log_path, "a") as file:
@@ -40,30 +41,19 @@ def _write_training_log(
             f"seed={seed} "
             f"elapsed_seconds={elapsed_seconds:.3f} "
             f"num_trials={num_trials} "
-            f"target_extra_fixations_mean={target_extra_fixations_mean:.6g} "
+            f"gamma_shape={RANDOM_SEARCH_STOP_GAMMA_SHAPE} "
+            f"gamma_scale={RANDOM_SEARCH_STOP_GAMMA_SCALE} "
             f"max_fixations={RANDOM_SEARCH_STOP_MAX_FIXATIONS}\n"
         )
         file.write(f"training_log={log_path}\n")
 
 
-def _spread_extra_fixation_means(runs: list[dict], *, min_mean: float, max_mean: float) -> list[float]:
-    if min_mean < 0.0:
-        raise ValueError("min_extra_fixations_mean must be non-negative")
-    if max_mean < min_mean:
-        raise ValueError("max_extra_fixations_mean must be at least min_extra_fixations_mean")
-    if not runs:
-        return []
-    if len(runs) == 1:
-        return [(min_mean + max_mean) / 2.0]
-    step = (max_mean - min_mean) / float(len(runs) - 1)
-    return [min_mean + step * index for index in range(len(runs))]
-
-
-def _with_random_search_metadata(run: dict, *, target_extra_fixations_mean: float) -> dict:
+def _with_random_search_metadata(run: dict) -> dict:
     out = dict(run)
     out["label"] = "random_search"
-    out["lesion_policy"] = "random_search_spread_poisson_stopping"
-    out["random_search_target_extra_fixations_mean"] = float(target_extra_fixations_mean)
+    out["lesion_policy"] = "random_search_gamma_stopping"
+    out["random_search_stop_gamma_shape"] = RANDOM_SEARCH_STOP_GAMMA_SHAPE
+    out["random_search_stop_gamma_scale"] = RANDOM_SEARCH_STOP_GAMMA_SCALE
     out["random_search_stop_max_fixations"] = RANDOM_SEARCH_STOP_MAX_FIXATIONS
     return out
 
@@ -77,8 +67,6 @@ def main() -> None:
     parser.add_argument("--num_trials", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=512)
     parser.add_argument("--skip_timeout_trials", action="store_true")
-    parser.add_argument("--min_extra_fixations_mean", type=float, default=0.0)
-    parser.add_argument("--max_extra_fixations_mean", type=float, default=29.0)
     args, override_tokens = parser.parse_known_args()
 
     config_path, config = load_config(args.config)
@@ -90,15 +78,7 @@ def main() -> None:
         condition_index=args.condition,
         override_tokens=override_tokens,
     )
-    target_means = _spread_extra_fixation_means(
-        runs,
-        min_mean=float(args.min_extra_fixations_mean),
-        max_mean=float(args.max_extra_fixations_mean),
-    )
-    runs = [
-        _with_random_search_metadata(run, target_extra_fixations_mean=target_mean)
-        for run, target_mean in zip(runs, target_means)
-    ]
+    runs = [_with_random_search_metadata(run) for run in runs]
 
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or f"{config_path.stem}_random_search"
@@ -117,15 +97,10 @@ def main() -> None:
     start = time.time()
     simulators = {}
     for run_index, (run, run_dir) in enumerate(zip(runs, run_dirs)):
-        target_extra_fixations_mean = float(run["random_search_target_extra_fixations_mean"])
-        env_key = (env_cache_key(run), target_extra_fixations_mean)
+        env_key = env_cache_key(run)
         if env_key not in simulators:
             env = env_from_args(run)
-            simulators[env_key] = RandomSearchSimulator(
-                env,
-                env_params_from_args(env, run),
-                target_extra_fixations_mean=target_extra_fixations_mean,
-            )
+            simulators[env_key] = RandomSearchSimulator(env, env_params_from_args(env, run))
         simulator = simulators[env_key]
 
         data = simulator.simulate(
@@ -145,7 +120,6 @@ def main() -> None:
             seed=int(run["seed"]),
             elapsed_seconds=time.time() - start,
             num_trials=len(data["actions"]),
-            target_extra_fixations_mean=target_extra_fixations_mean,
         )
         print(f"{run_index + 1}/{len(runs)} {output_file} trials={len(data['actions'])}", flush=True)
 
