@@ -14,6 +14,9 @@ from modules.simulation import Simulator
 
 EVAL_SUMMARY_NAME = "eval_summary_jax.json"
 PARAMS_NAME = "net_jax.p"
+# Eval summaries estimate the deployed stochastic policy, not the greedy argmax policy.
+# This keeps evaluate.py aligned with training-time action sampling and simulate.py without --greedy.
+EVAL_GREEDY = False
 
 
 def read_metadata(run_dir: str) -> dict:
@@ -173,7 +176,7 @@ def evaluate_params(
         params=params,
         seed=int(args["seed"]),
         num_trials=num_trials,
-        greedy=True,
+        greedy=EVAL_GREEDY,
         batch_size=int(batch_size),
     )
     eval_elapsed_seconds = time.time() - eval_start
@@ -186,6 +189,7 @@ def evaluate_params(
         "reward_no_cost_sd": float(eval_stats["reward_no_cost_sd"]),
         "n_steps_mean": float(eval_stats["n_steps_mean"]),
         "n_steps_sd": float(eval_stats["n_steps_sd"]),
+        "greedy": bool(eval_stats["greedy"]),
         "train_elapsed_seconds": float(train_elapsed_seconds),
         "eval_elapsed_seconds": float(eval_elapsed_seconds),
         "num_updates": int(args["num_updates"]),

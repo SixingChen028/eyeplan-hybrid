@@ -11,6 +11,10 @@ The compatibility version is an integer epoch attached to runs and checkpoint we
   `excluded_child_value` is numeric: terminal targets are now the node's observed
   reward rather than observed reward plus the substituted child value. Bumped
   `COMPAT_VERSION` 8 -> 9.
+- Evaluate learned policies with stochastic action sampling instead of greedy argmax
+  and record the policy mode in `eval_summary_jax.json`. This fixes `evaluate.py`
+  summaries so they estimate the same deployed policy used during training and by
+  `simulate.py` unless `--greedy` is explicitly requested.
 
 ## Version 8
 

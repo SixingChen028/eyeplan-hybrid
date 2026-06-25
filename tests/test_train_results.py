@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from modules.evaluation import evaluate_run_dir
+from modules.evaluation import evaluate_params, evaluate_run_dir
 from modules.compat import COMPAT_VERSION
 from modules.train_results import (
     EVAL_SUMMARY_NAME,
@@ -114,3 +114,33 @@ def test_evaluate_run_dir_rejects_unversioned_params_by_default(tmp_path: Path):
 
     with pytest.raises(ValueError, match="missing compatibility metadata"):
         evaluate_run_dir(str(run_dir))
+
+
+def test_evaluate_params_samples_policy_actions():
+    class FakeSimulator:
+        def evaluate_policy(self, *, params, seed, num_trials, greedy, batch_size):
+            assert params == {"params": True}
+            assert seed == 3
+            assert num_trials == 7
+            assert batch_size == 5
+            return {
+                "num_trials": num_trials,
+                "greedy": greedy,
+                "reward_mean": 1.0,
+                "reward_sd": 0.0,
+                "reward_no_cost_mean": 1.0,
+                "reward_no_cost_sd": 0.0,
+                "n_steps_mean": 2.0,
+                "n_steps_sd": 0.0,
+            }
+
+    summary = evaluate_params(
+        {"params": True},
+        {"seed": 3, "eval_episodes": 11, "num_updates": 13},
+        train_elapsed_seconds=0.25,
+        eval_episodes=7,
+        batch_size=5,
+        simulator=FakeSimulator(),
+    )
+
+    assert summary["greedy"] is False
