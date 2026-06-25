@@ -4,7 +4,7 @@ import json
 import os
 import time
 
-from modules.config import DEFAULT_META, expand_config_runs, load_config
+from modules.config import DEFAULT_META, SHAPE_KEYS, expand_config_runs, is_list, load_config
 from modules.random_search import (
     RANDOM_SEARCH_STOP_GAMMA_SCALE,
     RANDOM_SEARCH_STOP_GAMMA_SHAPE,
@@ -72,6 +72,12 @@ def main() -> None:
     config_path, config = load_config(args.config)
     meta = dict(DEFAULT_META)
     meta.update(config.get("meta", {}))
+
+    # Flatten shape-key arrays to their first value — this script doesn't sweep them.
+    params = config.get("params", {})
+    for key in list(params):
+        if key in SHAPE_KEYS and is_list(params[key]):
+            params[key] = params[key][0]
 
     _, runs, varied_keys, _, condition_index = expand_config_runs(
         config,
