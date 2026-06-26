@@ -15,6 +15,8 @@ The compatibility version is an integer epoch attached to runs and checkpoint we
   and record the policy mode in `eval_summary_jax.json`. This fixes `evaluate.py`
   summaries so they estimate the same deployed policy used during training and by
   `simulate.py` unless `--greedy` is explicitly requested.
+- Add an MCTS baseline generator that grid-searches the UCT exploration parameter
+  and records evaluation summaries before writing simulation rollouts.
 
 ## Version 8
 
