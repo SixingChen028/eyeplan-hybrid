@@ -128,6 +128,8 @@ PARAM_DEFAULTS = {
         "run_eval": False,
         # Number of evaluation episodes to run when evaluation is requested.
         "eval_episodes": 102400,
+        # Trial count for sbatch simulate / random-search jobs; None keeps each script's default.
+        "sim_trials": None,
     },
 }
 

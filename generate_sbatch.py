@@ -465,6 +465,9 @@ def _render_simulate_script(config: dict, config_path: Path) -> str:
             '--results_root="${RESULT_PATH}"',
         ]
     )
+    sim_trials = meta.get("sim_trials")
+    if sim_trials is not None:
+        cmd_parts.append(f"--num_trials={int(sim_trials)}")
     lines.append(" \\\n    ".join(cmd_parts))
     lines.append("")
     return "\n".join(lines)

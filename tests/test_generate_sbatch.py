@@ -96,6 +96,21 @@ def test_render_simulate_script_runs_once_for_experiment_on_cpu():
     assert "export JAX_PLATFORM_NAME=cpu" in script
     assert 'export CUDA_VISIBLE_DEVICES=""' in script
     assert 'simulate.py \\\n    "${RESULT_PATH}/runs/${EXPERIMENT}" \\\n    --results_root="${RESULT_PATH}"' in script
+    assert "--num_trials=" not in script
+
+
+def test_render_simulate_script_passes_sim_trials():
+    config = {
+        "meta": {
+            "experiment": "sbatch-simulate",
+            "result_path": "./results",
+            "sim_trials": 5000,
+        },
+    }
+
+    script = _render_simulate_script(config, config_path=Path("config/test.toml"))
+
+    assert "--num_trials=5000" in script
 
 
 def test_default_simulate_output_path_adds_simulate_suffix():

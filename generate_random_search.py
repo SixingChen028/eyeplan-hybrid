@@ -64,7 +64,7 @@ def main() -> None:
     parser.add_argument("--path", help="Override output path from [meta].result_path.")
     parser.add_argument("--experiment", help="Override experiment name. Defaults to <config stem>_random_search.")
     parser.add_argument("--condition", type=int, help="0-based [[conditions]] table index to generate.")
-    parser.add_argument("--num_trials", type=int, default=1000)
+    parser.add_argument("--num_trials", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=512)
     parser.add_argument("--skip_timeout_trials", action="store_true")
     args, override_tokens = parser.parse_known_args()
@@ -72,6 +72,12 @@ def main() -> None:
     config_path, config = load_config(args.config)
     meta = dict(DEFAULT_META)
     meta.update(config.get("meta", {}))
+
+    num_trials = args.num_trials
+    if num_trials is None:
+        num_trials = meta.get("sim_trials")
+    if num_trials is None:
+        num_trials = 1000
 
     # Flatten shape-key arrays to their first value — this script doesn't sweep them.
     params = config.get("params", {})
@@ -111,7 +117,7 @@ def main() -> None:
 
         data = simulator.simulate(
             seed=int(run["seed"]),
-            num_trials=int(args.num_trials),
+            num_trials=int(num_trials),
             batch_size=int(args.batch_size),
             skip_timeout_trials=bool(args.skip_timeout_trials),
         )
