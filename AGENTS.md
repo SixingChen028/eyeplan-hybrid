@@ -97,15 +97,14 @@ new/updated test.
 
 ## Project memory
 
-Before substantive work, read the model-agnostic project-memory convention and the EyePlan hub:
+Before substantive work:
 
-- `/Users/fred/lib/obsidian/vault/Meta/Projects.md`
-- `/Users/fred/lib/obsidian/vault/Projects/EyePlan/EyePlan.md`
+1. Read `/Users/fred/lib/obsidian/vault/Projects/EyePlan/EyePlan.md`.
+2. Run the discovery command below.
+3. Open only the records relevant to the current task.
 
-List summaries before opening detailed records:
-
-```sh
-rg -n '^summary:' /Users/fred/lib/obsidian/vault/Projects/EyePlan/{Tasks,Workflows,Pitfalls,Decisions,Chats}
+```bash
+/Users/fred/lib/obsidian/vault/Scripts/project-memory EyePlan
 ```
 
-Update the relevant project Task after substantive work. Keep repository-local technical documentation in this repository and link it from the vault when it matters across repositories.
+Consult `/Users/fred/lib/obsidian/vault/Meta/Projects.md` before creating or updating project memory. After substantive work, update the relevant project Task. Keep repository-local technical documentation here and link it from the vault when it matters across repositories.
