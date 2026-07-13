@@ -4,6 +4,7 @@ import jax
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import DecisionTreeEnv
 from modules.random_search import RANDOM_SEARCH_STOP_MAX_FIXATIONS, RandomSearchSimulator
+from generate_random_search import _with_random_search_metadata
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
 
@@ -63,4 +64,16 @@ def test_random_search_simulation_writes_existing_simulation_shape():
     assert all(actions[0] == start for actions, start in zip(data["actions"], data["starts"]))
     assert all(actions[-1] == env.num_nodes for actions in data["actions"])
 
+
+def test_random_search_metadata_suffixes_condition_label():
+    run = _with_random_search_metadata({"seed": 1}, label="wm_only")
+
+    assert run["label"] == "wm_only_random_search"
+    assert run["lesion_policy"] == "random_search_gamma_stopping"
+
+
+def test_random_search_metadata_uses_default_label_without_condition():
+    run = _with_random_search_metadata({"seed": 1}, label=None)
+
+    assert run["label"] == "random_search"
 

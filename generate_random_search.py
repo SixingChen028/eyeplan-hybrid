@@ -48,9 +48,15 @@ def _write_training_log(
         file.write(f"training_log={log_path}\n")
 
 
-def _with_random_search_metadata(run: dict) -> dict:
+def _random_search_label(label: str | None) -> str:
+    if label is None or label.strip() == "":
+        return "random_search"
+    return f"{label}_random_search"
+
+
+def _with_random_search_metadata(run: dict, *, label: str | None) -> dict:
     out = dict(run)
-    out["label"] = "random_search"
+    out["label"] = _random_search_label(label)
     out["lesion_policy"] = "random_search_gamma_stopping"
     out["random_search_stop_gamma_shape"] = RANDOM_SEARCH_STOP_GAMMA_SHAPE
     out["random_search_stop_gamma_scale"] = RANDOM_SEARCH_STOP_GAMMA_SCALE
@@ -85,12 +91,12 @@ def main() -> None:
         if key in SHAPE_KEYS and is_list(params[key]):
             params[key] = params[key][0]
 
-    _, runs, varied_keys, _, condition_index = expand_config_runs(
+    _, runs, varied_keys, condition_label, condition_index = expand_config_runs(
         config,
         condition_index=args.condition,
         override_tokens=override_tokens,
     )
-    runs = [_with_random_search_metadata(run) for run in runs]
+    runs = [_with_random_search_metadata(run, label=condition_label) for run in runs]
 
     output_path = args.path or str(meta["result_path"])
     experiment = args.experiment or f"{config_path.stem}_random_search"
