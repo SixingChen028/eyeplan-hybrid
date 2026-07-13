@@ -95,3 +95,17 @@ new/updated test.
   `network.py` or `environment.py`. Exceptions are refactors and *optional* new
   functionality that does not change default behavior.
 
+## Project memory
+
+Before substantive work, read the model-agnostic project-memory convention and the EyePlan hub:
+
+- `/Users/fred/lib/obsidian/vault/Meta/Projects.md`
+- `/Users/fred/lib/obsidian/vault/Projects/EyePlan/EyePlan.md`
+
+List summaries before opening detailed records:
+
+```sh
+rg -n '^summary:' /Users/fred/lib/obsidian/vault/Projects/EyePlan/{Tasks,Workflows,Pitfalls,Decisions,Chats}
+```
+
+Update the relevant project Task after substantive work. Keep repository-local technical documentation in this repository and link it from the vault when it matters across repositories.
