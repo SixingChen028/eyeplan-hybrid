@@ -401,6 +401,7 @@ def test_append_simulation_trial_includes_details():
         "logits": [[0.0, 0.1, 0.2, 0.3], [0.0, 0.2, 0.1, 0.3], [0.0, 0.3, 0.2, 0.1]],
         "fixation_recency": [[1.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.25, 0.25, 0.5]],
         "is_terminal": [[False, False, False], [False, True, False], [False, False, True]],
+        "is_discovered": [[True, False, False], [True, True, False], [True, True, True]],
     }
     append_simulation_trial(
         data,
@@ -428,6 +429,7 @@ def test_append_simulation_trial_includes_details():
         "logits",
         "fixation_recency",
         "is_terminal",
+        "is_discovered",
     ]
     assert data["activations"] == [details["activations"]]
     assert data["counts"] == [details["counts"]]
@@ -436,6 +438,7 @@ def test_append_simulation_trial_includes_details():
     assert data["logits"] == [details["logits"]]
     assert data["fixation_recency"] == [details["fixation_recency"]]
     assert data["is_terminal"] == [details["is_terminal"]]
+    assert data["is_discovered"] == [details["is_discovered"]]
     assert data["actions"] == [[0, 1, 2, 3]]
     assert data["chosen_paths"] == [[2, 1]]
 

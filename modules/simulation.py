@@ -16,6 +16,7 @@ DETAIL_KEYS = [
     "logits",
     "fixation_recency",
     "is_terminal",
+    "is_discovered",
 ]
 
 
@@ -100,6 +101,7 @@ class Simulator:
         logits_seq = jnp.zeros((self.env.t_max, self.env.action_size), dtype=jnp.float32)
         fixation_recency_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
         is_terminal_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.bool_)
+        is_discovered_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.bool_)
 
         carry = (
             state,
@@ -114,6 +116,7 @@ class Simulator:
             logits_seq,
             fixation_recency_seq,
             is_terminal_seq,
+            is_discovered_seq,
             self.env.empty_path,
             jnp.array(0, dtype=jnp.int32),
             jnp.array(False),
@@ -121,7 +124,7 @@ class Simulator:
         )
 
         def cond_fn(carry):
-            _, _, _, _, _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
+            _, _, _, _, _, _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
@@ -138,6 +141,7 @@ class Simulator:
                 logits_seq,
                 fixation_recency_seq,
                 is_terminal_seq,
+                is_discovered_seq,
                 choice_path,
                 step_count,
                 _,
@@ -150,6 +154,7 @@ class Simulator:
             q_seq = q_seq.at[step_count].set(state.q_values)
             fixation_recency_seq = fixation_recency_seq.at[step_count].set(state.fixation_recency)
             is_terminal_seq = is_terminal_seq.at[step_count].set(state.is_terminal)
+            is_discovered_seq = is_discovered_seq.at[step_count].set(state.is_discovered)
             logits, _ = actor_critic_forward(
                 params,
                 _batch_obs(obs),
@@ -193,6 +198,7 @@ class Simulator:
                 logits_seq,
                 fixation_recency_seq,
                 is_terminal_seq,
+                is_discovered_seq,
                 choice_path,
                 step_count,
                 done,
@@ -212,6 +218,7 @@ class Simulator:
             logits_seq,
             fixation_recency_seq,
             is_terminal_seq,
+            is_discovered_seq,
             choice_path,
             action_len,
             _,
@@ -229,6 +236,7 @@ class Simulator:
             logits_seq,
             fixation_recency_seq,
             is_terminal_seq,
+            is_discovered_seq,
             action_len,
             rng_key,
         )
@@ -341,6 +349,7 @@ class Simulator:
             logits_seqs,
             fixation_recency_seqs,
             is_terminal_seqs,
+            is_discovered_seqs,
             action_lens,
             _,
         ) = jax.vmap(
@@ -357,6 +366,7 @@ class Simulator:
             logits_seqs,
             fixation_recency_seqs,
             is_terminal_seqs,
+            is_discovered_seqs,
             action_lens,
         )
 
@@ -394,6 +404,7 @@ class Simulator:
                 logits_seqs,
                 fixation_recency_seqs,
                 is_terminal_seqs,
+                is_discovered_seqs,
                 action_lens,
             ) = self._trial_batch_jit(params, trial_keys, greedy=greedy)
 
@@ -409,6 +420,7 @@ class Simulator:
                 logits_seqs = np.asarray(logits_seqs)
                 fixation_recency_seqs = np.asarray(fixation_recency_seqs)
                 is_terminal_seqs = np.asarray(is_terminal_seqs)
+                is_discovered_seqs = np.asarray(is_discovered_seqs)
 
             child_nodes_batch = np.asarray(states.child_nodes)
             points_batch = np.asarray(states.points)
@@ -441,6 +453,7 @@ class Simulator:
                         ).tolist(),
                         "fixation_recency": fixation_recency_seqs[trial_idx, :action_len].tolist(),
                         "is_terminal": is_terminal_seqs[trial_idx, :action_len].tolist(),
+                        "is_discovered": is_discovered_seqs[trial_idx, :action_len].tolist(),
                     }
 
                 append_simulation_trial(
