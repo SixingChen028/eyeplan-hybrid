@@ -4,6 +4,7 @@ import jax
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import DecisionTreeEnv
 from modules.random_search import RANDOM_SEARCH_STOP_MAX_FIXATIONS, RandomSearchSimulator
+from generate_fixed_random_search import _with_fixed_random_search_metadata
 from generate_random_search import _with_random_search_metadata
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
@@ -65,6 +66,15 @@ def test_random_search_simulation_writes_existing_simulation_shape():
     assert all(actions[-1] == env.num_nodes for actions in data["actions"])
 
 
+def test_fixed_random_search_uses_requested_total_fixations():
+    env = _env(num_nodes=3, t_max=5, shuffle_nodes=False, point_set=np.array([1.0], dtype=np.float32))
+    simulator = RandomSearchSimulator(env, _env_params(env), total_fixations=3)
+
+    data = simulator.simulate(seed=1, num_trials=5, batch_size=2, skip_timeout_trials=False)
+
+    assert all(len(actions) - 1 == 3 for actions in data["actions"])
+
+
 def test_random_search_metadata_suffixes_condition_label():
     run = _with_random_search_metadata({"seed": 1}, label="wm_only")
 
@@ -77,3 +87,11 @@ def test_random_search_metadata_uses_default_label_without_condition():
 
     assert run["label"] == "random_search"
 
+
+def test_fixed_random_search_metadata_records_budget_and_base_condition():
+    run = _with_fixed_random_search_metadata({"seed": 1}, total_fixations=12, base_label="wm_only")
+
+    assert run["label"] == "undirected"
+    assert run["lesion_policy"] == "random_search_fixed_stopping"
+    assert run["fixed_fixations"] == 12
+    assert run["random_search_base_label"] == "wm_only"

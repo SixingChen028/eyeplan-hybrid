@@ -18,9 +18,18 @@ RANDOM_SEARCH_STOP_MAX_FIXATIONS = 50
 
 
 class RandomSearchSimulator:
-    def __init__(self, env: DecisionTreeEnv, env_params: DecisionTreeParams):
+    def __init__(
+        self,
+        env: DecisionTreeEnv,
+        env_params: DecisionTreeParams,
+        *,
+        total_fixations: int | None = None,
+    ):
+        if total_fixations is not None and not 1 <= total_fixations <= env.t_max:
+            raise ValueError(f"total_fixations must be between 1 and {env.t_max}")
         self.env = env
         self.env_params = env_params
+        self.total_fixations = total_fixations
         self._trial_batch_jit = jax.jit(self._run_trial_batch)
 
     def _sample_fixation_target(self, key: jax.Array) -> jax.Array:
@@ -29,6 +38,11 @@ class RandomSearchSimulator:
         ).astype(jnp.int32)
         total_fixations = jnp.minimum(total_fixations, RANDOM_SEARCH_STOP_MAX_FIXATIONS)
         return jnp.maximum(total_fixations - 1, 0)
+
+    def _fixation_target(self, key: jax.Array) -> jax.Array:
+        if self.total_fixations is None:
+            return self._sample_fixation_target(key)
+        return jnp.asarray(self.total_fixations - 1, dtype=jnp.int32)
 
     def _sample_random_fixation(self, key: jax.Array, action_mask: jax.Array) -> jax.Array:
         fixation_mask = action_mask[: self.env.num_nodes]
@@ -42,7 +56,7 @@ class RandomSearchSimulator:
         rng_key, reset_key, stop_key = jax.random.split(rng_key, 3)
         state, _, info = self.env.reset(reset_key, env_params)
         action_mask = info["mask"]
-        target_fixations = self._sample_fixation_target(stop_key)
+        target_fixations = self._fixation_target(stop_key)
 
         action_seq = -jnp.ones((self.env.t_max,), dtype=jnp.int32)
 
