@@ -44,8 +44,16 @@ class RandomSearchSimulator:
             return self._sample_fixation_target(key)
         return jnp.asarray(self.total_fixations - 1, dtype=jnp.int32)
 
-    def _sample_random_fixation(self, key: jax.Array, action_mask: jax.Array) -> jax.Array:
+    def _sample_random_fixation(
+        self,
+        key: jax.Array,
+        action_mask: jax.Array,
+        current_fixation: jax.Array,
+    ) -> jax.Array:
         fixation_mask = action_mask[: self.env.num_nodes]
+        if self.total_fixations is not None:
+            nonrepeat_mask = fixation_mask.at[current_fixation].set(False)
+            fixation_mask = jnp.where(jnp.any(nonrepeat_mask), nonrepeat_mask, fixation_mask)
         legal_count = jnp.sum(fixation_mask.astype(jnp.int32))
         probs = fixation_mask.astype(jnp.float32) / jnp.maximum(legal_count, 1)
         fixation = jax.random.choice(key, self.env.num_nodes, p=probs)
@@ -78,7 +86,7 @@ class RandomSearchSimulator:
             state, action_mask, action_seq, choice_path, step_count, _, rng_key = carry
             rng_key, action_key = jax.random.split(rng_key)
 
-            random_fixation = self._sample_random_fixation(action_key, action_mask)
+            random_fixation = self._sample_random_fixation(action_key, action_mask, state.fixation_node)
             action = jnp.where(step_count < target_fixations, random_fixation, self.env.num_nodes)
 
             state, _, _, done, info = self.env.step(state, action, env_params)

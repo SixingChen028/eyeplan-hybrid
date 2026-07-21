@@ -73,6 +73,10 @@ def test_fixed_random_search_uses_requested_total_fixations():
     data = simulator.simulate(seed=1, num_trials=5, batch_size=2, skip_timeout_trials=False)
 
     assert all(len(actions) - 1 == 3 for actions in data["actions"])
+    assert all(
+        all(left != right for left, right in zip(actions[:-2], actions[1:-1]))
+        for actions in data["actions"]
+    )
 
 
 def test_random_search_metadata_suffixes_condition_label():
