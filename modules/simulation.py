@@ -18,6 +18,7 @@ DETAIL_KEYS = [
     "is_terminal",
     "is_discovered",
 ]
+MOVE_DETAIL_KEYS = [f"move_{key}" for key in DETAIL_KEYS if key != "logits"]
 
 
 def _batch_obs(obs):
@@ -36,7 +37,8 @@ def empty_simulation_data(*, detailed: bool = False) -> Dict[str, List[Any]]:
         "chosen_paths": [],
     }
     if detailed:
-        for key in DETAIL_KEYS:
+        data["move_actions"] = []
+        for key in DETAIL_KEYS + MOVE_DETAIL_KEYS:
             data[key] = []
     return data
 
@@ -74,7 +76,8 @@ def append_simulation_trial(
     data["chosen_paths"].append([int(choice) for choice in choice_seq])
 
     if details is not None:
-        for key in DETAIL_KEYS:
+        data["move_actions"].append(details["move_actions"])
+        for key in DETAIL_KEYS + MOVE_DETAIL_KEYS:
             data[key].append(details[key])
     return True
 
@@ -83,11 +86,11 @@ class Simulator:
     def __init__(self, env: DecisionTreeEnv, env_params: DecisionTreeParams):
         self.env = env
         self.env_params = env_params
-        self._trial_jit = jax.jit(self._run_trial, static_argnames=("greedy",))
-        self._trial_batch_jit = jax.jit(self._run_trial_batch, static_argnames=("greedy",))
+        self._trial_jit = jax.jit(self._run_trial, static_argnames=("greedy", "detailed"))
+        self._trial_batch_jit = jax.jit(self._run_trial_batch, static_argnames=("greedy", "detailed"))
         self._eval_batch_jit = jax.jit(self._run_eval_batch, static_argnames=("greedy",))
 
-    def _run_trial(self, params: Any, rng_key: jax.Array, greedy: bool = False):
+    def _run_trial(self, params: Any, rng_key: jax.Array, greedy: bool = False, detailed: bool = False):
         env_params = self.env_params
         state, obs, info = self.env.reset(rng_key, env_params)
         action_mask = info["mask"]
@@ -102,6 +105,7 @@ class Simulator:
         fixation_recency_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
         is_terminal_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.bool_)
         is_discovered_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.bool_)
+        move_trace = self.env._empty_move_trace() if detailed else None
 
         carry = (
             state,
@@ -117,6 +121,7 @@ class Simulator:
             fixation_recency_seq,
             is_terminal_seq,
             is_discovered_seq,
+            move_trace,
             self.env.empty_path,
             jnp.array(0, dtype=jnp.int32),
             jnp.array(False),
@@ -124,7 +129,7 @@ class Simulator:
         )
 
         def cond_fn(carry):
-            _, _, _, _, _, _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
+            _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
@@ -142,6 +147,7 @@ class Simulator:
                 fixation_recency_seq,
                 is_terminal_seq,
                 is_discovered_seq,
+                move_trace,
                 choice_path,
                 step_count,
                 _,
@@ -178,7 +184,11 @@ class Simulator:
             else:
                 action, rng_key = sampled_action(rng_key)
             raw_action = action
-            state, obs, _, done, info = self.env.step(state, action, env_params)
+            if detailed:
+                state, obs, _, done, info = self.env.step_with_move_trace(state, action, env_params)
+                move_trace = info["move_trace"]
+            else:
+                state, obs, _, done, info = self.env.step(state, action, env_params)
             action_mask = info["mask"]
             observation_mask = info["observation_mask"]
             choice_path = jnp.where(raw_action == self.env.num_nodes, info["choice_path"], choice_path)
@@ -199,6 +209,7 @@ class Simulator:
                 fixation_recency_seq,
                 is_terminal_seq,
                 is_discovered_seq,
+                move_trace,
                 choice_path,
                 step_count,
                 done,
@@ -219,6 +230,7 @@ class Simulator:
             fixation_recency_seq,
             is_terminal_seq,
             is_discovered_seq,
+            move_trace,
             choice_path,
             action_len,
             _,
@@ -237,6 +249,7 @@ class Simulator:
             fixation_recency_seq,
             is_terminal_seq,
             is_discovered_seq,
+            move_trace,
             action_len,
             rng_key,
         )
@@ -337,7 +350,13 @@ class Simulator:
         )(trial_keys)
         return rewards, rewards_no_cost, steps
 
-    def _run_trial_batch(self, params: Any, trial_keys: jax.Array, greedy: bool = False):
+    def _run_trial_batch(
+        self,
+        params: Any,
+        trial_keys: jax.Array,
+        greedy: bool = False,
+        detailed: bool = False,
+    ):
         (
             states,
             action_seqs,
@@ -350,10 +369,11 @@ class Simulator:
             fixation_recency_seqs,
             is_terminal_seqs,
             is_discovered_seqs,
+            move_traces,
             action_lens,
             _,
         ) = jax.vmap(
-            lambda key: self._run_trial(params, key, greedy=greedy)
+            lambda key: self._run_trial(params, key, greedy=greedy, detailed=detailed)
         )(trial_keys)
         return (
             states,
@@ -367,6 +387,7 @@ class Simulator:
             fixation_recency_seqs,
             is_terminal_seqs,
             is_discovered_seqs,
+            move_traces,
             action_lens,
         )
 
@@ -405,8 +426,9 @@ class Simulator:
                 fixation_recency_seqs,
                 is_terminal_seqs,
                 is_discovered_seqs,
+                move_traces,
                 action_lens,
-            ) = self._trial_batch_jit(params, trial_keys, greedy=greedy)
+            ) = self._trial_batch_jit(params, trial_keys, greedy=greedy, detailed=detailed)
 
             states = jax.device_get(states)
             action_seqs = np.asarray(action_seqs)
@@ -421,6 +443,7 @@ class Simulator:
                 fixation_recency_seqs = np.asarray(fixation_recency_seqs)
                 is_terminal_seqs = np.asarray(is_terminal_seqs)
                 is_discovered_seqs = np.asarray(is_discovered_seqs)
+                move_traces = jax.device_get(move_traces)
 
             child_nodes_batch = np.asarray(states.child_nodes)
             points_batch = np.asarray(states.points)
@@ -442,6 +465,7 @@ class Simulator:
 
                 details = None
                 if detailed:
+                    move_len = int(move_traces.length[trial_idx])
                     details = {
                         "activations": activation_seqs[trial_idx, :action_len].tolist(),
                         "counts": count_seqs[trial_idx, :action_len].tolist(),
@@ -454,6 +478,19 @@ class Simulator:
                         "fixation_recency": fixation_recency_seqs[trial_idx, :action_len].tolist(),
                         "is_terminal": is_terminal_seqs[trial_idx, :action_len].tolist(),
                         "is_discovered": is_discovered_seqs[trial_idx, :action_len].tolist(),
+                        "move_actions": np.asarray(
+                            move_traces.actions[trial_idx, :move_len],
+                            dtype=np.int32,
+                        ).tolist(),
+                        "move_activations": np.asarray(move_traces.activations[trial_idx, :move_len]).tolist(),
+                        "move_counts": np.asarray(move_traces.counts[trial_idx, :move_len]).tolist(),
+                        "move_gs": np.asarray(move_traces.gs[trial_idx, :move_len]).tolist(),
+                        "move_qs": np.asarray(move_traces.qs[trial_idx, :move_len]).tolist(),
+                        "move_fixation_recency": np.asarray(
+                            move_traces.fixation_recency[trial_idx, :move_len],
+                        ).tolist(),
+                        "move_is_terminal": np.asarray(move_traces.is_terminal[trial_idx, :move_len]).tolist(),
+                        "move_is_discovered": np.asarray(move_traces.is_discovered[trial_idx, :move_len]).tolist(),
                     }
 
                 append_simulation_trial(

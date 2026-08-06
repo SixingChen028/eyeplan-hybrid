@@ -45,6 +45,18 @@ class DecisionTreeState(NamedTuple):
     # implementation detail
     rng_key: jax.Array
 
+
+class MoveTrace(NamedTuple):
+    actions: jax.Array
+    activations: jax.Array
+    counts: jax.Array
+    gs: jax.Array
+    qs: jax.Array
+    fixation_recency: jax.Array
+    is_terminal: jax.Array
+    is_discovered: jax.Array
+    length: jax.Array
+
 class DecisionTreeParams(NamedTuple):
     beta_move: jax.Array
     eps_move: jax.Array
@@ -511,6 +523,45 @@ class DecisionTreeEnv:
             "observation_mask": self._get_observation_mask(state),
         }
 
+    def _empty_move_trace(self) -> MoveTrace:
+        matrix_shape = (self.num_nodes, self.num_nodes)
+        return MoveTrace(
+            actions=-jnp.ones((self.num_nodes,), dtype=jnp.int32),
+            activations=jnp.zeros(matrix_shape, dtype=jnp.float32),
+            counts=jnp.zeros(matrix_shape, dtype=jnp.int32),
+            gs=jnp.zeros(matrix_shape, dtype=jnp.float32),
+            qs=jnp.zeros(matrix_shape, dtype=jnp.float32),
+            fixation_recency=jnp.zeros(matrix_shape, dtype=jnp.float32),
+            is_terminal=jnp.zeros(matrix_shape, dtype=jnp.bool_),
+            is_discovered=jnp.zeros(matrix_shape, dtype=jnp.bool_),
+            length=jnp.array(0, dtype=jnp.int32),
+        )
+
+    def _append_move_trace(self, trace: MoveTrace, action: jax.Array, state: DecisionTreeState) -> MoveTrace:
+        index = trace.length
+        return MoveTrace(
+            actions=trace.actions.at[index].set(action),
+            activations=trace.activations.at[index].set(state.activation),
+            counts=trace.counts.at[index].set(state.n_visits),
+            gs=trace.gs.at[index].set(state.g_values),
+            qs=trace.qs.at[index].set(state.q_values),
+            fixation_recency=trace.fixation_recency.at[index].set(state.fixation_recency),
+            is_terminal=trace.is_terminal.at[index].set(state.is_terminal),
+            is_discovered=trace.is_discovered.at[index].set(state.is_discovered),
+            length=index + 1,
+        )
+
+    def _move_to_child(self, state: DecisionTreeState, node: jax.Array, params: DecisionTreeParams):
+        key, choice_key = jax.random.split(state.rng_key)
+        state = state._replace(rng_key=key)
+
+        children = state.child_nodes[node]
+        q_children = state.q_values[children]
+        probs = self._softmax(q_children, params)
+        idx = jax.random.choice(choice_key, 2, p=probs)
+        child = children[idx]
+        return self._look(state, child, params, skip_q_update=True), child
+
     def _sample_move_path(self, state: DecisionTreeState, params: DecisionTreeParams):
         path = self.empty_path
         state = self._look(state, state.root_node, params, skip_q_update=True)
@@ -528,25 +579,48 @@ class DecisionTreeEnv:
 
         def body_fn(carry):
             state, node, cum_reward, path = carry
-            key, choice_key = jax.random.split(state.rng_key)
-            state = state._replace(rng_key=key)
-
-            children = state.child_nodes[node]
-            q_children = state.q_values[children]
-            probs = self._softmax(q_children, params)
-            idx = jax.random.choice(choice_key, 2, p=probs)
-            child = children[idx]
+            state, child = self._move_to_child(state, node, params)
 
             cum_reward = cum_reward + state.points[child]
             path_len = jnp.sum(path >= 0)
             path = path.at[path_len].set(child)
-            state = self._look(state, child, params, skip_q_update=True)
 
             return state, child, cum_reward, path
 
         state, _, cum_reward, path = jax.lax.while_loop(cond_fn, body_fn, init)
 
         return cum_reward, path, state
+
+    def _sample_move_path_with_trace(self, state: DecisionTreeState, params: DecisionTreeParams):
+        path = self.empty_path
+        state = self._look(state, state.root_node, params, skip_q_update=True)
+        trace = self._append_move_trace(self._empty_move_trace(), state.root_node, state)
+
+        init = (
+            state,
+            state.root_node,
+            jnp.array(0.0, dtype=jnp.float32),
+            path,
+            trace,
+        )
+
+        def cond_fn(carry):
+            state, node, _, _, _ = carry
+            return state.child_nodes[node, 0] >= 0
+
+        def body_fn(carry):
+            state, node, cum_reward, path, trace = carry
+            state, child = self._move_to_child(state, node, params)
+
+            cum_reward = cum_reward + state.points[child]
+            path_len = jnp.sum(path >= 0)
+            path = path.at[path_len].set(child)
+            trace = self._append_move_trace(trace, child, state)
+
+            return state, child, cum_reward, path, trace
+
+        state, _, cum_reward, path, trace = jax.lax.while_loop(cond_fn, body_fn, init)
+        return cum_reward, path, state, trace
 
     def _sample_points(self, key: jax.Array, root: jax.Array):
         key, points_key = jax.random.split(key)
@@ -614,6 +688,38 @@ class DecisionTreeEnv:
             **self._get_info(state),
             "choice_path": choice_path,
             "move_reward": jnp.where(action == self.num_nodes, reward, 0.0),
+        }
+
+        return state, obs, reward, done, info
+
+    def step_with_move_trace(self, state: DecisionTreeState, action: jax.Array, params: DecisionTreeParams):
+        """Step the cognitive architecture and record post-action movement memory for detailed simulations."""
+        state = state._replace(
+            time_elapsed=state.time_elapsed + 1,
+            fixation_recency=state.fixation_recency * params.recency_decay,
+        )
+
+        def look_branch():
+            return self._look(state, action, params), -params.cost, self.empty_path, self._empty_move_trace()
+
+        def terminate_branch():
+            reward, choice_path, move_state, move_trace = self._sample_move_path_with_trace(state, params)
+            path_len = jnp.sum(choice_path >= 0)
+            move_cost = params.move_cost_scale * params.cost * path_len.astype(jnp.float32)
+            return move_state, reward * self.scale_factor - move_cost, choice_path, move_trace
+
+        state, reward, choice_path, move_trace = jax.lax.cond(
+            action < self.num_nodes,
+            look_branch,
+            terminate_branch,
+        )
+        done = (action == self.num_nodes) | (state.time_elapsed == self.t_max)
+        obs = self._get_obs(state)
+        info = {
+            **self._get_info(state),
+            "choice_path": choice_path,
+            "move_reward": jnp.where(action == self.num_nodes, reward, 0.0),
+            "move_trace": move_trace,
         }
 
         return state, obs, reward, done, info

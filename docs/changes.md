@@ -6,6 +6,9 @@ The compatibility version is an integer epoch attached to runs and checkpoint we
 
 ## Version 9
 
+- Add post-action memory traces for every root-to-leaf movement to detailed
+  simulations. Training and ordinary evaluation continue to use the untraced
+  environment step path.
 - Exclude invalid child slots from value-backup target support. This fixes terminal
   node backups when `activation_gates_backup_source = true` and
   `excluded_child_value` is numeric: terminal targets are now the node's observed

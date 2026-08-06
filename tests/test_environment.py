@@ -1111,6 +1111,57 @@ def test_move_reward_samples_one_path_and_reports_choice_path():
     assert not hasattr(state, "chosen_path_len")
 
 
+def test_detailed_move_trace_preserves_step_behavior_and_records_each_movement():
+    env = _env(num_nodes=7, scale_factor=1.0, shuffle_nodes=False)
+    params = _env_params(
+        env,
+        beta_move=1000.0,
+        eps_move=0.0,
+        wm_decay=1.0,
+        forget_rate=1.0,
+        q_drift=0.0,
+        q_decay=1.0,
+        cost=0.0,
+    )
+    state, _, _ = env.reset(jax.random.PRNGKey(104), params)
+    state = state._replace(
+        child_nodes=jnp.array(
+            [[1, 2], [3, 4], [5, 6], [-1, -1], [-1, -1], [-1, -1], [-1, -1]],
+            dtype=jnp.int32,
+        ),
+        parent_nodes=jnp.array([-1, 0, 0, 1, 1, 2, 2], dtype=jnp.int32),
+        root_node=jnp.asarray(0, dtype=jnp.int32),
+        fixation_node=jnp.asarray(0, dtype=jnp.int32),
+        points=jnp.array([0.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0], dtype=jnp.float32),
+        q_values=jnp.array([0.0, 5.0, 0.0, 1.0, 10.0, 0.0, 0.0], dtype=jnp.float32),
+        activation=jnp.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=jnp.float32),
+        is_discovered=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
+    )
+    action = _jax_action(env.num_nodes)
+
+    expected_state, expected_obs, expected_reward, expected_done, expected_info = env.step(state, action, params)
+    traced_state, traced_obs, traced_reward, traced_done, traced_info = env.step_with_move_trace(
+        state,
+        action,
+        params,
+    )
+
+    jax.tree_util.tree_map(np.testing.assert_array_equal, traced_state, expected_state)
+    jax.tree_util.tree_map(np.testing.assert_array_equal, traced_obs, expected_obs)
+    np.testing.assert_array_equal(traced_reward, expected_reward)
+    np.testing.assert_array_equal(traced_done, expected_done)
+    np.testing.assert_array_equal(traced_info["choice_path"], expected_info["choice_path"])
+
+    trace = traced_info["move_trace"]
+    trace_len = int(trace.length)
+    path = np.asarray(expected_info["choice_path"])
+    path = path[path >= 0]
+    np.testing.assert_array_equal(np.asarray(trace.actions[:trace_len]), np.concatenate([[0], path]))
+    assert float(trace.qs[0, 4]) == 0.0
+    np.testing.assert_array_equal(np.asarray(trace.qs[trace_len - 1]), np.asarray(traced_state.q_values))
+    np.testing.assert_array_equal(np.asarray(trace.counts[trace_len - 1]), np.asarray(traced_state.n_visits))
+
+
 def test_move_cost_scale_penalizes_move_reward_by_path_length():
     env = _env(
         num_nodes=3,
