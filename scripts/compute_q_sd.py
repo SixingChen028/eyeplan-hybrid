@@ -9,10 +9,15 @@ value distribution -- the drift analogue of forgetting resetting a memory to
 0.0, near the prior mean.
 
 The result depends on `point_set` (linearly) and on `num_nodes` via the tree
-templates, so `Q_SD` in environment.py is guarded by an assert on both. Rerun
-this script if either changes.
+templates, so `Q_SD` in environment.py must be updated if either changes.
 
     python scripts/compute_q_sd.py
+
+`--simulate` additionally rolls out the environment under a uniform-random
+fixation policy and reports the spread of remembered Q-values actually reached,
+which should land near the analytic Q_SD. This is the check that would have
+caught the 0616_compare_mem mistake, where q_drift=4 with q_decay=0.99 gave a
+simulated sd of 15.2 and |q| up to 101 against a true-Q range of +-24.
 """
 from __future__ import annotations
 
@@ -68,6 +73,35 @@ def q_value_samples(num_nodes: int, point_set: tuple, *, num_trees: int, seed: i
     return samples
 
 
+def simulated_q_stats(num_nodes: int, wm_decay: float, q_drift: float, *, num_rollouts: int, num_steps: int):
+    """Spread of remembered Q-values under a uniform-random fixation policy."""
+    import jax
+
+    from modules.rollout_invariants import collect_random_fixation_rollouts
+    from modules.train_results import env_from_args, env_params_from_args
+
+    run = dict(PARAM_DEFAULTS["environment"])
+    run.update(PARAM_DEFAULTS["training"])
+    run.update(PARAM_DEFAULTS["network"])
+    run.update(
+        num_nodes=num_nodes,
+        t_max=num_steps + 5,
+        wm_decay=wm_decay,
+        wm_neighbor_activation=0.5,
+        use_recency_obs=False,
+        q_drift=q_drift,
+        forget_rate=0.0,
+    )
+    env = env_from_args(run)
+    params = env_params_from_args(env, run)
+    trace = collect_random_fixation_rollouts(
+        env, params, seed=1, num_rollouts=num_rollouts, num_steps=num_steps
+    )
+    states = jax.device_get(trace.states)
+    remembered = np.asarray(states.q_values)[np.asarray(states.is_discovered)]
+    return float(params.q_decay), remembered.std(), np.percentile(np.abs(remembered), 99.9)
+
+
 def main() -> None:
     defaults = PARAM_DEFAULTS["environment"]
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -75,6 +109,11 @@ def main() -> None:
     parser.add_argument("--point-set", type=str, default=",".join(str(p) for p in defaults["point_set"]))
     parser.add_argument("--num-trees", type=int, default=100_000)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--simulate",
+        action="store_true",
+        help="Also simulate the environment under a random policy and report the realized spread.",
+    )
     args = parser.parse_args()
 
     point_set = tuple(float(item) for item in args.point_set.split(","))
@@ -83,6 +122,19 @@ def main() -> None:
     print(f"num_nodes={args.num_nodes} point_set={point_set} num_trees={args.num_trees}")
     print(f"q_sd={samples.std():.4f}  mean={samples.mean():.4f}")
     print(f"percentiles(1,25,50,75,99)={np.percentile(samples, [1, 25, 50, 75, 99]).round(2).tolist()}")
+
+    if not args.simulate:
+        return
+
+    print()
+    print(f"simulated under a random policy (target sd {samples.std():.2f}, max |Q| {np.abs(samples).max():.0f})")
+    print(f'{"wm_decay":>9} {"q_drift":>8} {"q_decay":>8} {"sd":>7} {"p99.9|q|":>9}')
+    for wm_decay in (0.6, 0.95):
+        for q_drift in (0.5, 1.0, 2.0, 3.0):
+            q_decay, sd, p999 = simulated_q_stats(
+                args.num_nodes, wm_decay, q_drift, num_rollouts=200, num_steps=95
+            )
+            print(f"{wm_decay:9} {q_drift:8} {q_decay:8.4f} {sd:7.2f} {p999:9.1f}", flush=True)
 
 
 if __name__ == "__main__":
