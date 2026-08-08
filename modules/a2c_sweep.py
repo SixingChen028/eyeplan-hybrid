@@ -7,7 +7,7 @@ import jax.numpy as jnp
 
 from modules.a2c import A2CTrainParams, BatchMaskA2C, TrainState, StepMetrics
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, TRAIN_SWEEP_KEYS
-from modules.environment import DecisionTreeEnv, DecisionTreeParams
+from modules.environment import DecisionTreeEnv, DecisionTreeParams, derive_q_decay
 
 
 class A2CHyperParams(NamedTuple):
@@ -36,6 +36,8 @@ def build_hypers(combos: list[dict]) -> A2CHyperParams:
         key: array(key, dtype=jnp.int32 if key in int_keys else jnp.float32)
         for key in ENV_DYNAMIC_PARAM_KEYS
     }
+    # q_decay is derived, not swept; keep this in step with make_params.
+    env_values["q_decay"] = derive_q_decay(env_values["q_drift"])
     env = DecisionTreeParams(**env_values)
 
     train_values = {

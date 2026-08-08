@@ -1,3 +1,4 @@
+import math
 import pickle
 import subprocess
 import sys
@@ -12,7 +13,7 @@ from modules.a2c import A2CTrainParams, BatchMaskA2C
 from modules.a2c_sweep import VmappedA2CTrainer, build_hypers
 from modules.config import expand_sweep
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
-from modules.environment import DecisionTreeEnv
+from modules.environment import DecisionTreeEnv, Q_SD
 from modules.evaluation import evaluate_run_dir
 from modules.network import flatten_observation
 from modules.train_progress import StartupTrainingTimeout, train_with_progress
@@ -271,15 +272,16 @@ def test_parallel_sweep_allows_q_drift_arrays():
     np.testing.assert_allclose(np.asarray(hypers.env.q_drift), np.array([0.0, 0.25], dtype=np.float32))
 
 
-def test_parallel_sweep_keeps_q_decay_float():
+def test_parallel_sweep_derives_q_decay_from_q_drift():
     fixed, runs, varied_keys = expand_sweep(
-        _small_params(seed=0, wm_decay=1.0, q_drift=[0.0, 0.5], q_decay=0.75, scale_factor=0.25)
+        _small_params(seed=0, wm_decay=1.0, q_drift=[0.0, 0.5], scale_factor=0.25)
     )
 
     assert varied_keys == ["q_drift"]
     assert len(runs) == 2
 
-    expected = np.array([0.75, 0.75], dtype=np.float32)
+    # q_decay = sqrt(1 - (q_drift / Q_SD)^2); q_drift = 0 leaves values undecayed.
+    expected = np.array([1.0, math.sqrt(1.0 - (0.5 / Q_SD) ** 2)], dtype=np.float32)
     hypers = build_hypers(runs)
     np.testing.assert_allclose(np.asarray(hypers.env.q_decay), expected, atol=1e-6)
 
@@ -493,7 +495,6 @@ env_params = env.make_params(
     wm_neighbor_activation=1.0,
     forget_rate=0.0,
     q_drift=0.0,
-    q_decay=0.0,
     recency_decay=0.0,
     cost=0.01,
 )

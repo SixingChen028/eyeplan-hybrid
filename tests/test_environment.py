@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
-from modules.environment import DecisionTreeEnv
+from modules.environment import derive_q_decay, DecisionTreeEnv
 from modules.network import flatten_observation
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
@@ -123,7 +123,7 @@ def _obs_size(env: DecisionTreeEnv) -> int:
         ({"wm_neighbor_activation": 1.1}, "wm_neighbor_activation"),
         ({"forget_rate": -0.1}, "forget_rate"),
         ({"q_drift": -0.1}, "q_drift"),
-        ({"q_decay": 1.1}, "q_decay"),
+        ({"q_drift": 100.0}, "q_drift"),
         ({"recency_decay": -0.1}, "recency_decay"),
         ({"cost": -0.1}, "cost"),
         ({"move_cost_scale": -0.1}, "move_cost_scale"),
@@ -278,7 +278,6 @@ def test_memory_corruption_forgets_inactive_node_memory():
         env,
         wm_decay=0.0,
         wm_neighbor_activation=0.25,
-        q_decay=1.0,
         q_drift=1.0,
         forget_rate=1.0,
     )
@@ -326,7 +325,7 @@ def test_reset_skips_initial_corruption_event():
 
 def test_look_corrupts_memory_before_q_update():
     env = _env(num_nodes=3, shuffle_nodes=False, activation_gates_backup_source=False)
-    params = _env_params(env, wm_decay=0.0, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    params = _env_params(env, wm_decay=0.0, forget_rate=1.0, q_drift=0.0)
     state, _, _ = env.reset(jax.random.PRNGKey(22), params)
     state = state._replace(
         points=jnp.zeros((env.num_nodes,), dtype=jnp.float32),
@@ -433,7 +432,7 @@ def test_disable_corruption_skips_corruption_and_keeps_terminal_memory_persisten
         shuffle_nodes=False,
         disable_corruption=True,
     )
-    params = _env_params(env, wm_decay=0.0, q_decay=1.0, q_drift=0.0, forget_rate=1.0)
+    params = _env_params(env, wm_decay=0.0, q_drift=0.0, forget_rate=1.0)
     state = env._sample_initial_state(jax.random.PRNGKey(111))
     state = state._replace(
         root_node=jnp.asarray(0, dtype=jnp.int32),
@@ -473,7 +472,6 @@ def test_disable_persistence_clears_inactive_node_memory_without_forget_rate():
         env,
         wm_decay=0.0,
         wm_neighbor_activation=0.25,
-        q_decay=1.0,
         q_drift=1.0,
         forget_rate=0.0,
     )
@@ -677,7 +675,7 @@ def test_clear_inactive_memory_always_clears_inactive_node_memory():
 
 def test_corrupt_memory_clears_inactive_terminal_memory():
     env = _env(num_nodes=7, shuffle_nodes=False)
-    params = _env_params(env, q_decay=1.0, q_drift=0.0, forget_rate=0.0)
+    params = _env_params(env, q_drift=0.0, forget_rate=0.0)
     state = env._sample_initial_state(jax.random.PRNGKey(151))
     state = state._replace(
         is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
@@ -698,7 +696,7 @@ def test_update_activation_preserves_q_values():
         num_nodes=7,
         shuffle_nodes=False,
     )
-    params = _env_params(env, wm_decay=0.0, forget_rate=1.0, q_decay=0.5, q_drift=1.0)
+    params = _env_params(env, wm_decay=0.0, forget_rate=1.0, q_drift=1.0)
     state, _, _ = env.reset(jax.random.PRNGKey(17), params)
     q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
     state = state._replace(
@@ -858,7 +856,7 @@ def test_forget_rate_zero_preserves_inactive_node_memory():
         num_nodes=7,
         shuffle_nodes=False,
     )
-    params = _env_params(env, wm_decay=0.0, forget_rate=0.0, q_decay=1.0)
+    params = _env_params(env, wm_decay=0.0, forget_rate=0.0)
     state, _, _ = env.reset(jax.random.PRNGKey(13), params)
     q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
     n_visits = jnp.arange(env.num_nodes, dtype=jnp.int32) + 1
@@ -889,11 +887,16 @@ def test_forget_rate_zero_preserves_inactive_node_memory():
 
 
 def test_q_decay_scales_inactive_q_values():
+    # q_decay is derived from q_drift, so a positive drift implies decay < 1.
+    # Drift also adds noise, so compare against the same draw with decay removed.
     env = _env(
         num_nodes=7,
         shuffle_nodes=False,
     )
-    params = _env_params(env, wm_decay=0.0, q_decay=0.75)
+    params = _env_params(env, wm_decay=0.0, q_drift=2.0)
+    expected_decay = float(derive_q_decay(2.0))
+    assert expected_decay == pytest.approx(float(params.q_decay), abs=1e-6)
+    assert 0.0 < expected_decay < 1.0
     state, _, _ = env.reset(jax.random.PRNGKey(14), params)
     q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
     activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
@@ -906,10 +909,21 @@ def test_q_decay_scales_inactive_q_values():
     state = env._update_activation(state, params)
     state = env._corrupt_memory(state, params)
 
-    inactive_mask = np.asarray(state.activation) == 0.0
+    # Re-run corruption with no drift to isolate the decay from the added noise.
+    noiseless = _env_params(env, wm_decay=0.0, q_drift=0.0)._replace(q_decay=params.q_decay)
+    decayed, _, _ = env.reset(jax.random.PRNGKey(14), params)
+    decayed = decayed._replace(
+        q_values=q_values,
+        activation=activation,
+        is_discovered=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
+    )
+    decayed = env._update_activation(decayed, noiseless)
+    decayed = env._corrupt_memory(decayed, noiseless)
+
+    inactive_mask = np.asarray(decayed.activation) == 0.0
     np.testing.assert_allclose(
-        np.asarray(state.q_values)[inactive_mask],
-        np.asarray(q_values * 0.75)[inactive_mask],
+        np.asarray(decayed.q_values)[inactive_mask],
+        np.asarray(q_values * expected_decay)[inactive_mask],
         atol=1e-6,
     )
 
@@ -941,7 +955,7 @@ def test_q_drift_adds_noise_to_discovered_inactive_q_values_only():
 
 def test_activation_prevents_corruption_keeps_active_memory_uncorrupted():
     env = _env(num_nodes=7, shuffle_nodes=False)
-    params = _env_params(env, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    params = _env_params(env, forget_rate=1.0, q_drift=0.0)
     state, _, _ = env.reset(jax.random.PRNGKey(151), params)
     state = state._replace(
         q_values=jnp.arange(env.num_nodes, dtype=jnp.float32),
@@ -966,7 +980,7 @@ def test_activation_prevents_corruption_keeps_active_memory_uncorrupted():
 
 def test_activation_prevents_corruption_false_corrupts_active_discovered_memory():
     env = _env(num_nodes=7, shuffle_nodes=False, activation_prevents_corruption=False)
-    params = _env_params(env, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    params = _env_params(env, forget_rate=1.0, q_drift=0.0)
     state, _, _ = env.reset(jax.random.PRNGKey(152), params)
     state = state._replace(
         q_values=jnp.arange(env.num_nodes, dtype=jnp.float32),
@@ -998,7 +1012,7 @@ def test_forget_discovered_clears_forgotten_activation():
         activation_prevents_corruption=False,
         forget_discovered=True,
     )
-    params = _env_params(env, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    params = _env_params(env, forget_rate=1.0, q_drift=0.0)
     state, _, _ = env.reset(jax.random.PRNGKey(153), params)
     state = state._replace(
         activation=jnp.ones((env.num_nodes,), dtype=jnp.float32),
@@ -1023,7 +1037,7 @@ def test_pure_forget_look_does_not_leave_active_undiscovered_nodes():
         activation_prevents_corruption=False,
         forget_discovered=True,
     )
-    params = _env_params(env, wm_decay=1.0, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    params = _env_params(env, wm_decay=1.0, forget_rate=1.0, q_drift=0.0)
     state, _, info = env.reset(jax.random.PRNGKey(154), params)
 
     action = np.flatnonzero(np.asarray(info["mask"][:-1]))[1]
@@ -1042,7 +1056,7 @@ def test_pure_forget_does_not_reactivate_forgotten_parent():
         activation_prevents_corruption=False,
         forget_discovered=True,
     )
-    params = _env_params(env, wm_decay=1.0, forget_rate=0.0, q_drift=0.0, q_decay=1.0)
+    params = _env_params(env, wm_decay=1.0, forget_rate=0.0, q_drift=0.0)
     state, _, info = env.reset(jax.random.PRNGKey(155), params)
     child = np.flatnonzero(np.asarray(info["mask"][:-1]))[1]
     state, _, _, _, _ = env.step(state, jnp.asarray(child, dtype=jnp.int32), params)
@@ -1065,11 +1079,12 @@ def test_pure_forget_does_not_reactivate_forgotten_parent():
 
 
 def test_q_decay_one_means_no_decay():
+    # q_drift = 0 is the only way to get q_decay = 1 under the derived parameterization.
     env = _env(
         num_nodes=7,
         shuffle_nodes=False,
     )
-    params = _env_params(env, wm_decay=0.0, q_decay=1.0)
+    params = _env_params(env, wm_decay=0.0, q_drift=0.0)
     state, _, _ = env.reset(jax.random.PRNGKey(16), params)
     q_values = jnp.arange(env.num_nodes, dtype=jnp.float32)
     activation = jnp.zeros((env.num_nodes,), dtype=jnp.float32)
@@ -1120,7 +1135,6 @@ def test_detailed_move_trace_preserves_step_behavior_and_records_each_movement()
         wm_decay=1.0,
         forget_rate=1.0,
         q_drift=0.0,
-        q_decay=1.0,
         cost=0.0,
     )
     state, _, _ = env.reset(jax.random.PRNGKey(104), params)
@@ -1184,7 +1198,7 @@ def test_move_cost_scale_penalizes_move_reward_by_path_length():
 
 def test_movement_look_skips_q_update_but_applies_corruption():
     env = _env(num_nodes=3, shuffle_nodes=False)
-    params = _env_params(env, learning_rate=1.0, wm_decay=0.0, forget_rate=1.0, q_drift=0.0, q_decay=1.0)
+    params = _env_params(env, learning_rate=1.0, wm_decay=0.0, forget_rate=1.0, q_drift=0.0)
     state, _, _ = env.reset(jax.random.PRNGKey(102), params)
     state = state._replace(
         q_values=jnp.array([5.0, 7.0, 9.0], dtype=jnp.float32),
@@ -1208,7 +1222,6 @@ def test_movement_forgetting_changes_downstream_choice():
         wm_decay=1.0,
         forget_rate=1.0,
         q_drift=0.0,
-        q_decay=1.0,
         cost=0.0,
     )
     state, _, _ = env.reset(jax.random.PRNGKey(103), params)

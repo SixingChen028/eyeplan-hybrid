@@ -106,7 +106,6 @@ def env_params_from_run_args(env: DecisionTreeEnv, args: dict) -> DecisionTreePa
         wm_neighbor_activation=float(args.get("wm_neighbor_activation", 1.0)),
         forget_rate=float(args["forget_rate"]),
         q_drift=float(args["q_drift"]),
-        q_decay=float(args["q_decay"]),
         recency_decay=float(args["recency_decay"]),
         cost=float(args["cost"]),
         move_cost_scale=float(args.get("move_cost_scale", 0.0)),

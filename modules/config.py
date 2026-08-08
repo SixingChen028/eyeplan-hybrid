@@ -63,10 +63,9 @@ PARAM_DEFAULTS = {
         "wm_neighbor_activation": 1.0,
         # Probability of clearing inactive Q-values, visit counts, and fixation recency after each step.
         "forget_rate": 0.0,
-        # Standard deviation of Gaussian drift added to inactive Q-values.
+        # Standard deviation of Gaussian drift added to inactive Q-values. The paired
+        # per-step decay is derived from this in DecisionTreeEnv.make_params.
         "q_drift": 0.0,
-        # Per-step decay applied to inactive Q-values.
-        "q_decay": 1.0,
         # Per-step decay applied to fixation recency observations.
         "recency_decay": 0.5,
         # Per-step movement cost subtracted from environment reward.
@@ -143,7 +142,6 @@ ENV_DYNAMIC_PARAM_KEYS = (
     "wm_neighbor_activation",
     "forget_rate",
     "q_drift",
-    "q_decay",
     "recency_decay",
     "cost",
     "move_cost_scale",
@@ -364,7 +362,7 @@ def validate_params(params: dict) -> None:
         if key not in SWEEP_KEYS:
             raise ValueError(f"params.{key} is not a supported parallel sweep parameter.")
 
-    for key in ("recency_decay", "q_decay"):
+    for key in ("recency_decay",):
         value = params.get(key, 0.0)
         values = value if is_list(value) else [value]
         for item in values:

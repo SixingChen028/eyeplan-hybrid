@@ -10,6 +10,25 @@ from modules.tree_generation import build_tree_templates
 # also bump COMPAT_VERSION.
 
 
+# Standard deviation of true Q-values over sampled trees, used to pin the
+# asymptotic spread of drifting inactive Q-values (see make_params). Computed by
+# scripts/compute_q_sd.py for num_nodes = 15 and the default point set; it
+# depends on both (linearly on point_set), so rerun that script and update this
+# constant if either changes.
+Q_SD = 6.4419
+
+
+def derive_q_decay(q_drift):
+    """Per-step decay that holds the asymptotic spread of drifting Q-values at Q_SD.
+
+    Inactive Q-values follow an AR(1) process with asymptotic standard deviation
+    q_drift / sqrt(1 - q_decay^2), so pinning that to Q_SD determines q_decay.
+    Accepts scalars or arrays so the vmapped sweep and make_params share one rule.
+    """
+    ratio = jnp.asarray(q_drift, dtype=jnp.float32) / Q_SD
+    return jnp.sqrt(jnp.maximum(1.0 - ratio**2, 0.0))
+
+
 def safe_get(arr: jax.Array, idx: jax.Array, *, fill_value) -> jax.Array:
     return arr.at[idx].get(
         mode="fill",
@@ -170,11 +189,18 @@ class DecisionTreeEnv:
         wm_neighbor_activation: float,
         forget_rate: float,
         q_drift: float,
-        q_decay,
         recency_decay,
         cost: float,
         move_cost_scale: float = 0.0,
     ) -> DecisionTreeParams:
+        # q_decay is derived, not free: inactive Q-values follow an AR(1) process
+        # whose asymptotic standard deviation is q_drift / sqrt(1 - q_decay^2).
+        # Pinning that to Q_SD -- the spread of the values being remembered --
+        # makes a maximally drifted memory look like a random draw from the value
+        # distribution, mirroring how forgetting resets a memory to 0.0 near the
+        # prior mean. q_drift alone then sets the corruption timescale.
+        assert q_drift < Q_SD, f"q_drift must be less than Q_SD={Q_SD}."
+        q_decay = float(derive_q_decay(q_drift))
 
         assert beta_move >= 0.0, "beta_move must be non-negative."
         assert 0.0 <= eps_move <= 1.0, "eps_move must between 0 and 1"

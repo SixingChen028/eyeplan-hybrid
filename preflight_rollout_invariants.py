@@ -47,7 +47,6 @@ def expects_max_consistent_q(run: dict) -> bool:
         and float(run["wm_neighbor_activation"]) == 1.0
         and float(run["forget_rate"]) == 0.0
         and float(run["q_drift"]) == 0.0
-        and float(run["q_decay"]) == 1.0
     )
 
 

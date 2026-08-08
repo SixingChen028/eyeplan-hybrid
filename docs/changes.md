@@ -4,6 +4,19 @@ Record every important result-producing change here. An important change is any 
 
 The compatibility version is an integer epoch attached to runs and checkpoint weights. Bump it only when a change makes existing checkpoint weights incompatible with the current code. Compatible changes stay under the current version. Here, "incompatible" means that simulating an old run with the new code would mean evaluating a policy on an environment that is different from the one it was trained on (excluding RNG behavior).
 
+## Version 10
+
+- Derive `q_decay` from `q_drift` instead of accepting it as a free parameter.
+  Inactive Q-values follow an AR(1) process whose asymptotic standard deviation is
+  `q_drift / sqrt(1 - q_decay^2)`; this is now pinned to `Q_SD = 6.4419`, the
+  standard deviation of true Q-values over sampled trees (computed by
+  `scripts/compute_q_sd.py`). A maximally drifted memory therefore looks like a
+  random draw from the value distribution, mirroring how forgetting resets a
+  memory to 0.0 near the prior mean. `q_drift` alone now sets the corruption
+  timescale, and `q_decay` is removed from the config surface. `Q_SD` depends on
+  `point_set` and `num_nodes`, which are asserted when `q_drift > 0`. Bumped
+  `COMPAT_VERSION` 9 -> 10; configs setting `q_decay` are now invalid.
+
 ## Version 9
 
 - Add post-action memory traces for every root-to-leaf movement to detailed
