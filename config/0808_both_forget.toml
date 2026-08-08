@@ -1,0 +1,41 @@
+# Backup memory persists but is stochastically forgotten: WM decays while each
+# inactive node's memory is cleared with probability forget_rate per step.
+#
+# Forgetting is all-or-nothing per node, so a surviving memory is exact. This
+# is the contrast with 0808_both_drift, where every surviving memory is
+# degraded. Expected retention time for an inactive node is 1/forget_rate
+# steps:
+#
+#   forget_rate   0.02   0.05   0.1   0.2   0.4
+#   mean lifetime   50     20    10     5     2.5
+#
+# The wm_decay sweep is shared with 0808_both_drift so the two versions can be
+# compared at matched WM dynamics.
+
+[meta]
+array_vars = ["seed"]
+sim_trials = 10000
+
+[sbatch]
+time = "2:00:00"
+gpu = true
+
+[params]
+label = "both_forget"
+
+t_max = 100
+cost = 0.01
+beta_e_final = 0.005
+use_recency_obs = false
+
+seed = [1, 2, 3, 4, 5]
+num_envs = 128
+num_updates = 50_000
+
+wm_decay = [0.6, 0.8, 0.9, 0.95]
+wm_neighbor_activation = 0.5
+
+# no drift (q_decay is derived from it, and is 1.0 here); stochastic forgetting
+# is the only source of backup corruption
+q_drift = 0.0
+forget_rate = [0.02, 0.05, 0.1, 0.2, 0.4]

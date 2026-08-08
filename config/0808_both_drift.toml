@@ -1,0 +1,41 @@
+# Backup memory persists but its values drift: WM decays while inactive Q-values
+# follow an AR(1) process q <- q * q_decay + N(0, q_drift^2).
+#
+# q_decay is derived from q_drift in the environment (see Q_SD in
+# environment.py), holding the asymptotic spread of drifted values at the
+# standard deviation of the true Q distribution. q_drift is therefore the only
+# corruption parameter, and it indexes the corruption timescale:
+#
+#   q_drift      0.5     1.0     1.5     2.0     3.0
+#   q_decay    0.9970  0.9879  0.9725  0.9506  0.8849
+#   half-life   229.4    56.8    24.9    13.7     5.7
+#
+# The wm_decay sweep is shared with 0808_both_forget so the two versions can be
+# compared at matched WM dynamics.
+
+[meta]
+array_vars = ["seed"]
+sim_trials = 10000
+
+[sbatch]
+time = "2:00:00"
+gpu = true
+
+[params]
+label = "both_drift"
+
+t_max = 100
+cost = 0.01
+beta_e_final = 0.005
+use_recency_obs = false
+
+seed = [1, 2, 3, 4, 5]
+num_envs = 128
+num_updates = 50_000
+
+wm_decay = [0.6, 0.8, 0.9, 0.95]
+wm_neighbor_activation = 0.5
+
+# no stochastic forgetting; drift is the only source of backup corruption
+forget_rate = 0.0
+q_drift = [0.5, 1.0, 1.5, 2.0, 3.0]
