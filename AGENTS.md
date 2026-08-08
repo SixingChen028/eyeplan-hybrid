@@ -94,17 +94,3 @@ new/updated test.
   checkpointed parameters could run without errors. It thus includes most changes to
   `network.py` or `environment.py`. Exceptions are refactors and *optional* new
   functionality that does not change default behavior.
-
-## Project memory
-
-Before substantive work:
-
-1. Read `/Users/fred/lib/obsidian/vault/Projects/EyePlan/EyePlan.md`.
-2. Run the discovery command below.
-3. Open only the records relevant to the current task.
-
-```bash
-/Users/fred/lib/obsidian/vault/Scripts/project-memory EyePlan
-```
-
-Consult `/Users/fred/lib/obsidian/vault/Meta/Projects.md` before creating or updating project memory. After substantive work, update the relevant project Task. Keep repository-local technical documentation here and link it from the vault when it matters across repositories.
