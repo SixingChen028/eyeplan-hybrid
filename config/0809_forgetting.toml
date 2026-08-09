@@ -1,0 +1,28 @@
+[meta]
+# array_vars = ["seed"]
+# sim_trials = 10000
+
+[sbatch]
+time = "2:30:00"
+gpu = true
+
+[params]
+t_max = 100
+cost = 0.001
+beta_e_final = 0.005
+use_recency_obs = false
+
+seed = [1, 2, 3, 4, 5]
+num_envs = 64
+num_updates = 30_000
+
+wm_decay = [0.6, 0.8, 0.9, 0.95]
+wm_neighbor_activation = 0.5
+
+[[conditions]]
+label = "both_drift"
+q_drift = [0.5, 1, 2, 4]
+
+[[conditions]]
+label = "both_forget"
+forget_rate = [0.05, 0.1, 0.2, 0.4]
