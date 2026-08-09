@@ -14,7 +14,7 @@
 # compared at matched WM dynamics.
 
 [meta]
-array_vars = ["seed"]
+# array_vars = ["seed"]
 sim_trials = 10000
 
 [sbatch]
@@ -29,7 +29,7 @@ cost = 0.01
 beta_e_final = 0.005
 use_recency_obs = false
 
-seed = [1, 2, 3, 4, 5]
+seed = [1, 2, 3]
 num_envs = 128
 num_updates = 50_000
 
