@@ -1,0 +1,27 @@
+# Screen the current wm_only architecture around its hand-selected parameters.
+# Grid per seed: 3 decays x 3 neighbor activations x 3 costs x 3 final betas = 81 vmapped runs.
+# Seeds are Slurm-array tasks, for 3 x 81 = 243 training runs total.
+
+[meta]
+array_vars = ["seed"]
+sim_trials = 5000
+
+[sbatch]
+time = "3:00:00"
+gpu = true
+
+[params]
+
+beta_e_final = [0.005, 0.01, 0.015]
+use_recency_obs = false
+
+t_max = 100
+cost = [0.001, 0.005, 0.01]
+seed = [31, 32, 33]
+num_envs = 128
+num_updates = 50_000
+
+label = "wm_only"
+wm_decay = [0.9, 0.95, 0.975]
+wm_neighbor_activation = [0.25, 0.5, 0.75]
+forget_rate = 1.0
