@@ -1,0 +1,25 @@
+# Fresh-seed refinement of the three-term parameter-selection MSE.
+# Each cost array task vmaps 3 WM decays x 10 seeds = 30 agents; 3 tasks train 90 agents total.
+
+[meta]
+array_vars = ["cost"]
+sim_trials = 5000
+
+[sbatch]
+time = "2:00:00"
+gpu = true
+
+[params]
+
+use_recency_obs = false
+t_max = 100
+seed = [44, 45, 46, 47, 48, 49, 50, 51, 52, 53]
+num_envs = 128
+num_updates = 50_000
+forget_rate = 1.0
+
+label = "wm_only"
+wm_decay = [0.93, 0.95, 0.97]
+wm_neighbor_activation = 0.5
+cost = [0.002, 0.005, 0.008]
+beta_e_final = 0.01
