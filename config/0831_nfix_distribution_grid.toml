@@ -1,7 +1,7 @@
 # Discovery exploratory grid: 6 costs x 3 WM decays x 4 seeds = 72 vmapped agents in one GPU job.
 
 [meta]
-array_vars = []
+array_vars = ["wm_decay"]
 sim_trials = 5000
 
 [sbatch]
