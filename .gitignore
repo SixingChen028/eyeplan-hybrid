@@ -2,5 +2,6 @@ __pycache__
 .venv
 results
 sbatch
+log
 local
 smoke
