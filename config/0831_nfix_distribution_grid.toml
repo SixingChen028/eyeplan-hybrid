@@ -13,7 +13,7 @@ gpu = true
 use_recency_obs = false
 t_max = 100
 seed = [54, 55, 56, 57]
-num_envs = 128
+num_envs = 64
 num_updates = 50_000
 forget_rate = 1.0
 
