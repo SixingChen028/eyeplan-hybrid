@@ -1,8 +1,7 @@
-# Distribution-aware parameter grid: 10 costs x 5 WM decays x 5 seeds = 250 agents.
-# Each seed array task vmaps 10 costs x 5 WM decays = 50 agents.
+# Discovery exploratory grid: 6 costs x 3 WM decays x 4 seeds = 72 vmapped agents in one GPU job.
 
 [meta]
-array_vars = ["seed"]
+array_vars = []
 sim_trials = 5000
 
 [sbatch]
@@ -13,13 +12,14 @@ gpu = true
 
 use_recency_obs = false
 t_max = 100
-seed = [54, 55, 56, 57, 58]
+seed = [54, 55, 56, 57]
 num_envs = 128
 num_updates = 50_000
 forget_rate = 1.0
 
 label = "wm_only"
-wm_decay = [0.5, 0.75, 0.9, 0.975, 1.0]
+wm_decay = [0.9, 0.95, 0.975]
 wm_neighbor_activation = 0.5
-cost = [0.001, 0.002, 0.005, 0.008, 0.01, 0.02, 0.04, 0.08, 0.12, 0.16]
+# cost = [0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128]
+cost = [0.005, 0.01, 0.02, 0.04, 0.08, 0.16]
 beta_e_final = 0.01
