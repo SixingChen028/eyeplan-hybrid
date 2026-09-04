@@ -16,7 +16,7 @@ from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import DecisionTreeEnv, Q_SD
 from modules.evaluation import evaluate_run_dir
 from modules.network import flatten_observation
-from modules.train_progress import StartupTrainingTimeout, train_with_progress
+from modules.train_progress import StartupTrainingTimeout, _entropy_schedule, train_with_progress
 from modules.train_results import save_results
 
 _, _DEFAULT_PARAMS = load_canonical_defaults()
@@ -302,6 +302,28 @@ def test_parallel_sweep_allows_move_cost_scale_arrays():
 def test_parallel_sweep_rejects_non_numeric_recency_decay_arrays():
     with np.testing.assert_raises(ValueError):
         expand_sweep(_small_params(seed=0, recency_decay=["off", 0.5]))
+
+
+def test_entropy_schedule_can_hold_final_coefficient():
+    _, runs, _ = expand_sweep(
+        _small_params(seed=[0], wm_decay=[1.0], beta_e_init=0.02, beta_e_final=0.01)
+    )
+    hypers = build_hypers(runs)
+
+    schedule = np.asarray(_entropy_schedule(hypers, num_updates=5, beta_e_anneal_updates=3))
+
+    np.testing.assert_allclose(schedule, [[0.02, 0.015, 0.01, 0.01, 0.01]], rtol=1e-6)
+
+
+def test_entropy_schedule_default_uses_all_updates():
+    _, runs, _ = expand_sweep(
+        _small_params(seed=[0], wm_decay=[1.0], beta_e_init=0.02, beta_e_final=0.0)
+    )
+    hypers = build_hypers(runs)
+
+    schedule = np.asarray(_entropy_schedule(hypers, num_updates=5))
+
+    np.testing.assert_allclose(schedule, np.linspace(0.02, 0.0, 5, dtype=np.float32)[None, :])
 
 
 @pytest.mark.slow

@@ -27,6 +27,29 @@ class A2CSweepResult(NamedTuple):
     metrics: StepMetrics
 
 
+def entropy_schedule(
+    beta_e_init,
+    beta_e_final,
+    num_updates: int,
+    beta_e_anneal_updates: int = -1,
+) -> jax.Array:
+    num_updates = int(num_updates)
+    anneal_updates = int(beta_e_anneal_updates)
+    if anneal_updates == -1:
+        anneal_updates = num_updates
+    if not 1 <= anneal_updates <= num_updates:
+        raise ValueError("beta_e_anneal_updates must be -1 or between 1 and num_updates")
+
+    progress = jnp.linspace(0.0, 1.0, anneal_updates, dtype=jnp.float32)
+    if anneal_updates < num_updates:
+        progress = jnp.concatenate(
+            [progress, jnp.ones((num_updates - anneal_updates,), dtype=jnp.float32)]
+        )
+    beta_e_init = jnp.asarray(beta_e_init, dtype=jnp.float32)
+    beta_e_final = jnp.asarray(beta_e_final, dtype=jnp.float32)
+    return beta_e_init[..., None] + (beta_e_final - beta_e_init)[..., None] * progress
+
+
 def build_hypers(combos: list[dict]) -> A2CHyperParams:
     def array(key: str, dtype=jnp.float32):
         return jnp.asarray([combo[key] for combo in combos], dtype=dtype)
@@ -55,10 +78,12 @@ class VmappedA2CTrainer:
         hidden_size: int,
         num_envs: int,
         num_updates: int,
+        beta_e_anneal_updates: int = -1,
         rollout_length: int | None = None,
         network_type: str = "mlp",
     ):
         self.num_updates = int(num_updates)
+        self.beta_e_anneal_updates = int(beta_e_anneal_updates)
         self.trainer = BatchMaskA2C(
             env=env,
             action_size=action_size,
@@ -90,13 +115,13 @@ class VmappedA2CTrainer:
 
     def _train_one(self, hyper: A2CHyperParams):
         state = self.trainer.init_state_with_params(hyper.seed, hyper.env)
-        entropy_schedule = jnp.linspace(
+        schedule = entropy_schedule(
             hyper.beta_e_init,
             hyper.beta_e_final,
             self.num_updates,
-            dtype=jnp.float32,
+            self.beta_e_anneal_updates,
         )
-        return self.trainer._train_many(state, entropy_schedule, self._train_params(hyper))
+        return self.trainer._train_many(state, schedule, self._train_params(hyper))
 
     def _train_one_from_state(
         self,

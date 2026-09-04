@@ -88,6 +88,7 @@ def main() -> None:
             hidden_size=fixed["hidden_size"],
             num_envs=num_envs,
             num_updates=num_updates,
+            beta_e_anneal_updates=int(fixed["beta_e_anneal_updates"]),
             rollout_length=rollout_length,
             network_type=fixed["network_type"],
         )
@@ -104,6 +105,7 @@ def main() -> None:
             f"num_updates={num_updates} "
             f"num_envs={num_envs} "
             f"rollout_length={rollout_length} "
+            f"beta_e_anneal_updates={fixed['beta_e_anneal_updates']} "
             f"t_max={fixed['t_max']} "
             f"varied_keys={','.join(varied_keys)}"
         )

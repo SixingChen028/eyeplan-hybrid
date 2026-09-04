@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from modules.a2c_sweep import A2CHyperParams, A2CSweepResult, VmappedA2CTrainer
+from modules.a2c_sweep import A2CHyperParams, A2CSweepResult, VmappedA2CTrainer, entropy_schedule
 
 RUN_LOG_COLUMNS = (
     ("update", 8),
@@ -317,12 +317,17 @@ def _format_duration(seconds: float) -> str:
     return f"{minutes:d}m{seconds:02d}s"
 
 
-def _entropy_schedule(hypers: A2CHyperParams, num_updates: int) -> jax.Array:
-    progress = jnp.linspace(0.0, 1.0, num_updates, dtype=jnp.float32)
-    return (
-        hypers.beta_e_init[:, None]
-        + (hypers.beta_e_final - hypers.beta_e_init)[:, None] * progress[None, :]
-    ).astype(jnp.float32)
+def _entropy_schedule(
+    hypers: A2CHyperParams,
+    num_updates: int,
+    beta_e_anneal_updates: int = -1,
+) -> jax.Array:
+    return entropy_schedule(
+        hypers.beta_e_init,
+        hypers.beta_e_final,
+        num_updates,
+        beta_e_anneal_updates,
+    )
 
 
 def _concat_metric_chunks(chunks: list):
@@ -442,7 +447,7 @@ def train_with_progress(
 
     emit_progress = print_frequency > 0
     progress_frequency = int(print_frequency) if emit_progress else int(num_updates)
-    schedule = _entropy_schedule(hypers, num_updates)
+    schedule = _entropy_schedule(hypers, num_updates, trainer.beta_e_anneal_updates)
     compiled_updates_per_chunk = _resolve_compiled_updates_per_chunk(
         min(progress_frequency, num_updates),
         max_compiled_updates_per_chunk=max_compiled_updates_per_chunk,

@@ -88,6 +88,8 @@ PARAM_DEFAULTS = {
         "beta_e_init": 0.02,
         # Final entropy coefficient at the end of training.
         "beta_e_final": 0.001,
+        # Updates used to reach beta_e_final; -1 uses all training updates.
+        "beta_e_anneal_updates": -1,
         # Global gradient norm clipping threshold.
         "max_grad_norm": 2.0,
         # Number of A2C optimization updates to run.
@@ -165,6 +167,7 @@ MODEL_SHAPE_PARAM_KEYS = (
     "num_updates",
     "num_envs",
     "rollout_length",
+    "beta_e_anneal_updates",
 )
 REQUIRED_PARAM_KEYS = (
     *ENV_STATIC_PARAM_KEYS,
