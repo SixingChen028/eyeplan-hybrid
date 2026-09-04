@@ -4,7 +4,7 @@
 sim_trials = 5000
 
 [sbatch]
-time = "06:00:00"
+time = "02:30:00"
 gpu = true
 
 [params]
