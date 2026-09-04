@@ -1,0 +1,31 @@
+# Two array tasks, each vmapping the same 20 existing 0712 seeds.
+
+[meta]
+sim_trials = 5000
+
+[sbatch]
+time = "12:00:00"
+gpu = true
+
+[params]
+use_recency_obs = false
+t_max = 100
+cost = 0.005
+seed = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+num_envs = 128
+num_updates = 100_000
+beta_e_init = 0.02
+
+wm_decay = 0.95
+wm_neighbor_activation = 0.5
+forget_rate = 1.0
+
+[[conditions]]
+label = "more_updates"
+beta_e_final = 0.01
+beta_e_anneal_updates = 50_000
+
+[[conditions]]
+label = "continued_annealing"
+beta_e_final = 0.0
+beta_e_anneal_updates = 100_000
