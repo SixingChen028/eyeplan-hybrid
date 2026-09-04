@@ -10,7 +10,3 @@ exclude = [
 
 [pull]
 path = "results/runs/"
-exclude = [
-  "data_train*",
-  "checkpoints",
-]
