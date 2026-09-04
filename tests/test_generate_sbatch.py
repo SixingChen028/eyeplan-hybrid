@@ -28,6 +28,19 @@ def test_sbatch_defaults_depend_on_gpu_flag():
     assert "#SBATCH --constraint='l40s'" in gpu_script
 
 
+def test_sbatch_uses_job_specific_tmpdir_and_cleans_it():
+    config = {"sbatch": {"tmpdir": "/scratch/test user/tmp"}}
+
+    for script in (
+        _render_script(config, config_path=Path("config/test.toml")),
+        _render_simulate_script(config, config_path=Path("config/test.toml")),
+    ):
+        assert "TMP_ROOT='/scratch/test user/tmp'" in script
+        assert 'nn-python.${SLURM_JOB_ID:-manual}.${SLURM_ARRAY_TASK_ID:-0}' in script
+        assert 'export TMPDIR="${JOB_TMPDIR}"' in script
+        assert "trap cleanup_tmpdir EXIT" in script
+
+
 def test_render_script_keeps_point_set_tuple_as_single_param():
     config = {
         "meta": {

@@ -19,6 +19,7 @@ DEFAULT_META = {
 DEFAULT_SBATCH_BASE = {
     "cpus_per_task": 1,
     "log": "./log/%A_%a",
+    "tmpdir": "./tmp",
 }
 
 _SBATCH_GPU_DEFAULTS = {
@@ -92,6 +93,21 @@ def _split_python_command(command: str) -> tuple[str, list[str]]:
     if len(tokens) == 0:
         raise ValueError("meta.python must contain a python command.")
     return tokens[0], tokens[1:]
+
+
+def _append_tmpdir_setup(lines: list[str], tmp_root: str) -> None:
+    lines.append(f"TMP_ROOT={shlex.quote(tmp_root)}")
+    lines.append('mkdir -p "${TMP_ROOT}"')
+    lines.append(
+        'JOB_TMPDIR="$(mktemp -d '
+        '"${TMP_ROOT%/}/nn-python.${SLURM_JOB_ID:-manual}.${SLURM_ARRAY_TASK_ID:-0}.XXXXXX")"'
+    )
+    lines.append('export TMPDIR="${JOB_TMPDIR}"')
+    lines.append("cleanup_tmpdir() {")
+    lines.append('    rm -rf -- "${JOB_TMPDIR}"')
+    lines.append("}")
+    lines.append("trap cleanup_tmpdir EXIT")
+    lines.append("")
 
 
 def _latest_config_path() -> Path:
@@ -293,6 +309,8 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append("set -euo pipefail")
     lines.append("")
 
+    _append_tmpdir_setup(lines, str(sbatch["tmpdir"]))
+
     lines.append(f"PYTHON_BIN={shlex.quote(python_exec)}")
     lines.append('if [[ -x ".venv/bin/python" ]]; then')
     lines.append('    if [[ -f ".venv/bin/activate" ]]; then')
@@ -429,6 +447,8 @@ def _render_simulate_script(config: dict, config_path: Path) -> str:
 
     lines.append("set -euo pipefail")
     lines.append("")
+
+    _append_tmpdir_setup(lines, str(sbatch["tmpdir"]))
 
     lines.append(f"PYTHON_BIN={shlex.quote(python_exec)}")
     lines.append('if [[ -x ".venv/bin/python" ]]; then')

@@ -1,5 +1,5 @@
 [paths]
-DEFAULT = "~/eyeplan-hybrid"
+DEFAULT = "/scratch/flc5318/eyeplan/nn-python"
 
 [push]
 exclude = [
