@@ -24,16 +24,16 @@ if [[ ! -d .venv ]]; then
     uv python install 3.12
     uv venv --python 3.12 .venv
 fi
-source .venv/bin/activate
+PYTHON_BIN=".venv/bin/python"
 
 # Install deps only when missing.
-uv pip install pip
+uv pip install --python "$PYTHON_BIN" pip
 if [[ "${USE_GPU}" == "true" ]]; then
-    uv pip install "jax[cuda12]==${JAX_VERSION}"
+    uv pip install --python "$PYTHON_BIN" "jax[cuda12]==${JAX_VERSION}"
 else
-    uv pip install "jax==${JAX_VERSION}"
+    uv pip install --python "$PYTHON_BIN" "jax==${JAX_VERSION}"
 fi
-uv pip install numpy pandas matplotlib pytest
+uv pip install --python "$PYTHON_BIN" numpy pandas matplotlib pytest
 
 echo "Running train.py smoke test..."
 SMOKE_TMP_ROOT="${TMPDIR:-./tmp}"
@@ -44,7 +44,7 @@ cleanup_smoke() {
 }
 trap cleanup_smoke EXIT
 
-JAX_PLATFORMS=cpu python train.py config/test_single.toml \
+JAX_PLATFORMS=cpu "$PYTHON_BIN" train.py config/test_single.toml \
     --path "$SMOKE_ROOT/results" \
     --num_updates 1 \
     --num_envs 4 \

@@ -39,6 +39,7 @@ def test_sbatch_uses_job_specific_tmpdir_and_cleans_it():
         assert 'nn-python.${SLURM_JOB_ID:-manual}.${SLURM_ARRAY_TASK_ID:-0}' in script
         assert 'export TMPDIR="${JOB_TMPDIR}"' in script
         assert "trap cleanup_tmpdir EXIT" in script
+        assert "source" not in script
 
 
 def test_render_script_keeps_point_set_tuple_as_single_param():

@@ -313,9 +313,6 @@ def _render_script(config: dict, config_path: Path) -> str:
 
     lines.append(f"PYTHON_BIN={shlex.quote(python_exec)}")
     lines.append('if [[ -x ".venv/bin/python" ]]; then')
-    lines.append('    if [[ -f ".venv/bin/activate" ]]; then')
-    lines.append('        source ".venv/bin/activate"')
-    lines.append("    fi")
     lines.append('    PYTHON_BIN=".venv/bin/python"')
     lines.append("fi")
     lines.append("")
@@ -452,9 +449,6 @@ def _render_simulate_script(config: dict, config_path: Path) -> str:
 
     lines.append(f"PYTHON_BIN={shlex.quote(python_exec)}")
     lines.append('if [[ -x ".venv/bin/python" ]]; then')
-    lines.append('    if [[ -f ".venv/bin/activate" ]]; then')
-    lines.append('        source ".venv/bin/activate"')
-    lines.append("    fi")
     lines.append('    PYTHON_BIN=".venv/bin/python"')
     lines.append("fi")
     lines.append("")
