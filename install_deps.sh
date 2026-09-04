@@ -2,6 +2,7 @@
 set -euo pipefail
 
 USE_GPU=false
+JAX_VERSION="0.10.0"
 if [[ "${1:-}" == "--gpu" ]]; then
     USE_GPU=true
     shift
@@ -28,14 +29,16 @@ source .venv/bin/activate
 # Install deps only when missing.
 uv pip install pip
 if [[ "${USE_GPU}" == "true" ]]; then
-    uv pip install "jax[cuda12]"
+    uv pip install "jax[cuda12]==${JAX_VERSION}"
 else
-    uv pip install "jax"
+    uv pip install "jax==${JAX_VERSION}"
 fi
 uv pip install numpy pandas matplotlib pytest
 
 echo "Running train.py smoke test..."
-SMOKE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nn-python-smoke.XXXXXX")"
+SMOKE_TMP_ROOT="${TMPDIR:-./tmp}"
+mkdir -p "$SMOKE_TMP_ROOT"
+SMOKE_ROOT="$(mktemp -d "${SMOKE_TMP_ROOT%/}/nn-python-smoke.XXXXXX")"
 cleanup_smoke() {
     rm -rf "$SMOKE_ROOT"
 }
