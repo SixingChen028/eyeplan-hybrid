@@ -576,6 +576,8 @@ def main() -> None:
     script_text = _render_script(config, config_path=config_path)
     output_path = Path(args.output) if args.output else _default_output_path(config_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path = Path(str(_merge_sbatch(config.get("sbatch"))["log"]))
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(script_text, encoding="utf-8")
     output_path.chmod(0o755)
     print(f"Wrote {output_path}")

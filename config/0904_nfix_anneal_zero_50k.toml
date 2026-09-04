@@ -2,7 +2,6 @@
 
 [meta]
 sim_trials = 5000
-array_vars = ["cost"]
 
 [sbatch]
 time = "06:00:00"
