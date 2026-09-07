@@ -1,0 +1,25 @@
+# Alternative-model option 1: use the main model's selected cost and training schedule.
+# One unbounded condition x 20 matched seeds = 20 vmapped agents in one task.
+
+[meta]
+sim_trials = 5000
+
+[sbatch]
+time = "03:59:00"
+gpu = true
+
+[params]
+use_recency_obs = false
+t_max = 100
+cost = 0.005
+seed = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+num_envs = 128
+num_updates = 100_000
+beta_e_init = 0.02
+beta_e_final = 0.0
+beta_e_anneal_updates = 100_000
+
+label = "unbounded_shared_parameters"
+wm_decay = 1.0
+wm_neighbor_activation = 1.0
+disable_corruption = true
