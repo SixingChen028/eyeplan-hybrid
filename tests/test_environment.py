@@ -306,6 +306,7 @@ def test_memory_corruption_forgets_inactive_node_memory():
     np.testing.assert_allclose(
         np.asarray(state.g_values)[inactive_mask], env.min_path_value, atol=1e-6
     )
+    assert float(state.g_values[int(state.root_node)]) == 0.0
     np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
 
 
@@ -840,14 +841,23 @@ def test_forget_rate_resets_inactive_node_memory():
         fixation_recency=fixation_recency,
         activation=activation,
         is_discovered=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
+        fixation_node=jnp.asarray(
+            _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[-1],
+            dtype=jnp.int32,
+        ),
     )
 
     state = env._update_activation(state, params)
     state = env._corrupt_memory(state, params)
 
     inactive_mask = np.asarray(state.activation) == 0.0
+    root = int(state.root_node)
+    inactive_non_root = inactive_mask.copy()
+    inactive_non_root[root] = False
     np.testing.assert_allclose(np.asarray(state.q_values)[inactive_mask], 0.0, atol=1e-6)
     np.testing.assert_array_equal(np.asarray(state.n_visits)[inactive_mask], 0)
+    np.testing.assert_allclose(np.asarray(state.g_values)[inactive_non_root], env.min_path_value, atol=1e-6)
+    assert float(state.g_values[root]) == 0.0
     np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
 
 

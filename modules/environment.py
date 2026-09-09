@@ -303,10 +303,12 @@ class DecisionTreeEnv:
 
     def _clear_inactive_memory(self, state: DecisionTreeState):
         active = state.activation > 0.0
+        g_values = jnp.where(active, state.g_values, self.min_path_value)
+        g_values = g_values.at[state.root_node].set(0.0)
         return state._replace(
             q_values=jnp.where(active, state.q_values, 0.0),
             n_visits=jnp.where(active, state.n_visits, 0),
-            g_values=jnp.where(active, state.g_values, self.min_path_value),
+            g_values=g_values,
             fixation_recency=jnp.where(active, state.fixation_recency, 0.0),
             is_terminal=state.is_terminal & active,
         )
@@ -460,6 +462,7 @@ class DecisionTreeEnv:
         q_values = jnp.where(forget_mask, 0.0, q_values)
         n_visits = jnp.where(forget_mask, 0, state.n_visits)
         g_values = jnp.where(forget_mask, self.min_path_value, state.g_values)
+        g_values = g_values.at[state.root_node].set(0.0)
         fixation_recency = jnp.where(forget_mask, 0.0, state.fixation_recency)
         is_discovered = (
             jnp.where(forget_mask, False, state.is_discovered)
