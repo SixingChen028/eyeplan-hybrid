@@ -4,6 +4,10 @@ Record every important result-producing change here. An important change is any 
 
 The compatibility version is an integer epoch attached to runs and checkpoint weights. Bump it only when a change makes existing checkpoint weights incompatible with the current code. Compatible changes stay under the current version. Here, "incompatible" means that simulating an old run with the new code would mean evaluating a policy on an environment that is different from the one it was trained on (excluding RNG behavior).
 
+## Version 11
+
+- Keep the root path-prefix value at `0.0` when node-specific memory is forgotten or evicted from working memory. The root has no incoming reward, so its path-prefix value is defined rather than missing; resetting it to `min_path_value` could expose the missing-value sentinel when the root was refixated and propagate that sentinel to its children. Bumped `COMPAT_VERSION` 10 -> 11.
+
 ## Version 10
 
 - Derive `q_decay` from `q_drift` instead of accepting it as a free parameter.
