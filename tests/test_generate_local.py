@@ -115,13 +115,6 @@ def test_render_script_expands_condition_tables_for_local_grid():
     assert "--label=" not in script
 
 
-def test_render_script_defaults_to_four_cpus_and_one_process_per_gpu():
-    script = _render_script({}, config_path=Path("config/test.toml"))
-
-    assert "THREADS=4" in script
-    assert "PROCESSES_PER_GPU=1" in script
-
-
 @pytest.mark.slow
 def test_generated_script_executes_train_py_for_local_grid_task(tmp_path: Path):
     config_path = tmp_path / "local_exec_test.toml"

@@ -466,7 +466,7 @@ def test_parallel_single_combo_matches_existing_a2c():
 
 
 @pytest.mark.slow
-def test_default_shape_compiled_a2c_materializes_metrics():
+def test_representative_shape_compiled_a2c_materializes_metrics():
     code = """
 import numpy as np
 import jax

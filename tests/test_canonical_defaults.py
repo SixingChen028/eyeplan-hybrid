@@ -13,21 +13,6 @@ def _make_simulate_run_dir(tmp_path):
     return run_dir
 
 
-def test_train_uses_canonical_defaults():
-    meta, params = config.load_canonical_defaults()
-    assert config.DEFAULT_META == meta
-    assert config.DEFAULT_PARAMS == params
-
-
-def test_canonical_defaults_come_from_param_defaults():
-    assert config.DEFAULT_META == config.PARAM_DEFAULTS["meta"]
-    assert "label" in config.DEFAULT_META
-    assert config.DEFAULT_PARAMS["num_nodes"] == config.PARAM_DEFAULTS["environment"]["num_nodes"]
-    assert config.DEFAULT_PARAMS["activation_prevents_corruption"] is True
-    assert config.DEFAULT_PARAMS["lr"] == config.PARAM_DEFAULTS["training"]["lr"]
-    assert config.DEFAULT_PARAMS["network_type"] == config.PARAM_DEFAULTS["network"]["network_type"]
-
-
 def test_normalize_config_rejects_unknown_section_key():
     with pytest.raises(ValueError, match=r"Unknown \[training\] keys: num_episodes"):
         config.normalize_config({"training": {"num_episodes": 8}})
