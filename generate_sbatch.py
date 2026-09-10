@@ -20,7 +20,7 @@ DEFAULT_SBATCH_BASE = {
     "cpus_per_task": 1,
     "log": "./log/%A_%a",
     "tmpdir": "./tmp",
-    "sim_runs_per_task": 2,
+    "sim_runs_per_task": 4,
 }
 
 _SBATCH_GPU_DEFAULTS = {
