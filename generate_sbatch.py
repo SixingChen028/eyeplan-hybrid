@@ -34,6 +34,8 @@ _SBATCH_CPU_DEFAULTS = {
     "gpu": False,
 }
 
+CLUSTERS = ("torch", "discovery")
+
 
 def _merge_sbatch(value) -> dict:
     if value is None:
@@ -265,7 +267,10 @@ def _condition_task_overrides(
     return tasks
 
 
-def _render_script(config: dict, config_path: Path) -> str:
+def _render_script(config: dict, config_path: Path, cluster: str = "torch") -> str:
+    if cluster not in CLUSTERS:
+        raise ValueError(f"Unknown cluster: {cluster}")
+
     normalized_config = normalize_config(config)
     meta = _as_dict(normalized_config.get("meta"), "meta", default=DEFAULT_META)
     sbatch = _merge_sbatch(config.get("sbatch"))
@@ -300,7 +305,10 @@ def _render_script(config: dict, config_path: Path) -> str:
     lines.append(f"#SBATCH -o {log_path}")
     if gpu_enabled:
         lines.append("#SBATCH --gres=gpu:1")
-        lines.append("#SBATCH --constraint='l40s'")
+        if cluster == "torch":
+            lines.append("#SBATCH --constraint='l40s'")
+        else:
+            lines.append("#SBATCH --partition=a5500")
     for directive in sbatch.get("extra_directives", []):
         lines.append(f"#SBATCH {directive}")
     lines.append(f"#SBATCH --array=0-{array_size - 1}")
@@ -506,7 +514,7 @@ def _format_summary_value(values: list[object]) -> str:
     return "[" + ", ".join(_to_shell_scalar(value) for value in values) + "]"
 
 
-def _build_job_summary_lines(config: dict, config_path: Path) -> list[str]:
+def _build_job_summary_lines(config: dict, config_path: Path, cluster: str = "torch") -> list[str]:
     normalized_config = normalize_config(config)
     meta = _as_dict(normalized_config.get("meta"), "meta", default=DEFAULT_META)
     sbatch = _merge_sbatch(config.get("sbatch"))
@@ -526,7 +534,7 @@ def _build_job_summary_lines(config: dict, config_path: Path) -> list[str]:
 
     vmap_keys = sorted(key for key in array_params if key not in selected_axes)
 
-    lines: list[str] = []
+    lines: list[str] = [f"Cluster: {cluster}"]
     if conditions:
         lines.append(f"Condition tables: {len(conditions)}")
     lines.append(f"Array tasks: {array_combination_count} total")
@@ -565,7 +573,17 @@ def _build_job_summary_lines(config: dict, config_path: Path) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate a lightweight sbatch script for train.py sweeps.")
-    parser.add_argument("config", nargs="?", help="Config file path or config stem (e.g. wm_cost). Defaults to the most recently modified file in config/.")
+    parser.add_argument(
+        "config",
+        nargs="?",
+        help="Config file path or config stem (e.g. wm_cost). Defaults to the latest file in config/.",
+    )
+    parser.add_argument(
+        "--cluster",
+        choices=CLUSTERS,
+        default="torch",
+        help="Slurm resource profile (default: torch).",
+    )
     parser.add_argument("-o", "--output", help="Optional output sbatch path.")
     args = parser.parse_args()
 
@@ -573,7 +591,7 @@ def main() -> None:
     with config_path.open("rb") as file:
         config = tomllib.load(file)
 
-    script_text = _render_script(config, config_path=config_path)
+    script_text = _render_script(config, config_path=config_path, cluster=args.cluster)
     output_path = Path(args.output) if args.output else _default_output_path(config_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     log_path = Path(str(_merge_sbatch(config.get("sbatch"))["log"]))
@@ -588,7 +606,7 @@ def main() -> None:
     simulate_output_path.chmod(0o755)
     print(f"Wrote {simulate_output_path}")
 
-    for line in _build_job_summary_lines(config, config_path):
+    for line in _build_job_summary_lines(config, config_path, cluster=args.cluster):
         print(line)
     confirm = input("Submit training job and dependent CPU simulation job? [y/N] ").strip().lower()
     if confirm != "y":

@@ -27,6 +27,15 @@ def test_sbatch_defaults_depend_on_gpu_flag():
     assert "#SBATCH --gres=gpu:1" in gpu_script
     assert "#SBATCH --constraint='l40s'" in gpu_script
 
+    discovery_gpu_script = _render_script(
+        {"sbatch": {"gpu": True}},
+        config_path=Path("config/test.toml"),
+        cluster="discovery",
+    )
+    assert "#SBATCH --gres=gpu:1" in discovery_gpu_script
+    assert "#SBATCH --partition=a5500" in discovery_gpu_script
+    assert "#SBATCH --constraint='l40s'" not in discovery_gpu_script
+
 
 def test_sbatch_uses_job_specific_tmpdir_and_cleans_it():
     config = {"sbatch": {"tmpdir": "/scratch/test user/tmp"}}
