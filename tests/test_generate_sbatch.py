@@ -114,11 +114,13 @@ def test_render_simulate_script_runs_once_for_experiment_on_cpu():
     script = _render_simulate_script(config, config_path=Path("config/test.toml"))
 
     assert "#SBATCH --gres=gpu:1" not in script
-    assert 'echo "simulate_task target=${RESULT_PATH}/runs/${EXPERIMENT}"' in script
+    assert "#SBATCH --cpus-per-task=1" in script
+    assert "#SBATCH --array=0-0" in script
+    assert 'assigned_runs=${#TARGETS[@]} total_runs=${#RUN_DIRS[@]}' in script
     assert "export JAX_PLATFORMS=cpu" in script
     assert "export JAX_PLATFORM_NAME=cpu" in script
     assert 'export CUDA_VISIBLE_DEVICES=""' in script
-    assert 'simulate.py \\\n    "${RESULT_PATH}/runs/${EXPERIMENT}" \\\n    --results_root="${RESULT_PATH}"' in script
+    assert 'simulate.py \\\n    "${TARGETS[@]}" \\\n    --results_root="${RESULT_PATH}"' in script
     assert "--num_trials=" not in script
 
 
@@ -134,6 +136,51 @@ def test_render_simulate_script_passes_sim_trials():
     script = _render_simulate_script(config, config_path=Path("config/test.toml"))
 
     assert "--num_trials=5000" in script
+
+
+def test_render_simulate_script_shards_expected_runs_with_configurable_batch_size():
+    config = {
+        "params": {
+            "cost": [0.01, 0.02],
+            "seed": [1, 2, 3, 4, 5],
+        },
+        "sbatch": {
+            "sim_runs_per_task": 2,
+        },
+    }
+
+    script = _render_simulate_script(config, config_path=Path("config/test.toml"))
+
+    assert "#SBATCH --array=0-4" in script
+    assert "TASK_COUNT=${SLURM_ARRAY_TASK_COUNT:-1}" in script
+    assert "RUN_INDEX+=TASK_COUNT" in script
+
+
+def test_render_simulate_script_counts_runs_across_conditions():
+    config = {
+        "meta": {"array_vars": ["seed"]},
+        "params": {
+            "cost": [0.01, 0.02],
+            "seed": [1, 2],
+        },
+        "conditions": [
+            {"label": "decay", "wm_decay": [0.8, 0.9]},
+            {"label": "fixed_cost", "cost": 0.03},
+        ],
+        "sbatch": {"sim_runs_per_task": 2},
+    }
+
+    script = _render_simulate_script(config, config_path=Path("config/test.toml"))
+
+    assert "#SBATCH --array=0-4" in script
+
+
+@pytest.mark.parametrize("value", [0, -1, 1.5, True])
+def test_render_simulate_script_rejects_invalid_batch_size(value):
+    config = {"sbatch": {"sim_runs_per_task": value}}
+
+    with pytest.raises(ValueError, match="sim_runs_per_task"):
+        _render_simulate_script(config, config_path=Path("config/test.toml"))
 
 
 def test_default_simulate_output_path_adds_simulate_suffix():

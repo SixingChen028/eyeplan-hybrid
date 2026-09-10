@@ -20,6 +20,7 @@ DEFAULT_SBATCH_BASE = {
     "cpus_per_task": 1,
     "log": "./log/%A_%a",
     "tmpdir": "./tmp",
+    "sim_runs_per_task": 2,
 }
 
 _SBATCH_GPU_DEFAULTS = {
@@ -267,6 +268,42 @@ def _condition_task_overrides(
     return tasks
 
 
+def _expected_run_count(config: dict) -> int:
+    normalized_config = normalize_config(config)
+    meta = _as_dict(normalized_config.get("meta"), "meta", default=DEFAULT_META)
+    params = _as_dict(normalized_config.get("params"), "params")
+    _, array_params = _split_params(params)
+    conditions = normalized_config.get("conditions", [])
+    selected_axes = set(_selected_array_axes(meta, array_params, _condition_array_keys(conditions)))
+
+    if not conditions:
+        return math.prod(len(values) for values in array_params.values())
+
+    task_overrides = _condition_task_overrides(conditions, list(selected_axes), array_params)
+    total = 0
+    for task in task_overrides:
+        condition = conditions[int(task["condition"])]
+        vmap_count = math.prod(
+            len(values)
+            for key, values in array_params.items()
+            if key not in selected_axes and key not in condition
+        )
+        vmap_count *= math.prod(
+            len(value)
+            for key, value in condition.items()
+            if isinstance(value, list) and key not in selected_axes
+        )
+        total += vmap_count
+    return total
+
+
+def _simulation_runs_per_task(sbatch: dict) -> int:
+    value = sbatch["sim_runs_per_task"]
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError("sbatch.sim_runs_per_task must be a positive integer")
+    return value
+
+
 def _render_script(config: dict, config_path: Path, cluster: str = "torch") -> str:
     if cluster not in CLUSTERS:
         raise ValueError(f"Unknown cluster: {cluster}")
@@ -437,17 +474,21 @@ def _render_simulate_script(config: dict, config_path: Path) -> str:
     python_exec, python_extra_args = _split_python_command(str(meta["python"]))
     result_path = str(meta["result_path"])
     log_path = str(sbatch.get("log", "./log/%A_%a.log"))
+    expected_runs = _expected_run_count(config)
+    runs_per_task = _simulation_runs_per_task(sbatch)
+    simulation_tasks = math.ceil(expected_runs / runs_per_task)
 
     lines: list[str] = []
     lines.append("#!/bin/bash")
     lines.append(f"#SBATCH --job-name={job_name}-simulate")
-    lines.append("#SBATCH --cpus-per-task=4")
+    lines.append("#SBATCH --cpus-per-task=1")
     lines.append("#SBATCH --time=00:30:00")
     lines.append("#SBATCH --mem-per-cpu=2000M")
     lines.append(f"#SBATCH -e {log_path}")
     lines.append(f"#SBATCH -o {log_path}")
     for directive in sbatch.get("extra_directives", []):
         lines.append(f"#SBATCH {directive}")
+    lines.append(f"#SBATCH --array=0-{simulation_tasks - 1}")
     lines.append("")
 
     lines.append("set -euo pipefail")
@@ -476,14 +517,38 @@ def _render_simulate_script(config: dict, config_path: Path) -> str:
 
     lines.append(f"RESULT_PATH={shlex.quote(result_path)}")
     lines.append(f"EXPERIMENT={shlex.quote(experiment)}")
-    lines.append('echo "simulate_task target=${RESULT_PATH}/runs/${EXPERIMENT}"')
+    lines.append("TASK_ID=${SLURM_ARRAY_TASK_ID:-0}")
+    lines.append("TASK_COUNT=${SLURM_ARRAY_TASK_COUNT:-1}")
+    lines.append("shopt -s nullglob")
+    lines.append("RUN_DIRS=()")
+    lines.append('for RUN_DIR in "${RESULT_PATH}/runs/${EXPERIMENT}"/*; do')
+    lines.append('    if [[ -d "${RUN_DIR}" && -f "${RUN_DIR}/metadata.json" ]]; then')
+    lines.append('        RUN_DIRS+=("${RUN_DIR}")')
+    lines.append("    fi")
+    lines.append("done")
+    lines.append('if (( ${#RUN_DIRS[@]} == 0 )); then')
+    lines.append('    echo "No run directories found for ${RESULT_PATH}/runs/${EXPERIMENT}" >&2')
+    lines.append("    exit 1")
+    lines.append("fi")
+    lines.append("TARGETS=()")
+    lines.append('for ((RUN_INDEX=TASK_ID; RUN_INDEX<${#RUN_DIRS[@]}; RUN_INDEX+=TASK_COUNT)); do')
+    lines.append('    TARGETS+=("${RUN_DIRS[RUN_INDEX]}")')
+    lines.append("done")
+    lines.append('if (( ${#TARGETS[@]} == 0 )); then')
+    lines.append('    echo "simulate_task task=${TASK_ID}/${TASK_COUNT} assigned_runs=0; exiting"')
+    lines.append("    exit 0")
+    lines.append("fi")
+    lines.append(
+        'echo "simulate_task task=${TASK_ID}/${TASK_COUNT} '
+        'assigned_runs=${#TARGETS[@]} total_runs=${#RUN_DIRS[@]}"'
+    )
 
     cmd_parts = ['"${PYTHON_BIN}"']
     cmd_parts.extend(shlex.quote(arg) for arg in python_extra_args)
     cmd_parts.extend(
         [
             "simulate.py",
-            '"${RESULT_PATH}/runs/${EXPERIMENT}"',
+            '"${TARGETS[@]}"',
             '--results_root="${RESULT_PATH}"',
         ]
     )
@@ -567,6 +632,13 @@ def _build_job_summary_lines(config: dict, config_path: Path, cluster: str = "to
     lines.append(
         "Resources: "
         f"{resource_label}, time={sbatch['time']}, mem-per-cpu={sbatch['mem_per_cpu']}"
+    )
+    expected_runs = _expected_run_count(config)
+    runs_per_task = _simulation_runs_per_task(sbatch)
+    simulation_tasks = math.ceil(expected_runs / runs_per_task)
+    lines.append(
+        f"Simulation: {simulation_tasks} CPU array tasks targeting {runs_per_task} runs per task "
+        f"({expected_runs} expected runs)"
     )
     return lines
 
