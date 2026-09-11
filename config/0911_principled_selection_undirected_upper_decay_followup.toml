@@ -1,0 +1,17 @@
+# Simulation-only boundary follow-up for the undirected control.
+# Four decays x five neighbor activations x eight seeds = 160 runs.
+
+[meta]
+sim_trials = 5000
+
+[params]
+use_recency_obs = false
+t_max = 100
+cost = 0.005
+seed = [1, 2, 3, 4, 5, 6, 7, 8]
+forget_rate = 1.0
+
+[[conditions]]
+label = "wm_only"
+wm_decay = [0.99609375, 0.998046875, 0.9990234375, 1.0]
+wm_neighbor_activation = [0.25, 0.375, 0.5, 0.625, 0.75]
