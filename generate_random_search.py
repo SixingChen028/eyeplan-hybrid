@@ -31,6 +31,7 @@ def _write_training_log(
     seed: int,
     elapsed_seconds: float,
     num_trials: int,
+    max_fixations: int,
 ) -> None:
     log_path = os.path.join(run_dir, "training.log")
     with open(log_path, "a") as file:
@@ -43,7 +44,7 @@ def _write_training_log(
             f"num_trials={num_trials} "
             f"gamma_shape={RANDOM_SEARCH_STOP_GAMMA_SHAPE} "
             f"gamma_scale={RANDOM_SEARCH_STOP_GAMMA_SCALE} "
-            f"max_fixations={RANDOM_SEARCH_STOP_MAX_FIXATIONS}\n"
+            f"max_fixations={max_fixations}\n"
         )
         file.write(f"training_log={log_path}\n")
 
@@ -60,7 +61,7 @@ def _with_random_search_metadata(run: dict, *, label: str | None) -> dict:
     out["lesion_policy"] = "random_search_gamma_stopping"
     out["random_search_stop_gamma_shape"] = RANDOM_SEARCH_STOP_GAMMA_SHAPE
     out["random_search_stop_gamma_scale"] = RANDOM_SEARCH_STOP_GAMMA_SCALE
-    out["random_search_stop_max_fixations"] = RANDOM_SEARCH_STOP_MAX_FIXATIONS
+    out["random_search_stop_max_fixations"] = min(int(out["t_max"]), RANDOM_SEARCH_STOP_MAX_FIXATIONS)
     return out
 
 
@@ -138,6 +139,7 @@ def main() -> None:
             seed=int(run["seed"]),
             elapsed_seconds=time.time() - start,
             num_trials=len(data["actions"]),
+            max_fixations=int(run["random_search_stop_max_fixations"]),
         )
         print(f"{run_index + 1}/{len(runs)} {output_file} trials={len(data['actions'])}", flush=True)
 

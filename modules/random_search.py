@@ -10,11 +10,11 @@ from .environment import DecisionTreeEnv, DecisionTreeParams
 from .simulation import append_simulation_trial, empty_simulation_data
 
 # Hard-coded from fit_random_looks() in ../analysis/julia/src/agent_registry.jl.
-# That function fits the number of human looks with Gamma(shape, scale) and caps
-# the native random baseline at 50 looks.
-RANDOM_SEARCH_STOP_GAMMA_SHAPE = 1.931259599212531
-RANDOM_SEARCH_STOP_GAMMA_SCALE = 7.168940848414317
-RANDOM_SEARCH_STOP_MAX_FIXATIONS = 50
+# That function gives each participant equal total weight when fitting positive
+# human fixation counts. The simulator also respects the environment's task limit.
+RANDOM_SEARCH_STOP_GAMMA_SHAPE = 1.6619370843815855
+RANDOM_SEARCH_STOP_GAMMA_SCALE = 9.364300515304453
+RANDOM_SEARCH_STOP_MAX_FIXATIONS = 100
 
 
 class RandomSearchSimulator:
@@ -30,13 +30,14 @@ class RandomSearchSimulator:
         self.env = env
         self.env_params = env_params
         self.total_fixations = total_fixations
+        self.max_fixations = min(env.t_max, RANDOM_SEARCH_STOP_MAX_FIXATIONS)
         self._trial_batch_jit = jax.jit(self._run_trial_batch)
 
     def _sample_fixation_target(self, key: jax.Array) -> jax.Array:
         total_fixations = jnp.floor(
             jax.random.gamma(key, RANDOM_SEARCH_STOP_GAMMA_SHAPE) * RANDOM_SEARCH_STOP_GAMMA_SCALE
         ).astype(jnp.int32)
-        total_fixations = jnp.minimum(total_fixations, RANDOM_SEARCH_STOP_MAX_FIXATIONS)
+        total_fixations = jnp.minimum(total_fixations, self.max_fixations)
         return jnp.maximum(total_fixations - 1, 0)
 
     def _fixation_target(self, key: jax.Array) -> jax.Array:

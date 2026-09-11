@@ -51,7 +51,7 @@ def test_random_search_fixation_target_accounts_for_root_fixation():
     targets = jax.vmap(simulator._sample_fixation_target)(keys)
 
     assert int(np.min(targets)) >= 0
-    assert int(np.max(targets)) <= RANDOM_SEARCH_STOP_MAX_FIXATIONS - 1
+    assert int(np.max(targets)) <= min(env.t_max, RANDOM_SEARCH_STOP_MAX_FIXATIONS) - 1
 
 
 def test_random_search_simulation_writes_existing_simulation_shape():
@@ -80,16 +80,18 @@ def test_fixed_random_search_uses_requested_total_fixations():
 
 
 def test_random_search_metadata_suffixes_condition_label():
-    run = _with_random_search_metadata({"seed": 1}, label="wm_only")
+    run = _with_random_search_metadata({"seed": 1, "t_max": 100}, label="wm_only")
 
     assert run["label"] == "wm_only_random_search"
     assert run["lesion_policy"] == "random_search_gamma_stopping"
+    assert run["random_search_stop_max_fixations"] == 100
 
 
 def test_random_search_metadata_uses_default_label_without_condition():
-    run = _with_random_search_metadata({"seed": 1}, label=None)
+    run = _with_random_search_metadata({"seed": 1, "t_max": 50}, label=None)
 
     assert run["label"] == "random_search"
+    assert run["random_search_stop_max_fixations"] == 50
 
 
 def test_fixed_random_search_metadata_records_budget_and_base_condition():

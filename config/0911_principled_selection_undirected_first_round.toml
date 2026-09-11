@@ -1,0 +1,17 @@
+# Simulation-only undirected-control sweep over the shared WM parameter grid.
+# Six decays x five neighbor activations x eight seeds = 240 runs.
+
+[meta]
+sim_trials = 5000
+
+[params]
+use_recency_obs = false
+t_max = 100
+cost = 0.005
+seed = [1, 2, 3, 4, 5, 6, 7, 8]
+forget_rate = 1.0
+
+[[conditions]]
+label = "wm_only"
+wm_decay = [0.75, 0.875, 0.9375, 0.96875, 0.984375, 0.9921875]
+wm_neighbor_activation = [0.25, 0.375, 0.5, 0.625, 0.75]
