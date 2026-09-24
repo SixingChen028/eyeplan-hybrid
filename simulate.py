@@ -232,6 +232,11 @@ def main() -> None:
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--skip_timeout_trials", action="store_true")
     parser.add_argument("--detailed", action="store_true")
+    parser.add_argument(
+        "--register-tree-viewer",
+        action="store_true",
+        help="Register detailed simulation outputs with the tree-viewer.",
+    )
     parser.add_argument("--seed-filter", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--allow-unversioned-params", action="store_true")
@@ -341,7 +346,7 @@ def main() -> None:
             traceback.print_exc()
             continue
 
-    if args.detailed and simulated_experiments:
+    if args.register_tree_viewer and args.detailed and simulated_experiments:
         viewer_root = os.path.expanduser("~/projects/eyeplan/tree-viewer")
         experiment_dirs = [
             os.path.abspath(os.path.join(args.results_root, "runs", experiment))
