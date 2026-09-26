@@ -15,8 +15,6 @@ PARAM_DEFAULTS = {
         "t_max": 50,
         # Multiplier applied to raw point rewards before returning environment rewards.
         "scale_factor": 0.125,
-        # Whether observations include per-node fixation recency values.
-        "use_recency_obs": True,
         # Whether observations include per-node path values.
         "use_g_values_obs": True,
         # Whether observations include per-node remembered value estimates.
@@ -31,8 +29,6 @@ PARAM_DEFAULTS = {
         "wm_decay": 1.0,
         # Activation assigned to the fixated node's parent and children.
         "wm_neighbor_activation": 1.0,
-        # Per-step decay applied to fixation recency observations.
-        "recency_decay": 0.5,
         # Cost of a voluntary planning fixation.
         "cost": 0.01,
         # Set of points to sample from for each node.
@@ -100,7 +96,6 @@ PARAM_DEFAULTS = {
 ENV_DYNAMIC_PARAM_KEYS = (
     "wm_decay",
     "wm_neighbor_activation",
-    "recency_decay",
     "cost",
 )
 ENV_STATIC_PARAM_KEYS = tuple(
@@ -319,12 +314,6 @@ def validate_params(params: dict) -> None:
             )
         if key not in SWEEP_KEYS:
             raise ValueError(f"params.{key} is not a supported parallel sweep parameter.")
-
-    for key in ("recency_decay",):
-        value = params.get(key, 0.0)
-        values = value if is_list(value) else [value]
-        for item in values:
-            parse_unit_interval(item, name=key)
 
     value = params.get("wm_neighbor_activation", 1.0)
     values = value if is_list(value) else [value]

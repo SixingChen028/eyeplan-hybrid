@@ -14,9 +14,7 @@ DETAIL_KEYS = [
     "gs",
     "qs",
     "logits",
-    "fixation_recency",
     "is_terminal",
-    "is_discovered",
 ]
 MOVE_DETAIL_KEYS = [f"move_{key}" for key in DETAIL_KEYS if key != "logits"]
 
@@ -103,9 +101,7 @@ class Simulator:
         g_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
         q_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
         logits_seq = jnp.zeros((self.env.t_max, self.env.action_size), dtype=jnp.float32)
-        fixation_recency_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.float32)
         is_terminal_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.bool_)
-        is_discovered_seq = jnp.zeros((self.env.t_max, self.env.num_nodes), dtype=jnp.bool_)
         move_trace = self.env._empty_move_trace() if detailed else None
 
         carry = (
@@ -119,9 +115,7 @@ class Simulator:
             g_seq,
             q_seq,
             logits_seq,
-            fixation_recency_seq,
             is_terminal_seq,
-            is_discovered_seq,
             move_trace,
             self.env.empty_path,
             jnp.array(0, dtype=jnp.int32),
@@ -130,7 +124,7 @@ class Simulator:
         )
 
         def cond_fn(carry):
-            _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, step_count, done, _ = carry
+            *_, step_count, done, _ = carry
             return (~done) & (step_count < self.env.t_max)
 
         def body_fn(carry):
@@ -145,9 +139,7 @@ class Simulator:
                 g_seq,
                 q_seq,
                 logits_seq,
-                fixation_recency_seq,
                 is_terminal_seq,
-                is_discovered_seq,
                 move_trace,
                 choice_path,
                 step_count,
@@ -159,9 +151,7 @@ class Simulator:
             count_seq = count_seq.at[step_count].set(state.n_visits)
             g_seq = g_seq.at[step_count].set(state.g_values)
             q_seq = q_seq.at[step_count].set(state.q_values)
-            fixation_recency_seq = fixation_recency_seq.at[step_count].set(state.fixation_recency)
             is_terminal_seq = is_terminal_seq.at[step_count].set(state.is_terminal)
-            is_discovered_seq = is_discovered_seq.at[step_count].set(state.is_discovered)
             logits, _ = actor_critic_forward(
                 params,
                 _batch_obs(obs),
@@ -207,9 +197,7 @@ class Simulator:
                 g_seq,
                 q_seq,
                 logits_seq,
-                fixation_recency_seq,
                 is_terminal_seq,
-                is_discovered_seq,
                 move_trace,
                 choice_path,
                 step_count,
@@ -228,9 +216,7 @@ class Simulator:
             g_seq,
             q_seq,
             logits_seq,
-            fixation_recency_seq,
             is_terminal_seq,
-            is_discovered_seq,
             move_trace,
             choice_path,
             action_len,
@@ -247,9 +233,7 @@ class Simulator:
             g_seq,
             q_seq,
             logits_seq,
-            fixation_recency_seq,
             is_terminal_seq,
-            is_discovered_seq,
             move_trace,
             action_len,
             rng_key,
@@ -368,9 +352,7 @@ class Simulator:
             g_seqs,
             q_seqs,
             logits_seqs,
-            fixation_recency_seqs,
             is_terminal_seqs,
-            is_discovered_seqs,
             move_traces,
             action_lens,
             _,
@@ -386,9 +368,7 @@ class Simulator:
             g_seqs,
             q_seqs,
             logits_seqs,
-            fixation_recency_seqs,
             is_terminal_seqs,
-            is_discovered_seqs,
             move_traces,
             action_lens,
         )
@@ -425,9 +405,7 @@ class Simulator:
                 g_seqs,
                 q_seqs,
                 logits_seqs,
-                fixation_recency_seqs,
                 is_terminal_seqs,
-                is_discovered_seqs,
                 move_traces,
                 action_lens,
             ) = self._trial_batch_jit(params, trial_keys, greedy=greedy, detailed=detailed)
@@ -442,9 +420,7 @@ class Simulator:
                 g_seqs = np.asarray(g_seqs)
                 q_seqs = np.asarray(q_seqs)
                 logits_seqs = np.asarray(logits_seqs)
-                fixation_recency_seqs = np.asarray(fixation_recency_seqs)
                 is_terminal_seqs = np.asarray(is_terminal_seqs)
-                is_discovered_seqs = np.asarray(is_discovered_seqs)
                 move_traces = jax.device_get(move_traces)
 
             child_nodes_batch = np.asarray(states.child_nodes)
@@ -477,9 +453,7 @@ class Simulator:
                             logits_seqs[trial_idx, :action_len],
                             dtype=np.float32,
                         ).tolist(),
-                        "fixation_recency": fixation_recency_seqs[trial_idx, :action_len].tolist(),
                         "is_terminal": is_terminal_seqs[trial_idx, :action_len].tolist(),
-                        "is_discovered": is_discovered_seqs[trial_idx, :action_len].tolist(),
                         "move_actions": np.asarray(
                             move_traces.actions[trial_idx, :move_len],
                             dtype=np.int32,
@@ -488,11 +462,7 @@ class Simulator:
                         "move_counts": np.asarray(move_traces.counts[trial_idx, :move_len]).tolist(),
                         "move_gs": np.asarray(move_traces.gs[trial_idx, :move_len]).tolist(),
                         "move_qs": np.asarray(move_traces.qs[trial_idx, :move_len]).tolist(),
-                        "move_fixation_recency": np.asarray(
-                            move_traces.fixation_recency[trial_idx, :move_len],
-                        ).tolist(),
                         "move_is_terminal": np.asarray(move_traces.is_terminal[trial_idx, :move_len]).tolist(),
-                        "move_is_discovered": np.asarray(move_traces.is_discovered[trial_idx, :move_len]).tolist(),
                     }
 
                 append_simulation_trial(

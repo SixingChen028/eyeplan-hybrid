@@ -206,12 +206,11 @@ def _assert_state_obs_info_invariants(
     root = int(state.root_node)
     fixation = int(state.fixation_node)
     activation = np.asarray(state.activation)
-    is_discovered = np.asarray(state.is_discovered)
+    is_discovered = _discovered_from_history(trace.states, rollout_idx, step_idx)
     child_nodes = np.asarray(state.child_nodes)
     parent_nodes = np.asarray(state.parent_nodes)
     q_values = np.asarray(state.q_values)
     n_visits = np.asarray(state.n_visits)
-    fixation_recency = np.asarray(state.fixation_recency)
     is_terminal = np.asarray(state.is_terminal)
     time_elapsed = int(state.time_elapsed)
 
@@ -230,15 +229,10 @@ def _assert_state_obs_info_invariants(
     assert np.all(is_terminal <= leaf_nodes), _context(rollout_idx, step_idx, "non-leaf terminal marker.")
     assert np.all(n_visits >= 0), _context(rollout_idx, step_idx, "negative visit count.")
     assert np.all(np.isfinite(q_values)), _context(rollout_idx, step_idx, "non-finite q value.")
-    assert np.all((0.0 <= fixation_recency) & (fixation_recency <= 1.0 + atol)), (
-        _context(rollout_idx, step_idx, "fixation recency is outside [0, 1].")
-    )
-    np.testing.assert_allclose(fixation_recency[fixation], 1.0, atol=atol)
     assert np.all(n_visits[fixation] >= 1), _context(rollout_idx, step_idx, "unvisited fixation node.")
     assert np.all(n_visits <= step_idx + 1), _context(rollout_idx, step_idx, "visit count exceeds look count.")
     assert np.all(n_visits[~is_discovered] == 0), _context(rollout_idx, step_idx, "undiscovered node was visited.")
     np.testing.assert_allclose(q_values[~is_discovered], 0.0, atol=atol)
-    np.testing.assert_allclose(fixation_recency[~is_discovered], 0.0, atol=atol)
     assert np.all(~is_terminal[~is_discovered]), _context(rollout_idx, step_idx, "undiscovered terminal marker.")
 
     expected_observation_mask = activation > 0.0
@@ -291,8 +285,6 @@ def _assert_observation_matches_state(
         np.testing.assert_allclose(obs.n_visits, np.where(observation_mask, state.n_visits, 0), atol=atol)
     if obs.is_terminal is not None:
         np.testing.assert_allclose(obs.is_terminal, state.is_terminal & observation_mask, atol=atol)
-    if obs.recency is not None:
-        np.testing.assert_allclose(obs.recency, np.where(observation_mask, state.fixation_recency, 0.0), atol=atol)
     if obs.time_elapsed is not None:
         np.testing.assert_allclose(obs.time_elapsed, np.array([state.time_elapsed], dtype=np.float32), atol=atol)
 
@@ -328,7 +320,9 @@ def _assert_max_consistent_q(
     q_values = np.asarray(state.q_values)
     visited = np.asarray(state.n_visits) > 0
 
-    np.testing.assert_array_equal(np.asarray(state.activation) > 0.0, np.asarray(state.is_discovered))
+    np.testing.assert_array_equal(
+        np.asarray(state.activation) > 0.0, _discovered_from_history(states, rollout_idx, step_idx)
+    )
 
     for node in np.flatnonzero(visited):
         children = child_nodes[node]
@@ -342,3 +336,14 @@ def _assert_max_consistent_q(
             atol=atol,
             err_msg=_context(rollout_idx, step_idx, f"q value for node {node} is not max-consistent."),
         )
+
+
+def _discovered_from_history(states: DecisionTreeState, rollout_idx: int, step_idx: int) -> np.ndarray:
+    """Reconstruct exposed nodes from fixation history outside the cognitive architecture."""
+    children = np.asarray(states.child_nodes[rollout_idx, 0])
+    discovered = np.zeros(children.shape[0], dtype=bool)
+    for node in np.asarray(states.fixation_node[rollout_idx, :step_idx + 1]):
+        discovered[node] = True
+        valid_children = children[node][children[node] >= 0]
+        discovered[valid_children] = True
+    return discovered

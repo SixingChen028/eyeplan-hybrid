@@ -37,9 +37,7 @@ class DecisionTreeState(NamedTuple):
     g_values: jax.Array
     q_values: jax.Array
     n_visits: jax.Array
-    fixation_recency: jax.Array
     activation: jax.Array
-    is_discovered: jax.Array
     is_terminal: jax.Array
     time_elapsed: jax.Array
     # implementation detail
@@ -52,15 +50,12 @@ class MoveTrace(NamedTuple):
     counts: jax.Array
     gs: jax.Array
     qs: jax.Array
-    fixation_recency: jax.Array
     is_terminal: jax.Array
-    is_discovered: jax.Array
     length: jax.Array
 
 class DecisionTreeParams(NamedTuple):
     wm_decay: jax.Array
     wm_neighbor_activation: jax.Array
-    recency_decay: jax.Array
     cost: jax.Array
 
 class DecisionTreeObs(NamedTuple):
@@ -73,7 +68,6 @@ class DecisionTreeObs(NamedTuple):
     q_values: jax.Array | None
     n_visits: jax.Array | None
     is_terminal: jax.Array | None
-    recency: jax.Array | None
     time_elapsed: jax.Array | None
 
 
@@ -90,7 +84,6 @@ class DecisionTreeEnv:
         num_nodes: int,
         t_max: int,
         scale_factor: float,
-        use_recency_obs: bool,
         use_g_values_obs: bool,
         use_q_values_obs: bool,
         use_n_visits_obs: bool,
@@ -101,7 +94,6 @@ class DecisionTreeEnv:
         self.num_nodes = int(num_nodes)
         self.t_max = int(t_max)
         self.scale_factor = float(scale_factor)
-        self.use_recency_obs = bool(use_recency_obs)
         self.use_g_values_obs = bool(use_g_values_obs)
         self.use_q_values_obs = bool(use_q_values_obs)
         self.use_n_visits_obs = bool(use_n_visits_obs)
@@ -129,18 +121,15 @@ class DecisionTreeEnv:
         *,
         wm_decay: float,
         wm_neighbor_activation: float,
-        recency_decay: float,
         cost: float,
     ) -> DecisionTreeParams:
         assert 0.0 <= wm_decay <= 1.0, "wm_decay must be between 0 and 1."
         assert 0.0 < wm_neighbor_activation <= 1.0, "wm_neighbor_activation must be positive and at most 1."
-        assert 0.0 <= recency_decay <= 1.0, "recency_decay must be between 0 and 1."
         assert cost >= 0.0, "cost must be non-negative."
 
         return DecisionTreeParams(
             wm_decay=jnp.asarray(wm_decay, dtype=jnp.float32),
             wm_neighbor_activation=jnp.asarray(wm_neighbor_activation, dtype=jnp.float32),
-            recency_decay=jnp.asarray(recency_decay, dtype=jnp.float32),
             cost=jnp.asarray(cost, dtype=jnp.float32),
         )
 
@@ -194,7 +183,6 @@ class DecisionTreeEnv:
             q_values=jnp.where(active, state.q_values, 0.0),
             n_visits=jnp.where(active, state.n_visits, 0),
             g_values=g_values,
-            fixation_recency=jnp.where(active, state.fixation_recency, 0.0),
             is_terminal=state.is_terminal & active,
         )
 
@@ -240,15 +228,10 @@ class DecisionTreeEnv:
         )
         activation = state.activation.at[node].set(1.0)
         activation = safe_set(activation, children, child_activation)
-        is_discovered = state.is_discovered.at[node].set(True)
-        is_discovered = safe_set(is_discovered, children, True)
-        activation = jnp.where(is_discovered, activation, 0.0)
         state = state._replace(
             g_values=safe_set(state.g_values, children, state.g_values[node] + state.points[node]),
             n_visits=state.n_visits.at[node].add(1),
-            fixation_recency=state.fixation_recency.at[node].set(1.0),
             activation=activation,
-            is_discovered=is_discovered,
             is_terminal=state.is_terminal.at[node].set(state.child_nodes[node, 0] < 0),
         )
         if not skip_q_update:
@@ -317,11 +300,6 @@ class DecisionTreeEnv:
                 if self.use_is_terminal_obs
                 else None
             ),
-            recency=(
-                jnp.where(observation_mask, state.fixation_recency, 0.0)
-                if self.use_recency_obs
-                else None
-            ),
             time_elapsed=(
                 jnp.array([state.time_elapsed], dtype=jnp.float32)
                 if self.use_time_elapsed_obs
@@ -353,9 +331,7 @@ class DecisionTreeEnv:
             counts=jnp.zeros(matrix_shape, dtype=jnp.int32),
             gs=jnp.zeros(matrix_shape, dtype=jnp.float32),
             qs=jnp.zeros(matrix_shape, dtype=jnp.float32),
-            fixation_recency=jnp.zeros(matrix_shape, dtype=jnp.float32),
             is_terminal=jnp.zeros(matrix_shape, dtype=jnp.bool_),
-            is_discovered=jnp.zeros(matrix_shape, dtype=jnp.bool_),
             length=jnp.array(0, dtype=jnp.int32),
         )
 
@@ -367,9 +343,7 @@ class DecisionTreeEnv:
             counts=trace.counts.at[index].set(state.n_visits),
             gs=trace.gs.at[index].set(state.g_values),
             qs=trace.qs.at[index].set(state.q_values),
-            fixation_recency=trace.fixation_recency.at[index].set(state.fixation_recency),
             is_terminal=trace.is_terminal.at[index].set(state.is_terminal),
-            is_discovered=trace.is_discovered.at[index].set(state.is_discovered),
             length=index + 1,
         )
 
@@ -469,9 +443,7 @@ class DecisionTreeEnv:
             fixation_node=root,
             q_values=self._zeros(),
             n_visits=self._zeros(jnp.int32),
-            fixation_recency=self._zeros(),
             activation=self._zeros(),
-            is_discovered=self._zeros(jnp.bool_).at[root].set(True),
             is_terminal=self._zeros(jnp.bool_),
             time_elapsed=jnp.int32(0),
             rng_key=key,
@@ -487,7 +459,6 @@ class DecisionTreeEnv:
     def step(self, state: DecisionTreeState, action: jax.Array, params: DecisionTreeParams):
         state = state._replace(
             time_elapsed=state.time_elapsed + 1,
-            fixation_recency=state.fixation_recency * params.recency_decay,
         )
 
         def look_branch():
@@ -516,7 +487,6 @@ class DecisionTreeEnv:
         """Step the cognitive architecture and record post-action movement memory for detailed simulations."""
         state = state._replace(
             time_elapsed=state.time_elapsed + 1,
-            fixation_recency=state.fixation_recency * params.recency_decay,
         )
 
         def look_branch():

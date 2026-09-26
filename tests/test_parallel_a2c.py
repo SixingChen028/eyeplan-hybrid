@@ -32,7 +32,6 @@ def _env(**overrides):
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
-        use_recency_obs=bool(params["use_recency_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
         use_n_visits_obs=bool(params["use_n_visits_obs"]),
@@ -180,32 +179,6 @@ def test_startup_training_timeout_exits_with_message(capsys):
     stderr = capsys.readouterr().err
     assert "parallel_train_startup_timeout seconds=5 stage=init_sweep_states" in stderr
     assert "reason=training_not_started" in stderr
-
-
-def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
-    fixed, runs, varied_keys = expand_sweep(
-        _small_params(seed=0, wm_decay=0.5, recency_decay=[0, 0.5])
-    )
-
-    assert varied_keys == ["recency_decay"]
-    assert len(runs) == 2
-
-    hypers = build_hypers(runs)
-    np.testing.assert_allclose(np.asarray(hypers.env.recency_decay), np.array([0.0, 0.5], dtype=np.float32))
-
-    env = _env(
-        num_nodes=fixed["num_nodes"],
-        t_max=fixed["t_max"],
-        use_recency_obs=True,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
-    no_recency_env = _env(num_nodes=fixed["num_nodes"], use_recency_obs=False)
-    assert _obs_size(env) == _obs_size(no_recency_env) + fixed["num_nodes"]
-
-
-def test_parallel_sweep_rejects_non_numeric_recency_decay_arrays():
-    with np.testing.assert_raises(ValueError):
-        expand_sweep(_small_params(seed=0, recency_decay=["off", 0.5]))
 
 
 def test_entropy_schedule_can_hold_final_coefficient():
@@ -371,7 +344,6 @@ env = DecisionTreeEnv(
     num_nodes=15,
     t_max=100,
     scale_factor=1 / 8,
-    use_recency_obs=False,
     use_g_values_obs=True,
     use_q_values_obs=True,
     use_n_visits_obs=True,
@@ -393,7 +365,6 @@ trainer = BatchMaskA2C(
 env_params = env.make_params(
     wm_decay=1.0,
     wm_neighbor_activation=1.0,
-    recency_decay=0.0,
     cost=0.01,
 )
 train_params = A2CTrainParams(
@@ -432,7 +403,7 @@ def test_expand_sweep_rejects_shape_changing_arrays():
 
 def test_expand_sweep_rejects_observation_flag_arrays():
     try:
-        expand_sweep(_small_params(use_recency_obs=[True, False]))
+        expand_sweep(_small_params(use_g_values_obs=[True, False]))
     except ValueError as error:
         assert "changes compiled shapes" in str(error)
         return

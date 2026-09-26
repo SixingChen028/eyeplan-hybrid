@@ -24,7 +24,6 @@ def _env(**overrides):
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
-        use_recency_obs=bool(params["use_recency_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
         use_n_visits_obs=bool(params["use_n_visits_obs"]),
@@ -81,9 +80,9 @@ def test_mlp_forward_shape_is_unchanged():
 
 @pytest.mark.slow
 def test_node_shared_forward_shape_with_optional_features():
-    for use_recency_obs, recency_decay in [(False, 0.0), (True, 0.5)]:
-        env = _env(num_nodes=5, use_recency_obs=use_recency_obs)
-        _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=recency_decay))
+    for use_g_values_obs in (False, True):
+        env = _env(num_nodes=5, use_g_values_obs=use_g_values_obs)
+        _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
         params = init_actor_critic_params(
         jax.random.PRNGKey(1),
         observation_template=env.observation_template,
@@ -99,7 +98,7 @@ def test_node_shared_forward_shape_with_optional_features():
         info["observation_mask"][None, :],
     )
 
-        expected_node_features = 10 if use_recency_obs else 9
+        expected_node_features = 9 if use_g_values_obs else 8
         expected_global_features = 16 * 2 + 2
         assert params["node_fc1"]["w"].shape == (expected_node_features, 16)
         assert params["global_fc"]["w"].shape == (expected_global_features, 16)
@@ -111,8 +110,8 @@ def test_node_shared_forward_shape_with_optional_features():
 
 @pytest.mark.slow
 def test_global_shared_forward_shape_with_optional_features():
-    env = _env(num_nodes=5, use_recency_obs=True)
-    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
+    env = _env(num_nodes=5)
+    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),
         observation_template=env.observation_template,
@@ -162,7 +161,7 @@ def test_node_shared_forward_shape_without_static_observation_features():
         info["observation_mask"][None, :],
     )
 
-    assert params["node_fc1"]["w"].shape == (6, 16)
+    assert params["node_fc1"]["w"].shape == (5, 16)
     assert params["global_fc"]["w"].shape == (16 * 2 + 1, 16)
     assert logits.shape == (1, env.action_size)
     assert values.shape == (1,)
@@ -170,8 +169,8 @@ def test_node_shared_forward_shape_without_static_observation_features():
 
 @pytest.mark.slow
 def test_node_shared_forward_is_permutation_equivariant_for_node_logits():
-    env = _env(num_nodes=5, use_recency_obs=True)
-    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
+    env = _env(num_nodes=5)
+    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),
         observation_template=env.observation_template,
@@ -208,8 +207,8 @@ def test_node_shared_forward_is_permutation_equivariant_for_node_logits():
 
 @pytest.mark.slow
 def test_global_shared_forward_is_permutation_equivariant_for_node_logits():
-    env = _env(num_nodes=5, use_recency_obs=True)
-    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
+    env = _env(num_nodes=5)
+    _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),
         observation_template=env.observation_template,
@@ -246,7 +245,7 @@ def test_global_shared_forward_is_permutation_equivariant_for_node_logits():
 
 @pytest.mark.slow
 def test_global_shared_node_logit_ranking_can_depend_on_global_context():
-    env = _env(num_nodes=5, use_recency_obs=False)
+    env = _env(num_nodes=5)
     _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),

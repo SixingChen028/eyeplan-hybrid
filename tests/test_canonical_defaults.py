@@ -97,13 +97,11 @@ def test_expand_config_runs_selects_condition_before_sweep_expansion():
             "params": {
                 "seed": [1, 2],
                 "cost": [0.01, 0.02],
-                "use_recency_obs": False,
             },
             "conditions": [
                 {
-                    "label": "recency",
+                    "label": "cost",
                     "cost": 0.03,
-                    "use_recency_obs": True,
                 }
             ],
         }
@@ -115,11 +113,10 @@ def test_expand_config_runs_selects_condition_before_sweep_expansion():
     )
 
     assert fixed["cost"] == 0.03
-    assert fixed["use_recency_obs"] is True
     assert varied_keys == ["seed"]
     assert [run["seed"] for run in runs] == [1, 2]
     assert all(run["cost"] == 0.03 for run in runs)
-    assert label == "recency"
+    assert label == "cost"
     assert condition_index == 0
 
 
@@ -131,13 +128,12 @@ def test_expand_config_runs_requires_condition_index_when_conditions_exist():
 
 
 def test_cli_override_uses_array_element_type():
-    params = {"cost": [0.01, 0.02], "num_envs": [64, 128], "use_recency_obs": [True, False]}
-
-    updated = config.apply_cli_param_overrides(params, ["--cost=0.03", "--num_envs=256", "--use_recency_obs=false"])
+    params = {"cost": [0.01, 0.02], "num_envs": [64, 128], "use_g_values_obs": [True, False]}
+    updated = config.apply_cli_param_overrides(params, ["--cost=0.03", "--num_envs=256", "--use_g_values_obs=false"])
+    assert updated["use_g_values_obs"] is False
 
     assert updated["cost"] == 0.03
     assert updated["num_envs"] == 256
-    assert updated["use_recency_obs"] is False
 
 
 def test_cli_override_parses_tuple_values():
@@ -331,12 +327,11 @@ def test_saved_wm_only_run_metadata_loads_retained_settings():
     from modules.evaluation import env_from_run_args, env_params_from_run_args
 
     args = dict(config.DEFAULT_PARAMS)
-    args.update(wm_decay=0.9375, wm_neighbor_activation=0.375, use_recency_obs=False,
+    args.update(wm_decay=0.9375, wm_neighbor_activation=0.375, use_recency_obs=False, recency_decay=0.5,
                 beta_move=40.0, forget_rate=1.0, disable_persistence=False)
     env = env_from_run_args(args)
     params = env_params_from_run_args(env, args)
 
-    assert not env.use_recency_obs
     assert float(params.wm_decay) == args['wm_decay']
     assert float(params.wm_neighbor_activation) == args['wm_neighbor_activation']
     assert set(params._fields) == set(config.ENV_DYNAMIC_PARAM_KEYS)

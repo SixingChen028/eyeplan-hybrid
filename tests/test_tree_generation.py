@@ -38,7 +38,6 @@ def test_num_nodes_9_sampling_matches_explicit_probabilities():
         num_nodes=num_nodes,
         t_max=8,
         scale_factor=1.0,
-        use_recency_obs=False,
         use_g_values_obs=True,
         use_q_values_obs=True,
         use_n_visits_obs=True,

@@ -17,7 +17,6 @@ def _env(**overrides):
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
-        use_recency_obs=bool(params["use_recency_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
         use_n_visits_obs=bool(params["use_n_visits_obs"]),
@@ -104,7 +103,6 @@ def _obs_size(env: DecisionTreeEnv) -> int:
         ({"wm_decay": 1.1}, "wm_decay"),
         ({"wm_neighbor_activation": 0.0}, "wm_neighbor_activation"),
         ({"wm_neighbor_activation": 1.1}, "wm_neighbor_activation"),
-        ({"recency_decay": -0.1}, "recency_decay"),
         ({"cost": -0.1}, "cost"),
     ],
 )
@@ -158,30 +156,6 @@ def test_shuffle_nodes_randomizes_sibling_order():
     assert any(diff > 0 for diff in descendant_diffs)
 
 
-@pytest.mark.slow
-def test_recency_observation_tracks_direct_fixations():
-    num_nodes = 7
-    jax_env = _env(num_nodes=num_nodes, t_max=20, use_recency_obs=True)
-    jax_params = _env_params(jax_env, wm_decay=0.5, recency_decay=0.5)
-    default_env = _env(num_nodes=num_nodes, use_recency_obs=False)
-
-    assert _obs_size(jax_env) == _obs_size(default_env) + num_nodes
-
-    state, obs_jax, _ = jax_env.reset(jax.random.PRNGKey(8), jax_params)
-
-    reset_recency = np.zeros(num_nodes)
-    reset_recency[int(state.root_node)] = 1.0
-    np.testing.assert_allclose(np.asarray(obs_jax.recency), reset_recency, atol=1e-6)
-
-    action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
-    state, obs_jax, _, _, _ = jax_env.step(state, _jax_action(action), jax_params)
-
-    expected_recency = reset_recency * 0.5
-    expected_recency[action] = 1.0
-    np.testing.assert_allclose(np.asarray(obs_jax.recency), expected_recency, atol=1e-6)
-    np.testing.assert_allclose(np.asarray(state.fixation_recency), expected_recency, atol=1e-6)
-
-
 @pytest.mark.parametrize(
     "flag, field, expected_delta",
     [
@@ -200,38 +174,6 @@ def test_static_observation_flags_control_feature_size(flag, field, expected_del
     assert getattr(disabled_env.observation_template, field) is None
 
 
-def test_zero_recency_decay_keeps_only_current_fixation():
-    env = _env(num_nodes=7, t_max=20, use_recency_obs=True)
-    params = _env_params(env, wm_decay=0.5, recency_decay=0.0)
-    state, obs, _ = env.reset(jax.random.PRNGKey(9), params)
-
-    expected_reset = np.zeros(env.num_nodes)
-    expected_reset[int(state.root_node)] = 1.0
-    np.testing.assert_allclose(np.asarray(obs.recency), expected_reset, atol=1e-6)
-
-    action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
-    state, obs, _, _, _ = env.step(state, _jax_action(action), params)
-
-    expected_step = np.zeros(env.num_nodes)
-    expected_step[action] = 1.0
-    np.testing.assert_allclose(np.asarray(obs.recency), expected_step, atol=1e-6)
-    np.testing.assert_allclose(np.asarray(state.fixation_recency), expected_step, atol=1e-6)
-
-
-def test_recency_decay_one_means_no_decay():
-    env = _env(num_nodes=7, t_max=20, use_recency_obs=True)
-    params = _env_params(env, wm_decay=1.0, recency_decay=1.0)
-    state, _, _ = env.reset(jax.random.PRNGKey(10), params)
-    action = _first_child_path(np.asarray(state.child_nodes), int(state.root_node))[0]
-    state, obs, _, _, _ = env.step(state, _jax_action(action), params)
-
-    recency = np.asarray(obs.recency)
-    expected = np.zeros(env.num_nodes)
-    expected[int(state.root_node)] = 1.0
-    expected[action] = 1.0
-    np.testing.assert_allclose(recency, expected, atol=1e-6)
-
-
 def test_look_forgets_inactive_node_memory():
     env = _env(num_nodes=7)
     params = _env_params(env, wm_decay=0.0, wm_neighbor_activation=0.25)
@@ -247,9 +189,7 @@ def test_look_forgets_inactive_node_memory():
         q_values=jnp.arange(7, dtype=jnp.float32),
         n_visits=jnp.ones((7,), dtype=jnp.int32),
         g_values=jnp.arange(1, 8, dtype=jnp.float32),
-        fixation_recency=jnp.linspace(0.1, 0.7, 7, dtype=jnp.float32),
         activation=jnp.ones((7,), dtype=jnp.float32),
-        is_discovered=jnp.ones((7,), dtype=jnp.bool_),
     )
 
     state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params)
@@ -262,7 +202,6 @@ def test_look_forgets_inactive_node_memory():
         env.min_path_value, atol=1e-6
     )
     assert float(state.g_values[int(state.root_node)]) == 0.0
-    np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
 
 
 def test_backup_excludes_reward_of_unobserved_node():
@@ -281,7 +220,6 @@ def test_backup_excludes_reward_of_unobserved_node():
         q_values=jnp.zeros((3,), dtype=jnp.float32),
         n_visits=jnp.zeros((3,), dtype=jnp.int32),
         activation=jnp.ones((3,), dtype=jnp.float32),
-        is_discovered=jnp.ones((3,), dtype=jnp.bool_),
     )
 
     # Fixate child C=1. C becomes observed (n_visits -> 1) and backs up its own reward.
@@ -308,7 +246,6 @@ def test_backup_includes_reward_of_observed_node():
         q_values=jnp.zeros((3,), dtype=jnp.float32),
         n_visits=jnp.array([1, 0, 0], dtype=jnp.int32),
         activation=jnp.ones((3,), dtype=jnp.float32),
-        is_discovered=jnp.ones((3,), dtype=jnp.bool_),
     )
 
     state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params)
@@ -330,7 +267,6 @@ def test_terminal_backup_has_zero_continuation():
         q_values=jnp.zeros((3,), dtype=jnp.float32),
         n_visits=jnp.zeros((3,), dtype=jnp.int32),
         activation=jnp.ones((3,), dtype=jnp.float32),
-        is_discovered=jnp.ones((3,), dtype=jnp.bool_),
     )
 
     state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params)
@@ -413,38 +349,6 @@ def test_observation_masking_decouples_known_path_from_activation():
     assert np.asarray(obs.g_values)[5] == 0.0
 
 
-def test_initial_state_discovers_only_root():
-    env = _env(num_nodes=7)
-    state = env._sample_initial_state(jax.random.PRNGKey(130))
-
-    expected = np.zeros(env.num_nodes, dtype=bool)
-    expected[int(state.root_node)] = True
-    np.testing.assert_array_equal(np.asarray(state.is_discovered), expected)
-
-
-def test_look_discovers_fixated_node_and_children():
-    env = _env(num_nodes=7)
-    params = _env_params(env, wm_decay=1.0)
-    state = env._sample_initial_state(jax.random.PRNGKey(132))
-    state = state._replace(
-        root_node=jnp.asarray(0, dtype=jnp.int32),
-        fixation_node=jnp.asarray(0, dtype=jnp.int32),
-        child_nodes=jnp.array(
-            [[1, 2], [3, 4], [5, 6], [-1, -1], [-1, -1], [-1, -1], [-1, -1]],
-            dtype=jnp.int32,
-        ),
-        parent_nodes=jnp.array([-1, 0, 0, 1, 1, 2, 2], dtype=jnp.int32),
-        is_discovered=jnp.array([True, False, False, False, False, False, False], dtype=jnp.bool_),
-    )
-
-    state = env._look(state, jnp.asarray(1, dtype=jnp.int32), params, skip_q_update=True)
-
-    np.testing.assert_array_equal(
-        np.asarray(state.is_discovered),
-        np.array([True, True, False, True, True, False, False], dtype=bool),
-    )
-
-
 def test_clear_inactive_memory_always_clears_inactive_node_memory():
     env = _env(num_nodes=7)
     state = env._sample_initial_state(jax.random.PRNGKey(14))
@@ -452,7 +356,6 @@ def test_clear_inactive_memory_always_clears_inactive_node_memory():
         q_values=jnp.arange(env.num_nodes, dtype=jnp.float32),
         n_visits=jnp.ones((env.num_nodes,), dtype=jnp.int32),
         g_values=jnp.arange(1, env.num_nodes + 1, dtype=jnp.float32),
-        fixation_recency=jnp.ones((env.num_nodes,), dtype=jnp.float32),
         is_terminal=jnp.array([False, False, False, True, False, False, True], dtype=jnp.bool_),
         activation=jnp.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32),
     )
@@ -466,7 +369,6 @@ def test_clear_inactive_memory_always_clears_inactive_node_memory():
         np.asarray(state.g_values)[inactive_mask & (np.arange(env.num_nodes) != int(state.root_node))],
         env.min_path_value, atol=1e-6
     )
-    np.testing.assert_allclose(np.asarray(state.fixation_recency)[inactive_mask], 0.0, atol=1e-6)
     np.testing.assert_array_equal(
         np.asarray(state.is_terminal),
         np.array([False, False, False, False, False, False, True]),
@@ -611,7 +513,6 @@ def test_detailed_move_trace_preserves_step_behavior_and_records_each_movement()
         points=jnp.array([0.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0], dtype=jnp.float32),
         q_values=jnp.array([0.0, 5.0, 0.0, 1.0, 10.0, 0.0, 0.0], dtype=jnp.float32),
         activation=jnp.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=jnp.float32),
-        is_discovered=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
     )
     action = _jax_action(env.num_nodes)
 
@@ -670,7 +571,6 @@ def test_movement_forgetting_changes_downstream_choice():
         points=jnp.array([0.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0], dtype=jnp.float32),
         q_values=jnp.array([0.0, 5.0, 0.0, 1.0, 10.0, 0.0, 0.0], dtype=jnp.float32),
         activation=jnp.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=jnp.float32),
-        is_discovered=jnp.ones((env.num_nodes,), dtype=jnp.bool_),
     )
 
     _, _, reward, _, info = env.step(state, _jax_action(env.num_nodes), params)
@@ -831,7 +731,6 @@ def test_inactive_root_stops_gated_ancestor_backup():
         q_values=jnp.zeros((3,), dtype=jnp.float32),
         n_visits=jnp.ones((3,), dtype=jnp.int32),
         activation=jnp.zeros((3,), dtype=jnp.float32),
-        is_discovered=jnp.ones((3,), dtype=jnp.bool_),
     )
 
     state = env._look(state, _jax_action(2), params)
@@ -901,10 +800,20 @@ def test_neighbor_refresh_protects_memory_before_inactive_clearing():
         q_values=jnp.arange(7, dtype=jnp.float32),
         n_visits=jnp.ones(7, dtype=jnp.int32),
         activation=jnp.ones(7),
-        is_discovered=jnp.ones(7, dtype=jnp.bool_),
         is_terminal=jnp.array([False, False, False, True, True, True, True]),
     )
     updated = env._look(state, jnp.int32(1), params, skip_q_update=True)
     np.testing.assert_array_equal(updated.q_values, [0, 1, 0, 3, 4, 0, 0])
     np.testing.assert_array_equal(updated.is_terminal, [False, False, False, True, True, False, False])
     assert float(updated.g_values[0]) == 0.0
+
+
+def test_removed_history_fields_are_absent_from_state_observations_and_move_trace():
+    env = _env(num_nodes=7)
+    state, obs, _ = env.reset(jax.random.PRNGKey(132), _env_params(env))
+    assert "is_discovered" not in state._fields
+    assert "fixation_recency" not in state._fields
+    assert "recency" not in obs._fields
+    trace = env._empty_move_trace()
+    assert "is_discovered" not in trace._fields
+    assert "fixation_recency" not in trace._fields

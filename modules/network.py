@@ -67,8 +67,6 @@ def flatten_observation(obs: DecisionTreeObs) -> jax.Array:
         parts.append(obs.n_visits)
     if obs.is_terminal is not None:
         parts.append(obs.is_terminal)
-    if obs.recency is not None:
-        parts.append(obs.recency)
     if obs.time_elapsed is not None:
         parts.append(obs.time_elapsed)
     return jnp.concatenate(parts, axis=-1)
@@ -85,7 +83,6 @@ def init_node_shared_actor_critic_params(
         observation_template.q_values,
         observation_template.n_visits,
         observation_template.is_terminal,
-        observation_template.recency,
     ):
         if feature is not None:
             node_feature_size += 1
@@ -215,7 +212,6 @@ def _node_shared_forward(
     q_values = obs.q_values
     n_visits = obs.n_visits
     is_terminal = obs.is_terminal
-    recency = obs.recency
     time_elapsed = obs.time_elapsed
 
     observable_nodes = observation_mask[..., :num_nodes]
@@ -235,8 +231,6 @@ def _node_shared_forward(
         parts.append(n_visits)
     if is_terminal is not None:
         parts.append(is_terminal)
-    if recency is not None:
-        parts.append(recency)
     parts.append(observation_feature)
     node_features = jnp.stack(parts, axis=-1)
 

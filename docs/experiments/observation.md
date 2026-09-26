@@ -19,7 +19,6 @@ For `network_type = "node_shared"`, the per-node observation for each candidate 
 | `q_values`       | Remembered value estimate for `S`                                |
 | `n_visits`       | Number of times `S` has been fixated                             |
 | `is_terminal`    | Is `S` a seen terminal node?                                     |
-| `recency`        | How recently was `S` fixated?                                    |
 | `legal_feature`  | Is fixation on `S` currently legal?                              |
 
 The `node_shared` network also receives these global observation components.

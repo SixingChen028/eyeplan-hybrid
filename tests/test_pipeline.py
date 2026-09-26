@@ -16,7 +16,6 @@ def _env(**overrides):
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
-        use_recency_obs=bool(params["use_recency_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
         use_n_visits_obs=bool(params["use_n_visits_obs"]),
@@ -226,9 +225,7 @@ def test_jax_simulator_runs_detailed_trials():
         "gs",
         "qs",
         "logits",
-        "fixation_recency",
         "is_terminal",
-        "is_discovered",
     ]:
         assert len(data[key]) == 5
         assert len(data[key][0]) == len(data["actions"][0]) - 1
@@ -236,7 +233,6 @@ def test_jax_simulator_runs_detailed_trials():
     assert len(data["counts"][0][0]) == env.num_nodes
     assert len(data["gs"][0][0]) == env.num_nodes
     assert len(data["qs"][0][0]) == env.num_nodes
-    assert len(data["fixation_recency"][0][0]) == env.num_nodes
     assert len(data["is_terminal"][0][0]) == env.num_nodes
     assert len(data["logits"][0]) == len(data["actions"][0]) - 1
     assert len(data["logits"][0][0]) == env.action_size
@@ -247,9 +243,7 @@ def test_jax_simulator_runs_detailed_trials():
         "move_counts",
         "move_gs",
         "move_qs",
-        "move_fixation_recency",
         "move_is_terminal",
-        "move_is_discovered",
     ]:
         assert len(data[key][0]) == len(data["move_actions"][0])
         assert len(data[key][0][0]) == env.num_nodes
@@ -355,17 +349,13 @@ def test_append_simulation_trial_includes_details():
         "gs": [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 2.0]],
         "qs": [[0.0, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.5, 1.0]],
         "logits": [[0.0, 0.1, 0.2, 0.3], [0.0, 0.2, 0.1, 0.3], [0.0, 0.3, 0.2, 0.1]],
-        "fixation_recency": [[1.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.25, 0.25, 0.5]],
         "is_terminal": [[False, False, False], [False, True, False], [False, False, True]],
-        "is_discovered": [[True, False, False], [True, True, False], [True, True, True]],
         "move_actions": [0, 2],
         "move_activations": [[1.0, 0.0, 0.0], [1.0, 0.0, 1.0]],
         "move_counts": [[2, 1, 1], [2, 1, 2]],
         "move_gs": [[0.0, 1.0, 2.0], [0.0, 1.0, 2.0]],
         "move_qs": [[0.0, 0.5, 1.0], [0.0, 0.5, 1.0]],
-        "move_fixation_recency": [[1.0, 0.25, 0.5], [0.5, 0.125, 1.0]],
         "move_is_terminal": [[False, False, True], [False, False, True]],
-        "move_is_discovered": [[True, True, True], [True, True, True]],
     }
     append_simulation_trial(
         data,
@@ -392,25 +382,19 @@ def test_append_simulation_trial_includes_details():
         "gs",
         "qs",
         "logits",
-        "fixation_recency",
         "is_terminal",
-        "is_discovered",
         "move_activations",
         "move_counts",
         "move_gs",
         "move_qs",
-        "move_fixation_recency",
         "move_is_terminal",
-        "move_is_discovered",
     ]
     assert data["activations"] == [details["activations"]]
     assert data["counts"] == [details["counts"]]
     assert data["gs"] == [details["gs"]]
     assert data["qs"] == [details["qs"]]
     assert data["logits"] == [details["logits"]]
-    assert data["fixation_recency"] == [details["fixation_recency"]]
     assert data["is_terminal"] == [details["is_terminal"]]
-    assert data["is_discovered"] == [details["is_discovered"]]
     assert data["move_actions"] == [details["move_actions"]]
     assert data["move_counts"] == [details["move_counts"]]
     assert data["actions"] == [[0, 1, 2, 3]]

@@ -149,11 +149,10 @@ def train_condition_config_run(tmp_path_factory: pytest.TempPathFactory):
             "rollout_length = 1\n"
             "wm_decay = 0.0\n"
             "cost = 0.01\n"
-            "use_recency_obs = false\n"
             "\n"
             "[[conditions]]\n"
-            "label = 'recency'\n"
-            "use_recency_obs = true\n"
+            "label = 'cost'\n"
+            "cost = 0.02\n"
         ),
         encoding="utf-8",
     )
@@ -193,9 +192,9 @@ def test_train_condition_config_expands_selected_condition(train_condition_confi
         metadata = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))
         args = metadata["args"]
         seeds.append(args["seed"])
-        assert args["label"] == "recency"
+        assert args["label"] == "cost"
+        assert args["cost"] == 0.02
         assert args["parallel_condition_index"] == 0
-        assert args["use_recency_obs"] is True
         assert args["parallel_varied_keys"] == ["seed"]
     assert seeds == [7, 9]
 
