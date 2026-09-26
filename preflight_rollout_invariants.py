@@ -37,17 +37,7 @@ def unique_environment_runs(config: dict) -> list[dict]:
 
 
 def expects_max_consistent_q(run: dict) -> bool:
-    return (
-        float(run["beta_move"]) >= 1000.0
-        and float(run["eps_move"]) == 0.0
-        and float(run["learning_rate"]) == 1.0
-        and float(run["lamda_backup"]) == 1.0
-        and int(run["backup_steps"]) >= int(run["num_nodes"])
-        and float(run["wm_decay"]) == 1.0
-        and float(run["wm_neighbor_activation"]) == 1.0
-        and float(run["forget_rate"]) == 0.0
-        and float(run["q_drift"]) == 0.0
-    )
+    return float(run["wm_decay"]) == 1.0 and float(run["wm_neighbor_activation"]) == 1.0
 
 
 def validate_environment_run(

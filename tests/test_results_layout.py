@@ -97,7 +97,7 @@ def test_create_run_dir_without_prefix(tmp_path: Path):
 def test_write_run_metadata_writes_args_and_git_sha_field(tmp_path: Path):
     run_dir = tmp_path / "results" / "runs" / "test" / "seed1_20260425_122806_pfs1"
     run_dir.mkdir(parents=True)
-    args = Namespace(learning_rate=0.2, seed=15)
+    args = Namespace( seed=15)
 
     metadata_path = write_run_metadata(run_dir=str(run_dir), args=args, cwd=str(tmp_path))
 

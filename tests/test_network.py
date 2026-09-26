@@ -24,16 +24,6 @@ def _env(**overrides):
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
-        shuffle_nodes=bool(params["shuffle_nodes"]),
-        disable_persistence=bool(params["disable_persistence"]),
-        activation_masks_actions=bool(params["activation_masks_actions"]),
-        activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
-        activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
-        disable_corruption=bool(params["disable_corruption"]),
-        activation_prevents_corruption=bool(params["activation_prevents_corruption"]),
-        forget_discovered=bool(params["forget_discovered"]),
-        activation_masks_observation=bool(params["activation_masks_observation"]),
-        excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
@@ -69,7 +59,7 @@ def _permute_node_observation(obs, permutation):
 
 
 def test_mlp_forward_shape_is_unchanged():
-    env = _env(num_nodes=5, shuffle_nodes=False)
+    env = _env(num_nodes=5)
     _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
     params = init_mlp_actor_critic_params(
         jax.random.PRNGKey(1),
@@ -92,22 +82,22 @@ def test_mlp_forward_shape_is_unchanged():
 @pytest.mark.slow
 def test_node_shared_forward_shape_with_optional_features():
     for use_recency_obs, recency_decay in [(False, 0.0), (True, 0.5)]:
-        env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=use_recency_obs)
+        env = _env(num_nodes=5, use_recency_obs=use_recency_obs)
         _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=recency_decay))
         params = init_actor_critic_params(
-            jax.random.PRNGKey(1),
-            observation_template=env.observation_template,
-            action_size=env.action_size,
-            hidden_size=16,
-            network_type=NETWORK_NODE_SHARED,
-        )
+        jax.random.PRNGKey(1),
+        observation_template=env.observation_template,
+        action_size=env.action_size,
+        hidden_size=16,
+        network_type=NETWORK_NODE_SHARED,
+    )
 
         logits, values = actor_critic_forward(
-            params,
-            _batch_obs(obs),
-            info["mask"][None, :],
-            info["observation_mask"][None, :],
-        )
+        params,
+        _batch_obs(obs),
+        info["mask"][None, :],
+        info["observation_mask"][None, :],
+    )
 
         expected_node_features = 10 if use_recency_obs else 9
         expected_global_features = 16 * 2 + 2
@@ -121,7 +111,7 @@ def test_node_shared_forward_shape_with_optional_features():
 
 @pytest.mark.slow
 def test_global_shared_forward_shape_with_optional_features():
-    env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=True)
+    env = _env(num_nodes=5, use_recency_obs=True)
     _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),
@@ -150,7 +140,6 @@ def test_global_shared_forward_shape_with_optional_features():
 def test_node_shared_forward_shape_without_static_observation_features():
     env = _env(
         num_nodes=5,
-        shuffle_nodes=False,
         use_g_values_obs=False,
         use_q_values_obs=False,
         use_n_visits_obs=False,
@@ -174,14 +163,14 @@ def test_node_shared_forward_shape_without_static_observation_features():
     )
 
     assert params["node_fc1"]["w"].shape == (6, 16)
-    assert params["global_fc"]["w"].shape == (16 * 2 + 3, 16)
+    assert params["global_fc"]["w"].shape == (16 * 2 + 1, 16)
     assert logits.shape == (1, env.action_size)
     assert values.shape == (1,)
 
 
 @pytest.mark.slow
 def test_node_shared_forward_is_permutation_equivariant_for_node_logits():
-    env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=True)
+    env = _env(num_nodes=5, use_recency_obs=True)
     _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),
@@ -219,7 +208,7 @@ def test_node_shared_forward_is_permutation_equivariant_for_node_logits():
 
 @pytest.mark.slow
 def test_global_shared_forward_is_permutation_equivariant_for_node_logits():
-    env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=True)
+    env = _env(num_nodes=5, use_recency_obs=True)
     _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env, recency_decay=0.5))
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),
@@ -257,7 +246,7 @@ def test_global_shared_forward_is_permutation_equivariant_for_node_logits():
 
 @pytest.mark.slow
 def test_global_shared_node_logit_ranking_can_depend_on_global_context():
-    env = _env(num_nodes=5, shuffle_nodes=False, use_recency_obs=False)
+    env = _env(num_nodes=5, use_recency_obs=False)
     _, obs, info = env.reset(jax.random.PRNGKey(0), _env_params(env))
     params = init_actor_critic_params(
         jax.random.PRNGKey(1),

@@ -15,26 +15,6 @@ PARAM_DEFAULTS = {
         "t_max": 50,
         # Multiplier applied to raw point rewards before returning environment rewards.
         "scale_factor": 0.125,
-        # Whether to randomly permute node labels for each generated tree.
-        "shuffle_nodes": True,
-        # Mode where inactive nodes retain no node-specific information.
-        "disable_persistence": False,
-        # Whether activation determines which fixation actions are legal.
-        "activation_masks_actions": True,
-        # Whether activation determines whether an ancestor can receive a backup update.
-        "activation_gates_backup_sink": True,
-        # Whether activation determines whether child values are available for backup targets.
-        "activation_gates_backup_source": True,
-        # Whether to skip decay, drift, and stochastic forgetting of inactive node-specific memory.
-        "disable_corruption": False,
-        # Whether working-memory activation protects node-specific memory from corruption.
-        "activation_prevents_corruption": True,
-        # Whether stochastic forgetting also clears the discovered status of a node.
-        "forget_discovered": False,
-        # Whether activation determines which node-specific information is observable.
-        "activation_masks_observation": True,
-        # Value substituted for inactive child values when backup-source gating keeps full child support.
-        "excluded_child_value": None,
         # Whether observations include per-node fixation recency values.
         "use_recency_obs": True,
         # Whether observations include per-node path values.
@@ -47,31 +27,14 @@ PARAM_DEFAULTS = {
         "use_is_terminal_obs": True,
         # Whether observations include elapsed time.
         "use_time_elapsed_obs": True,
-        # Inverse temperature for softmax move probabilities in environment dynamics.
-        "beta_move": 40.0,
-        # Uniform random-move mixture rate in environment dynamics.
-        "eps_move": 0.0,
-        # Environment Q-value update step size.
-        "learning_rate": 1.0,
-        # Decay factor for ancestor value backups.
-        "lamda_backup": 1.0,
-        # Maximum number of ancestor levels updated during value backup.
-        "backup_steps": 100,
         # Per-step decay applied to working-memory activation.
         "wm_decay": 1.0,
         # Activation assigned to the fixated node's parent and children.
         "wm_neighbor_activation": 1.0,
-        # Probability of clearing inactive Q-values, visit counts, and fixation recency after each step.
-        "forget_rate": 0.0,
-        # Standard deviation of Gaussian drift added to inactive Q-values. The paired
-        # per-step decay is derived from this in DecisionTreeEnv.make_params.
-        "q_drift": 0.0,
         # Per-step decay applied to fixation recency observations.
         "recency_decay": 0.5,
-        # Per-step movement cost subtracted from environment reward.
+        # Cost of a voluntary planning fixation.
         "cost": 0.01,
-        # Multiplier for path-length move penalty, applied as move_cost_scale * cost * path length.
-        "move_cost_scale": 0.0,
         # Set of points to sample from for each node.
         "point_set": (-8, -4, -2, -1, 1, 2, 4, 8),
     },
@@ -135,18 +98,10 @@ PARAM_DEFAULTS = {
 }
 
 ENV_DYNAMIC_PARAM_KEYS = (
-    "beta_move",
-    "eps_move",
-    "learning_rate",
-    "lamda_backup",
-    "backup_steps",
     "wm_decay",
     "wm_neighbor_activation",
-    "forget_rate",
-    "q_drift",
     "recency_decay",
     "cost",
-    "move_cost_scale",
 )
 ENV_STATIC_PARAM_KEYS = tuple(
     key for key in PARAM_DEFAULTS["environment"] if key not in ENV_DYNAMIC_PARAM_KEYS
@@ -378,11 +333,6 @@ def validate_params(params: dict) -> None:
         if parsed == 0.0:
             raise ValueError("wm_neighbor_activation numeric values must satisfy 0 < wm_neighbor_activation <= 1.")
 
-    value = params.get("excluded_child_value")
-    values = value if is_list(value) else [value]
-    for item in values:
-        if item is not None and not isinstance(item, (int, float)):
-            raise ValueError("excluded_child_value must be numeric or omitted.")
 
 
 def expand_sweep(params: dict) -> tuple[dict, list[dict], list[str]]:

@@ -28,9 +28,10 @@ def test_normalize_config_rejects_old_memory_protection_section_key():
         config.normalize_config({"environment": {"activation_protects_memory": True}})
 
 
-def test_normalize_config_accepts_activation_prevents_corruption():
-    normalized = config.normalize_config({"environment": {"activation_prevents_corruption": False}})
-    assert normalized["params"]["activation_prevents_corruption"] is False
+@pytest.mark.parametrize("key", ["beta_move", "forget_rate", "disable_persistence", "activation_prevents_corruption"])
+def test_normalize_config_rejects_retired_environment_options(key):
+    with pytest.raises(ValueError, match="Unknown.*" + key):
+        config.normalize_config({"environment": {key: False}})
 
 
 def test_normalize_config_rejects_old_terminal_persistence_section_key():
@@ -130,16 +131,13 @@ def test_expand_config_runs_requires_condition_index_when_conditions_exist():
 
 
 def test_cli_override_uses_array_element_type():
-    params = {"cost": [0.01, 0.02], "num_envs": [64, 128], "shuffle_nodes": [True, False]}
+    params = {"cost": [0.01, 0.02], "num_envs": [64, 128], "use_recency_obs": [True, False]}
 
-    updated = config.apply_cli_param_overrides(
-        params,
-        ["--cost=0.03", "--num_envs=256", "--shuffle_nodes=false"],
-    )
+    updated = config.apply_cli_param_overrides(params, ["--cost=0.03", "--num_envs=256", "--use_recency_obs=false"])
 
     assert updated["cost"] == 0.03
     assert updated["num_envs"] == 256
-    assert updated["shuffle_nodes"] is False
+    assert updated["use_recency_obs"] is False
 
 
 def test_cli_override_parses_tuple_values():
@@ -327,3 +325,18 @@ def test_simulate_num_nodes_override_requires_node_shared_params():
             num_nodes=31,
             t_max=None,
         )
+
+
+def test_saved_wm_only_run_metadata_loads_retained_settings():
+    from modules.evaluation import env_from_run_args, env_params_from_run_args
+
+    args = dict(config.DEFAULT_PARAMS)
+    args.update(wm_decay=0.9375, wm_neighbor_activation=0.375, use_recency_obs=False,
+                beta_move=40.0, forget_rate=1.0, disable_persistence=False)
+    env = env_from_run_args(args)
+    params = env_params_from_run_args(env, args)
+
+    assert not env.use_recency_obs
+    assert float(params.wm_decay) == args['wm_decay']
+    assert float(params.wm_neighbor_activation) == args['wm_neighbor_activation']
+    assert set(params._fields) == set(config.ENV_DYNAMIC_PARAM_KEYS)

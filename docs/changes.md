@@ -6,6 +6,9 @@ The compatibility version is an integer epoch attached to runs and checkpoint we
 
 ## Version 11
 
+- September 26: simplify the current WM-only cognitive architecture to one memory store. Clear inactive node memory after activation decay/retention and neighbor refresh; retain root g = 0. Use full hard-max value backups through active ancestors and greedy movement with uniform tie-breaking. Remove persistence/corruption variants, movement temperature/lapse/cost settings, backup attenuation/depth settings, alternate availability gates, and the node-shuffling switch (shuffling always runs). Keep all observation switches, recency decay, and diagnostic traces. Existing run metadata supplies the retained settings; historical variant configs must be run with their original source revision. Keep `COMPAT_VERSION = 11` at Fred's explicit instruction. RNG draw consumption changes. Trained-policy behavioral verification is recorded in [[Simplify model architecture assumptions]].
+
+
 - Keep the root path-prefix value at `0.0` when node-specific memory is forgotten or evicted from working memory. The root has no incoming reward, so its path-prefix value is defined rather than missing; resetting it to `min_path_value` could expose the missing-value sentinel when the root was refixated and propagate that sentinel to its children. Bumped `COMPAT_VERSION` 10 -> 11.
 
 ## Version 10

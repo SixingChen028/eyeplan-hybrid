@@ -16,16 +16,6 @@ def _env(**overrides):
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
-        shuffle_nodes=bool(params["shuffle_nodes"]),
-        disable_persistence=bool(params["disable_persistence"]),
-        activation_masks_actions=bool(params["activation_masks_actions"]),
-        activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
-        activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
-        disable_corruption=bool(params["disable_corruption"]),
-        activation_prevents_corruption=bool(params["activation_prevents_corruption"]),
-        forget_discovered=bool(params["forget_discovered"]),
-        activation_masks_observation=bool(params["activation_masks_observation"]),
-        excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
@@ -55,13 +45,7 @@ def _train_params(env_params):
 
 @pytest.mark.slow
 def test_jax_train_step_compiles_and_runs():
-    env = _env(
-        num_nodes=3,
-        t_max=5,
-        scale_factor=1.0,
-        shuffle_nodes=False,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=3, t_max=5, scale_factor=1.0, point_set=np.array([1.0], dtype=np.float32))
 
     trainer = BatchMaskA2C(
         env=env,
@@ -89,13 +73,7 @@ def test_jax_train_step_compiles_and_runs():
 
 @pytest.mark.slow
 def test_jax_train_step_runs_node_shared_network():
-    env = _env(
-        num_nodes=3,
-        t_max=5,
-        scale_factor=1.0,
-        shuffle_nodes=False,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=3, t_max=5, scale_factor=1.0, point_set=np.array([1.0], dtype=np.float32))
 
     trainer = BatchMaskA2C(
         env=env,
@@ -122,13 +100,7 @@ def test_jax_train_step_runs_node_shared_network():
 
 @pytest.mark.slow
 def test_jax_train_step_runs_global_shared_network():
-    env = _env(
-        num_nodes=3,
-        t_max=5,
-        scale_factor=1.0,
-        shuffle_nodes=False,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=3, t_max=5, scale_factor=1.0, point_set=np.array([1.0], dtype=np.float32))
 
     trainer = BatchMaskA2C(
         env=env,
@@ -155,13 +127,7 @@ def test_jax_train_step_runs_global_shared_network():
 
 @pytest.mark.slow
 def test_jax_simulator_runs_trials():
-    env = _env(
-        num_nodes=3,
-        t_max=5,
-        scale_factor=1.0,
-        shuffle_nodes=False,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=3, t_max=5, scale_factor=1.0, point_set=np.array([1.0], dtype=np.float32))
 
     trainer = BatchMaskA2C(
         env=env,
@@ -194,13 +160,7 @@ def test_jax_simulator_runs_trials():
 
 @pytest.mark.slow
 def test_jax_simulator_runs_node_shared_trials():
-    env = _env(
-        num_nodes=3,
-        t_max=5,
-        scale_factor=1.0,
-        shuffle_nodes=False,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=3, t_max=5, scale_factor=1.0, point_set=np.array([1.0], dtype=np.float32))
 
     trainer = BatchMaskA2C(
         env=env,
@@ -233,13 +193,7 @@ def test_jax_simulator_runs_node_shared_trials():
 
 @pytest.mark.slow
 def test_jax_simulator_runs_detailed_trials():
-    env = _env(
-        num_nodes=3,
-        t_max=5,
-        scale_factor=1.0,
-        shuffle_nodes=False,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=3, t_max=5, scale_factor=1.0, point_set=np.array([1.0], dtype=np.float32))
 
     trainer = BatchMaskA2C(
         env=env,
@@ -303,13 +257,7 @@ def test_jax_simulator_runs_detailed_trials():
 
 @pytest.mark.slow
 def test_jax_simulator_records_forced_terminal_action():
-    env = _env(
-        num_nodes=3,
-        t_max=1,
-        scale_factor=1.0,
-        shuffle_nodes=False,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=3, t_max=1, scale_factor=1.0, point_set=np.array([1.0], dtype=np.float32))
 
     trainer = BatchMaskA2C(
         env=env,
@@ -341,13 +289,7 @@ def test_jax_simulator_records_forced_terminal_action():
 
 @pytest.mark.slow
 def test_jax_simulator_evaluate_policy_returns_summary_stats():
-    env = _env(
-        num_nodes=3,
-        t_max=5,
-        scale_factor=1.0,
-        shuffle_nodes=False,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=3, t_max=5, scale_factor=1.0, point_set=np.array([1.0], dtype=np.float32))
 
     trainer = BatchMaskA2C(
         env=env,

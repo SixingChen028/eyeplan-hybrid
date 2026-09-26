@@ -2,7 +2,7 @@
 
 Date: 2026-06-05
 
-Status: Superseded by `disable_persistence`
+Status: Superseded by the September 26 single-store architecture (see `docs/changes.md`, version 11). The sections below record historical behavior.
 
 Recorded version: Compatibility version 1
 

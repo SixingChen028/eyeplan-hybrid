@@ -211,11 +211,9 @@ def test_render_script_expands_condition_tables_with_array_axes():
         },
         "conditions": [
             {
-                "learning_rate": 0.3,
                 "label": "value",
             },
             {
-                "learning_rate": 0.7,
                 "cost": 0.04,
                 "label": "mcts",
             },
@@ -293,7 +291,7 @@ def test_generated_script_executes_train_py_for_one_array_task(tmp_path: Path):
     config_path.write_text(
         (
             "[meta]\n"
-            f"result_path = {str(tmp_path / 'results')!r}\n"
+            f"result_path = {str(tmp_path / "results")!r}\n"
             "experiment = 'sbatch-train-exec'\n"
             "array_vars = ['seed']\n"
             "\n"

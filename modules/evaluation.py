@@ -45,71 +45,16 @@ def require_metadata_keys(metadata_args: dict, keys: tuple[str, ...], section_na
 
 
 def env_from_run_args(args: dict) -> DecisionTreeEnv:
-    optional_static_keys = {
-        "disable_persistence",
-        "activation_masks_actions",
-        "activation_gates_backup_sink",
-        "activation_gates_backup_source",
-        "disable_corruption",
-        "activation_prevents_corruption",
-        "forget_discovered",
-        "activation_masks_observation",
-        "excluded_child_value",
-    }
-    required_keys = tuple(key for key in ENV_STATIC_PARAM_KEYS if key not in optional_static_keys)
-    require_metadata_keys(args, required_keys, "environment static")
-
-    return DecisionTreeEnv(
-        num_nodes=int(args["num_nodes"]),
-        t_max=int(args["t_max"]),
-        scale_factor=float(args["scale_factor"]),
-        shuffle_nodes=bool(args["shuffle_nodes"]),
-        disable_persistence=bool(args.get("disable_persistence", DEFAULT_PARAMS["disable_persistence"])),
-        activation_masks_actions=bool(args.get("activation_masks_actions", DEFAULT_PARAMS["activation_masks_actions"])),
-        activation_gates_backup_sink=bool(
-            args.get("activation_gates_backup_sink", DEFAULT_PARAMS["activation_gates_backup_sink"])
-        ),
-        activation_gates_backup_source=bool(
-            args.get("activation_gates_backup_source", DEFAULT_PARAMS["activation_gates_backup_source"])
-        ),
-        disable_corruption=bool(args.get("disable_corruption", DEFAULT_PARAMS["disable_corruption"])),
-        activation_prevents_corruption=bool(
-            args.get("activation_prevents_corruption", DEFAULT_PARAMS["activation_prevents_corruption"])
-        ),
-        forget_discovered=bool(args.get("forget_discovered", DEFAULT_PARAMS["forget_discovered"])),
-        activation_masks_observation=bool(
-            args.get("activation_masks_observation", DEFAULT_PARAMS["activation_masks_observation"])
-        ),
-        excluded_child_value=args.get("excluded_child_value", DEFAULT_PARAMS["excluded_child_value"]),
-        use_recency_obs=bool(args["use_recency_obs"]),
-        use_g_values_obs=bool(args["use_g_values_obs"]),
-        use_q_values_obs=bool(args["use_q_values_obs"]),
-        use_n_visits_obs=bool(args["use_n_visits_obs"]),
-        use_is_terminal_obs=bool(args["use_is_terminal_obs"]),
-        use_time_elapsed_obs=bool(args["use_time_elapsed_obs"]),
-        point_set=args["point_set"],
-    )
+    require_metadata_keys(args, ENV_STATIC_PARAM_KEYS, "environment static")
+    return DecisionTreeEnv(**{key: args[key] for key in ENV_STATIC_PARAM_KEYS})
 
 
 def env_params_from_run_args(env: DecisionTreeEnv, args: dict) -> DecisionTreeParams:
-    optional_dynamic_keys = {"wm_neighbor_activation", "move_cost_scale"}
-    required_keys = tuple(key for key in ENV_DYNAMIC_PARAM_KEYS if key not in optional_dynamic_keys)
+    required_keys = tuple(key for key in ENV_DYNAMIC_PARAM_KEYS if key != "wm_neighbor_activation")
     require_metadata_keys(args, required_keys, "environment dynamic")
-
-    return env.make_params(
-        beta_move=float(args["beta_move"]),
-        eps_move=float(args["eps_move"]),
-        learning_rate=float(args["learning_rate"]),
-        lamda_backup=float(args["lamda_backup"]),
-        backup_steps=int(args["backup_steps"]),
-        wm_decay=float(args["wm_decay"]),
-        wm_neighbor_activation=float(args.get("wm_neighbor_activation", 1.0)),
-        forget_rate=float(args["forget_rate"]),
-        q_drift=float(args["q_drift"]),
-        recency_decay=float(args["recency_decay"]),
-        cost=float(args["cost"]),
-        move_cost_scale=float(args.get("move_cost_scale", 0.0)),
-    )
+    return env.make_params(**{
+        key: args.get(key, DEFAULT_PARAMS[key]) for key in ENV_DYNAMIC_PARAM_KEYS
+    })
 
 
 def resolve_params_path_from_metadata(run_dir: str, metadata: dict) -> str:

@@ -45,9 +45,8 @@ class MCTSSimulator:
 
     def _path_return(self, points: np.ndarray, path: list[int]) -> float:
         path_len = max(len(path) - 1, 0)
-        movement_cost = float(self.env_params.move_cost_scale) * float(self.env_params.cost) * path_len
         fixation_cost = float(self.env_params.cost) * path_len
-        return float(np.sum(points[path]) * self.env.scale_factor - fixation_cost - movement_cost)
+        return float(np.sum(points[path]) * self.env.scale_factor - fixation_cost)
 
     def _select_simulation_child(
         self,

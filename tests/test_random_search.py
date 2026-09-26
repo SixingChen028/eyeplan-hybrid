@@ -17,16 +17,6 @@ def _env(**overrides):
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
-        shuffle_nodes=bool(params["shuffle_nodes"]),
-        disable_persistence=bool(params["disable_persistence"]),
-        activation_masks_actions=bool(params["activation_masks_actions"]),
-        activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
-        activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
-        disable_corruption=bool(params["disable_corruption"]),
-        activation_prevents_corruption=bool(params["activation_prevents_corruption"]),
-        forget_discovered=bool(params["forget_discovered"]),
-        activation_masks_observation=bool(params["activation_masks_observation"]),
-        excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
@@ -44,7 +34,7 @@ def _env_params(env, **overrides):
 
 
 def test_random_search_fixation_target_accounts_for_root_fixation():
-    env = _env(num_nodes=3, t_max=5, shuffle_nodes=False, point_set=np.array([1.0], dtype=np.float32))
+    env = _env(num_nodes=3, t_max=5, point_set=np.array([1.0], dtype=np.float32))
     simulator = RandomSearchSimulator(env, _env_params(env))
 
     keys = jax.random.split(jax.random.PRNGKey(0), 100)
@@ -55,7 +45,7 @@ def test_random_search_fixation_target_accounts_for_root_fixation():
 
 
 def test_random_search_simulation_writes_existing_simulation_shape():
-    env = _env(num_nodes=3, t_max=5, shuffle_nodes=False, point_set=np.array([1.0], dtype=np.float32))
+    env = _env(num_nodes=3, t_max=5, point_set=np.array([1.0], dtype=np.float32))
     simulator = RandomSearchSimulator(env, _env_params(env))
 
     data = simulator.simulate(seed=1, num_trials=5, batch_size=2, skip_timeout_trials=False)
@@ -67,7 +57,7 @@ def test_random_search_simulation_writes_existing_simulation_shape():
 
 
 def test_fixed_random_search_uses_requested_total_fixations():
-    env = _env(num_nodes=3, t_max=5, shuffle_nodes=False, point_set=np.array([1.0], dtype=np.float32))
+    env = _env(num_nodes=3, t_max=5, point_set=np.array([1.0], dtype=np.float32))
     simulator = RandomSearchSimulator(env, _env_params(env), total_fixations=3)
 
     data = simulator.simulate(seed=1, num_trials=5, batch_size=2, skip_timeout_trials=False)

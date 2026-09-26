@@ -241,15 +241,12 @@ def _assert_state_obs_info_invariants(
     np.testing.assert_allclose(fixation_recency[~is_discovered], 0.0, atol=atol)
     assert np.all(~is_terminal[~is_discovered]), _context(rollout_idx, step_idx, "undiscovered terminal marker.")
 
-    expected_observation_mask = activation > 0.0 if env.activation_masks_observation else is_discovered
+    expected_observation_mask = activation > 0.0
     np.testing.assert_array_equal(observation_mask, expected_observation_mask)
 
     fixation_allowed = time_elapsed != env.t_max - 1
     expected_action_mask = np.zeros(env.action_size, dtype=bool)
-    if env.activation_masks_actions:
-        expected_action_mask[: env.num_nodes] = (activation > 0.0) & fixation_allowed
-    else:
-        expected_action_mask[: env.num_nodes] = fixation_allowed
+    expected_action_mask[: env.num_nodes] = (activation > 0.0) & fixation_allowed
     expected_action_mask[root] = fixation_allowed
     expected_action_mask[-1] = True
     np.testing.assert_array_equal(action_mask, expected_action_mask)

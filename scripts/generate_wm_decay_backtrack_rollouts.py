@@ -18,11 +18,11 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
 from modules.environment import DecisionTreeEnv
+from modules.evaluation import env_from_run_args
 from modules.simulation import append_simulation_trial, empty_simulation_data
 
 
 WM_DECAYS = (0.0, 0.25, 0.5, 0.75, 1.0)
-DISABLE_PERSISTENCE_VALUES = (False, True)
 DEFAULT_NAME = "wm_decay_backtrack_rollouts"
 DEFAULT_TREE_VIEWER = Path("/Users/fred/projects/eyeplan/tree-viewer")
 
@@ -40,27 +40,7 @@ def _jsonable(value: Any) -> Any:
 
 
 def _build_env(params: dict[str, Any]) -> DecisionTreeEnv:
-    return DecisionTreeEnv(
-        num_nodes=int(params["num_nodes"]),
-        t_max=int(params["t_max"]),
-        scale_factor=float(params["scale_factor"]),
-        shuffle_nodes=bool(params["shuffle_nodes"]),
-        disable_persistence=bool(params["disable_persistence"]),
-        activation_masks_actions=bool(params["activation_masks_actions"]),
-        activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
-        activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
-        disable_corruption=bool(params["disable_corruption"]),
-        activation_prevents_corruption=bool(params["activation_prevents_corruption"]),
-        activation_masks_observation=bool(params["activation_masks_observation"]),
-        excluded_child_value=params["excluded_child_value"],
-        use_recency_obs=bool(params["use_recency_obs"]),
-        use_g_values_obs=bool(params["use_g_values_obs"]),
-        use_q_values_obs=bool(params["use_q_values_obs"]),
-        use_n_visits_obs=bool(params["use_n_visits_obs"]),
-        use_is_terminal_obs=bool(params["use_is_terminal_obs"]),
-        use_time_elapsed_obs=bool(params["use_time_elapsed_obs"]),
-        point_set=params["point_set"],
-    )
+    return env_from_run_args(params)
 
 
 def _make_env_params(env: DecisionTreeEnv, params: dict[str, Any]):
@@ -204,7 +184,6 @@ def _simulate_decay(
     *,
     base_params: dict[str, Any],
     experiment_name: str,
-    disable_persistence: bool,
     wm_decay: float,
     seed: int,
     num_trials: int,
@@ -215,7 +194,6 @@ def _simulate_decay(
     params.update(
         {
             "wm_decay": wm_decay,
-            "disable_persistence": disable_persistence,
             "experiment": experiment_name,
             "seed": seed,
         }
@@ -239,7 +217,7 @@ def _simulate_decay(
 
     data = empty_simulation_data(detailed=True)
     key = jax.random.PRNGKey(seed)
-    rng = np.random.default_rng(seed + int(round(wm_decay * 1000)) + int(disable_persistence) * 100_000)
+    rng = np.random.default_rng(seed + int(round(wm_decay * 1000)))
     exported = 0
 
     for trial_idx in range(num_trials):
@@ -278,9 +256,9 @@ def _simulate_decay(
     return exported
 
 
-def _decay_slug(disable_persistence: bool, wm_decay: float) -> str:
+def _decay_slug(wm_decay: float) -> str:
     decay_text = f"{wm_decay:g}".replace(".", "p")
-    return f"wm_only_{str(disable_persistence).lower()}_decay{decay_text}"
+    return f"wm_decay{decay_text}"
 
 
 def _read_viewer_index(index_path: Path) -> dict[str, Any]:
@@ -329,21 +307,20 @@ def main() -> None:
         shutil.rmtree(source_dir)
     source_dir.mkdir(parents=True)
 
-    for disable_persistence in DISABLE_PERSISTENCE_VALUES:
-        for wm_decay in WM_DECAYS:
-            run_dir = source_dir / _decay_slug(disable_persistence, wm_decay)
-            exported = _simulate_decay(
-                run_dir,
-                base_params=base_params,
-                experiment_name=args.name,
-                disable_persistence=disable_persistence,
-                wm_decay=wm_decay,
-                seed=args.seed,
-                num_trials=args.num_trials,
-                backtrack_prob=args.backtrack_prob,
-                min_steps_before_terminate=args.min_steps_before_terminate,
-            )
-            print(f"{run_dir}: wrote {exported} trials", flush=True)
+    for wm_decay in WM_DECAYS:
+        run_dir = source_dir / _decay_slug(wm_decay)
+        exported = _simulate_decay(
+            run_dir,
+            base_params=base_params,
+            experiment_name=args.name,
+            wm_decay=wm_decay,
+            seed=args.seed,
+            num_trials=args.num_trials,
+            backtrack_prob=args.backtrack_prob,
+            min_steps_before_terminate=args.min_steps_before_terminate,
+        )
+        print(f"{run_dir}: wrote {exported} trials", flush=True)
+
 
     viewer_index_path = args.tree_viewer / "assets/simulations/index.json"
     previous_viewer_index = _read_viewer_index(viewer_index_path)

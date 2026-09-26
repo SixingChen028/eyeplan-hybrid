@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Status: Reverted/superseded by compatibility version 3
+Status: Superseded by the September 26 single-store architecture (see `docs/changes.md`, version 11). The sections below record historical behavior.
 
 Recorded version: Compatibility version 2
 

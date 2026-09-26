@@ -16,16 +16,6 @@ def _env(**overrides):
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
-        shuffle_nodes=bool(params["shuffle_nodes"]),
-        disable_persistence=bool(params["disable_persistence"]),
-        activation_masks_actions=bool(params["activation_masks_actions"]),
-        activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
-        activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
-        disable_corruption=bool(params["disable_corruption"]),
-        activation_prevents_corruption=bool(params["activation_prevents_corruption"]),
-        forget_discovered=bool(params["forget_discovered"]),
-        activation_masks_observation=bool(params["activation_masks_observation"]),
-        excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
@@ -44,14 +34,8 @@ def _env_params(env, **overrides):
 
 @pytest.mark.slow
 def test_baseline_policy_evaluation_runs():
-    env = _env(
-        num_nodes=3,
-        t_max=10,
-        scale_factor=1.0,
-        shuffle_nodes=False,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
-    env_params = _env_params(env, beta_move=4.0, eps_move=0.02, learning_rate=1.0, wm_decay=1.0, cost=0.01)
+    env = _env(num_nodes=3, t_max=10, scale_factor=1.0, point_set=np.array([1.0], dtype=np.float32))
+    env_params = _env_params(env, wm_decay=1.0, cost=0.01)
 
     reset_keys = jax.random.split(jax.random.PRNGKey(0), 12)
 
@@ -78,13 +62,8 @@ def test_baseline_policy_evaluation_runs():
 
 @pytest.mark.slow
 def test_visit_all_policy_has_bounded_length_after_fix():
-    env = _env(
-        num_nodes=7,
-        t_max=100,
-        scale_factor=1 / 8,
-        shuffle_nodes=True,
-    )
-    env_params = _env_params(env, beta_move=100.0, eps_move=0.0, learning_rate=1.0, wm_decay=1.0, cost=0.01)
+    env = _env(num_nodes=7, t_max=100, scale_factor=1 / 8)
+    env_params = _env_params(env, wm_decay=1.0, cost=0.01)
 
     reset_keys = jax.random.split(jax.random.PRNGKey(11), 512)
     stats, _, _ = evaluate_baseline_policies(

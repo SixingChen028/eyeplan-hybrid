@@ -1,4 +1,3 @@
-import math
 import pickle
 import subprocess
 import sys
@@ -13,7 +12,7 @@ from modules.a2c import A2CTrainParams, BatchMaskA2C
 from modules.a2c_sweep import VmappedA2CTrainer, build_hypers
 from modules.config import expand_sweep
 from modules.config import ENV_DYNAMIC_PARAM_KEYS, load_canonical_defaults
-from modules.environment import DecisionTreeEnv, Q_SD
+from modules.environment import DecisionTreeEnv
 from modules.evaluation import evaluate_run_dir
 from modules.network import flatten_observation
 from modules.train_progress import StartupTrainingTimeout, _entropy_schedule, train_with_progress
@@ -33,16 +32,6 @@ def _env(**overrides):
         num_nodes=int(params["num_nodes"]),
         t_max=int(params["t_max"]),
         scale_factor=float(params["scale_factor"]),
-        shuffle_nodes=bool(params["shuffle_nodes"]),
-        disable_persistence=bool(params["disable_persistence"]),
-        activation_masks_actions=bool(params["activation_masks_actions"]),
-        activation_gates_backup_sink=bool(params["activation_gates_backup_sink"]),
-        activation_gates_backup_source=bool(params["activation_gates_backup_source"]),
-        disable_corruption=bool(params["disable_corruption"]),
-        activation_prevents_corruption=bool(params["activation_prevents_corruption"]),
-        forget_discovered=bool(params["forget_discovered"]),
-        activation_masks_observation=bool(params["activation_masks_observation"]),
-        excluded_child_value=params["excluded_child_value"],
         use_recency_obs=bool(params["use_recency_obs"]),
         use_g_values_obs=bool(params["use_g_values_obs"]),
         use_q_values_obs=bool(params["use_q_values_obs"]),
@@ -68,14 +57,9 @@ def _small_params(**overrides):
         "num_envs": 4,
         "rollout_length": 4,
         "seed": [0, 1],
-        "beta_move": 4.0,
-        "eps_move": 0.0,
-        "learning_rate": 1.0,
-        "lamda_backup": 0.5,
         "wm_decay": [0.5, 1.0],
         "cost": 0.01,
         "scale_factor": 1.0,
-        "shuffle_nodes": False,
         "lr": 1e-3,
         "gamma": 1.0,
         "lamda": 1.0,
@@ -90,13 +74,7 @@ def _small_params(**overrides):
 
 def _a2c_train_params(env, config):
     return A2CTrainParams(
-        env=_env_params(env, beta_move=config["beta_move"],
-            eps_move=config["eps_move"],
-            learning_rate=config["learning_rate"],
-            lamda_backup=config["lamda_backup"],
-            wm_decay=config["wm_decay"],
-            cost=config["cost"],
-        ),
+        env=_env_params(env, wm_decay=config["wm_decay"], cost=config["cost"]),
         lr=config["lr"],
         gamma=config["gamma"],
         lamda=config["lamda"],
@@ -107,21 +85,9 @@ def _a2c_train_params(env, config):
 
 @pytest.mark.slow
 def test_dynamic_env_params_match_default_env_for_same_values():
-    env = _env(
-        num_nodes=3,
-        t_max=4,
-        scale_factor=1.0,
-        shuffle_nodes=False,
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=3, t_max=4, scale_factor=1.0, point_set=np.array([1.0], dtype=np.float32))
     key = jax.random.PRNGKey(2)
-    params = _env_params(env, beta_move=4.0,
-        eps_move=0.0,
-        learning_rate=1.0,
-        lamda_backup=0.5,
-        wm_decay=1.0,
-        cost=0.01,
-    )
+    params = _env_params(env, wm_decay=1.0, cost=0.01)
 
     state_default, obs_default, info_default = env.reset(key, params)
     state_dynamic, obs_dynamic, info_dynamic = env.reset(key, params)
@@ -158,12 +124,7 @@ def test_parallel_sweep_compiles_and_returns_expected_shapes():
     assert len(runs) == 4
     assert [run["seed"] for run in runs] == [0, 0, 1, 1]
 
-    env = _env(
-        num_nodes=fixed["num_nodes"],
-        t_max=fixed["t_max"],
-        shuffle_nodes=fixed["shuffle_nodes"],
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=fixed["num_nodes"], t_max=fixed["t_max"], point_set=np.array([1.0], dtype=np.float32))
     trainer = VmappedA2CTrainer(
         env=env,
         action_size=env.action_size,
@@ -185,12 +146,7 @@ def test_parallel_sweep_compiles_node_shared_network():
     fixed, runs, _ = expand_sweep(
         _small_params(seed=[0], wm_decay=[1.0], network_type="node_shared")
     )
-    env = _env(
-        num_nodes=fixed["num_nodes"],
-        t_max=fixed["t_max"],
-        shuffle_nodes=fixed["shuffle_nodes"],
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=fixed["num_nodes"], t_max=fixed["t_max"], point_set=np.array([1.0], dtype=np.float32))
     trainer = VmappedA2CTrainer(
         env=env,
         action_size=env.action_size,
@@ -240,63 +196,11 @@ def test_parallel_sweep_allows_shape_stable_recency_decay_arrays():
     env = _env(
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
-        shuffle_nodes=fixed["shuffle_nodes"],
         use_recency_obs=True,
         point_set=np.array([1.0], dtype=np.float32),
     )
     no_recency_env = _env(num_nodes=fixed["num_nodes"], use_recency_obs=False)
     assert _obs_size(env) == _obs_size(no_recency_env) + fixed["num_nodes"]
-
-
-def test_parallel_sweep_allows_forget_rate_arrays():
-    fixed, runs, varied_keys = expand_sweep(
-        _small_params(seed=0, wm_decay=0.5, forget_rate=[0.0, 0.25])
-    )
-
-    assert varied_keys == ["forget_rate"]
-    assert len(runs) == 2
-
-    hypers = build_hypers(runs)
-    np.testing.assert_allclose(np.asarray(hypers.env.forget_rate), np.array([0.0, 0.25], dtype=np.float32))
-
-
-def test_parallel_sweep_allows_q_drift_arrays():
-    fixed, runs, varied_keys = expand_sweep(
-        _small_params(seed=0, wm_decay=1.0, q_drift=[0.0, 0.25])
-    )
-
-    assert varied_keys == ["q_drift"]
-    assert len(runs) == 2
-
-    hypers = build_hypers(runs)
-    np.testing.assert_allclose(np.asarray(hypers.env.q_drift), np.array([0.0, 0.25], dtype=np.float32))
-
-
-def test_parallel_sweep_derives_q_decay_from_q_drift():
-    fixed, runs, varied_keys = expand_sweep(
-        _small_params(seed=0, wm_decay=1.0, q_drift=[0.0, 0.5], scale_factor=0.25)
-    )
-
-    assert varied_keys == ["q_drift"]
-    assert len(runs) == 2
-
-    # q_decay = sqrt(1 - (q_drift / Q_SD)^2); q_drift = 0 leaves values undecayed.
-    expected = np.array([1.0, math.sqrt(1.0 - (0.5 / Q_SD) ** 2)], dtype=np.float32)
-    hypers = build_hypers(runs)
-    np.testing.assert_allclose(np.asarray(hypers.env.q_decay), expected, atol=1e-6)
-
-
-def test_parallel_sweep_allows_move_cost_scale_arrays():
-    fixed, runs, varied_keys = expand_sweep(
-        _small_params(seed=0, wm_decay=1.0, move_cost_scale=[0.0, 1.5])
-    )
-
-    assert varied_keys == ["move_cost_scale"]
-    assert len(runs) == 2
-
-    hypers = build_hypers(runs)
-    expected = np.array([0.0, 1.5], dtype=np.float32)
-    np.testing.assert_allclose(np.asarray(hypers.env.move_cost_scale), expected, atol=1e-6)
 
 
 def test_parallel_sweep_rejects_non_numeric_recency_decay_arrays():
@@ -329,12 +233,7 @@ def test_entropy_schedule_default_uses_all_updates():
 @pytest.mark.slow
 def test_train_with_progress_reports_numeric_rate(capsys):
     fixed, runs, _ = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
-    env = _env(
-        num_nodes=fixed["num_nodes"],
-        t_max=fixed["t_max"],
-        shuffle_nodes=fixed["shuffle_nodes"],
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=fixed["num_nodes"], t_max=fixed["t_max"], point_set=np.array([1.0], dtype=np.float32))
     num_updates = fixed["num_updates"]
     trainer = VmappedA2CTrainer(
         env=env,
@@ -379,12 +278,7 @@ def test_train_with_progress_tracks_startup_timeout_compile_stages():
             self.stages.append(stage)
 
     fixed, runs, _ = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
-    env = _env(
-        num_nodes=fixed["num_nodes"],
-        t_max=fixed["t_max"],
-        shuffle_nodes=fixed["shuffle_nodes"],
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=fixed["num_nodes"], t_max=fixed["t_max"], point_set=np.array([1.0], dtype=np.float32))
     trainer = VmappedA2CTrainer(
         env=env,
         action_size=env.action_size,
@@ -417,7 +311,6 @@ def test_parallel_single_combo_matches_existing_a2c():
         num_nodes=fixed["num_nodes"],
         t_max=fixed["t_max"],
         scale_factor=fixed["scale_factor"],
-        shuffle_nodes=fixed["shuffle_nodes"],
         point_set=np.array([1.0], dtype=np.float32),
     )
     num_updates = fixed["num_updates"]
@@ -478,22 +371,12 @@ env = DecisionTreeEnv(
     num_nodes=15,
     t_max=100,
     scale_factor=1 / 8,
-    shuffle_nodes=True,
-    disable_persistence=False,
     use_recency_obs=False,
     use_g_values_obs=True,
     use_q_values_obs=True,
     use_n_visits_obs=True,
     use_is_terminal_obs=True,
     use_time_elapsed_obs=True,
-    activation_masks_actions=True,
-    activation_gates_backup_sink=False,
-    activation_gates_backup_source=False,
-    disable_corruption=False,
-    activation_prevents_corruption=True,
-    forget_discovered=False,
-    activation_masks_observation=True,
-    excluded_child_value=None,
     point_set=(-8, -4, -2, -1, 1, 2, 4, 8),
 )
 trainer = BatchMaskA2C(
@@ -508,15 +391,8 @@ trainer = BatchMaskA2C(
     beta_e=0.05,
 )
 env_params = env.make_params(
-    beta_move=40.0,
-    eps_move=0.0,
-    learning_rate=1.0,
-    lamda_backup=1.0,
-    backup_steps=100,
     wm_decay=1.0,
     wm_neighbor_activation=1.0,
-    forget_rate=0.0,
-    q_drift=0.0,
     recency_decay=0.0,
     cost=0.01,
 )
@@ -554,9 +430,9 @@ def test_expand_sweep_rejects_shape_changing_arrays():
     assert False, "shape-changing arrays should be rejected"
 
 
-def test_expand_sweep_rejects_activation_touch_point_arrays():
+def test_expand_sweep_rejects_observation_flag_arrays():
     try:
-        expand_sweep(_small_params(activation_gates_backup_source=[True, False]))
+        expand_sweep(_small_params(use_recency_obs=[True, False]))
     except ValueError as error:
         assert "changes compiled shapes" in str(error)
         return
@@ -575,12 +451,7 @@ def test_expand_sweep_rejects_unknown_params():
 @pytest.mark.slow
 def test_save_results_writes_existing_style_run_dirs(tmp_path):
     fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
-    env = _env(
-        num_nodes=fixed["num_nodes"],
-        t_max=fixed["t_max"],
-        shuffle_nodes=fixed["shuffle_nodes"],
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=fixed["num_nodes"], t_max=fixed["t_max"], point_set=np.array([1.0], dtype=np.float32))
     trainer = VmappedA2CTrainer(
         env=env,
         action_size=env.action_size,
@@ -616,12 +487,7 @@ def test_save_results_writes_existing_style_run_dirs(tmp_path):
 @pytest.mark.slow
 def test_save_results_skips_eval_by_default(tmp_path):
     fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
-    env = _env(
-        num_nodes=fixed["num_nodes"],
-        t_max=fixed["t_max"],
-        shuffle_nodes=fixed["shuffle_nodes"],
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=fixed["num_nodes"], t_max=fixed["t_max"], point_set=np.array([1.0], dtype=np.float32))
     trainer = VmappedA2CTrainer(
         env=env,
         action_size=env.action_size,
@@ -651,12 +517,7 @@ def test_save_results_skips_eval_by_default(tmp_path):
 @pytest.mark.slow
 def test_evaluate_run_dir_uses_recorded_eval_episodes(tmp_path):
     fixed, runs, varied_keys = expand_sweep(_small_params(seed=[0], wm_decay=[1.0]))
-    env = _env(
-        num_nodes=fixed["num_nodes"],
-        t_max=fixed["t_max"],
-        shuffle_nodes=fixed["shuffle_nodes"],
-        point_set=np.array([1.0], dtype=np.float32),
-    )
+    env = _env(num_nodes=fixed["num_nodes"], t_max=fixed["t_max"], point_set=np.array([1.0], dtype=np.float32))
     trainer = VmappedA2CTrainer(
         env=env,
         action_size=env.action_size,

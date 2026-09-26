@@ -22,7 +22,7 @@ direct control. The core assumptions of the cognitive architecture are:
 
 - Operations can only be performed on information currently available in working memory.
 - Information in working memory decays rapidly.
-- Value information can be stored in and retrieved from persistent memory.
+- Node-specific value information exists only while the node is available in working memory.
 
 Keep this framing explicit when naming concepts, writing comments, adding config
 options, or documenting behavior. Avoid language that implies the environment is
