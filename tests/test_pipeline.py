@@ -448,3 +448,52 @@ def test_append_simulation_trial_skips_timeouts_when_requested():
     assert appended_timeout is False
     assert appended_complete is True
     assert len(data["actions"]) == 1
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("greedy", [False, True])
+def test_simulator_modes_match_replay_with_independent_rng_streams(greedy):
+    import jax
+    import jax.numpy as jnp
+    from modules.network import actor_critic_forward, apply_action_mask, init_actor_critic_params, sample_actions
+
+    env = _env(num_nodes=3, t_max=5, scale_factor=1.0, point_set=np.array([-1.0, 1.0], dtype=np.float32))
+    env_params = _env_params(env, wm_decay=0.6, wm_neighbor_activation=0.4)
+    params = init_actor_critic_params(
+        jax.random.PRNGKey(0), observation_template=env.observation_template,
+        action_size=env.action_size, hidden_size=16,
+    )
+    simulator = Simulator(env, env_params)
+    trial_keys = jax.random.split(jax.random.PRNGKey(31), 3)
+    metrics = simulator._eval_batch_jit(params, trial_keys, greedy=greedy)
+
+    for i, trial_key in enumerate(trial_keys):
+        policy_key, reset_key = jax.random.split(trial_key)
+        state, obs, info = env.reset(reset_key, env_params)
+        actions = []
+        total_reward = 0.0
+        for _ in range(env.t_max):
+            batch_obs = jax.tree_util.tree_map(lambda x: None if x is None else x[None, ...], obs)
+            logits, _ = actor_critic_forward(
+                params, batch_obs, info["mask"][None, :], info["observation_mask"][None, :],
+            )
+            if greedy:
+                action = jnp.argmax(apply_action_mask(logits[0], info["mask"]))
+            else:
+                policy_key, action_key = jax.random.split(policy_key)
+                action = sample_actions(action_key, logits, info["mask"][None, :])[0][0]
+            actions.append(int(action))
+            state, obs, reward, done, info = env.step(state, action, env_params)
+            total_reward += float(reward)
+            if bool(done):
+                break
+
+        for detailed in [False, True]:
+            trial = simulator._trial_jit(params, trial_key, greedy=greedy, detailed=detailed)
+            np.testing.assert_array_equal(trial[1][:len(actions)], actions)
+            for actual, expected in zip(jax.tree.leaves(trial[0]), jax.tree.leaves(state)):
+                np.testing.assert_allclose(actual, expected, atol=1e-6)
+            np.testing.assert_array_equal(trial[-1], policy_key)
+        np.testing.assert_allclose(metrics[0][i], total_reward, atol=1e-6)
+        np.testing.assert_allclose(metrics[1][i], reward, atol=1e-6)
+        assert int(metrics[2][i]) == len(actions)

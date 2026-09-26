@@ -92,7 +92,8 @@ class Simulator:
 
     def _run_trial(self, params: Any, rng_key: jax.Array, greedy: bool = False, detailed: bool = False):
         env_params = self.env_params
-        state, obs, info = self.env.reset(rng_key, env_params)
+        rng_key, reset_key = jax.random.split(rng_key)
+        state, obs, info = self.env.reset(reset_key, env_params)
         action_mask = info["mask"]
         observation_mask = info["observation_mask"]
 
@@ -256,7 +257,8 @@ class Simulator:
 
     def _run_trial_metrics(self, params: Any, rng_key: jax.Array, greedy: bool = False):
         env_params = self.env_params
-        state, obs, info = self.env.reset(rng_key, env_params)
+        rng_key, reset_key = jax.random.split(rng_key)
+        state, obs, info = self.env.reset(reset_key, env_params)
         action_mask = info["mask"]
         observation_mask = info["observation_mask"]
 
