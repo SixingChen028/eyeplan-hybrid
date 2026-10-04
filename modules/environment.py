@@ -221,17 +221,9 @@ class DecisionTreeEnv:
         state = state._replace(fixation_node=node)
         state = self._update_activation(state, params)
         state = self._clear_inactive_memory(state)
-        children = state.child_nodes[node]
-        child_activation = jnp.maximum(
-            safe_get(state.activation, children, fill_value=0.0),
-            params.wm_neighbor_activation,
-        )
-        activation = state.activation.at[node].set(1.0)
-        activation = safe_set(activation, children, child_activation)
         state = state._replace(
-            g_values=safe_set(state.g_values, children, state.g_values[node] + state.points[node]),
+            g_values=safe_set(state.g_values, state.child_nodes[node], state.g_values[node] + state.points[node]),
             n_visits=state.n_visits.at[node].add(1),
-            activation=activation,
             is_terminal=state.is_terminal.at[node].set(state.child_nodes[node, 0] < 0),
         )
         if not skip_q_update:
