@@ -80,6 +80,24 @@ def test_full_fit_folds_compared_against_full_independent_truth_folds(tmp_path):
     assert report["collisions"][0]["truth"]["repeat"] == 1
 
 
+def test_grouped_undirected_repeat_indices_share_global_cross_family_guard(tmp_path):
+    learned = bundle(tmp_path, "learned", [("a", [[10, 11]])])
+    undirected = bundle(tmp_path, "undirected", [("u", [[20, 21, 30, 31]])], undirected=True)
+    report = assert_independent_manifest_rng(
+        [learned, undirected], [learned, undirected], fit_repeats=[0], truth_repeats=[1],
+        fit_undirected_repeats=[0, 1], truth_undirected_repeats=[2, 3],
+    )
+    assert report["fit_seed_count"] == report["truth_seed_count"] == 3
+    # A collision between a truth trajectory seed and a different learned fit checkpoint must fail.
+    other = bundle(tmp_path, "other", [("b", [[31]])])
+    report = audit_manifest_rng(
+        [learned, undirected, other], [learned, undirected], fit_repeats=[0], truth_repeats=[1],
+        fit_undirected_repeats=[0, 1], truth_undirected_repeats=[2, 3],
+    )
+    assert report["collision_count"] == 1
+    assert report["collisions"][0]["fit"]["run_dir"] == "b"
+
+
 def test_uint32_wrapping_and_bounded_detailed_reports(tmp_path):
     fit = bundle(tmp_path, "fit", [("a", [[5]]), ("b", [[5]])])
     truth = bundle(tmp_path, "truth", [("c", [[2**32 + 5]])])

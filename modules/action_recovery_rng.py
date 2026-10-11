@@ -35,7 +35,7 @@ def _selected_run(run, undirected, run_dirs, wm_laws):
     return run_dirs is None or str(run["run_dir"]) in run_dirs
 
 
-def iter_manifest_seeds(paths, *, repeats=None, run_dirs=None, wm_laws=None, trial_keys=None,
+def iter_manifest_seeds(paths, *, repeats=None, undirected_repeats=None, run_dirs=None, wm_laws=None, trial_keys=None,
                         proposed_base_seed=None, total_records=None):
     """Yield selected seeds, retaining at most one JSON manifest at a time.
 
@@ -44,15 +44,18 @@ def iter_manifest_seeds(paths, *, repeats=None, run_dirs=None, wm_laws=None, tri
     undirected generators and ``run_dirs=[]`` to exclude learned generators.
     ``proposed_base_seed`` reproduces the current cache CLIs for a proposed job;
     undirected templates require the full input ``total_records`` (before sharding).
-    Template run order must match the proposed CLI run/WM order.
+    Template run order must match the proposed CLI run/WM order. Explicit
+    ``undirected_repeats`` overrides ``repeats`` for grouped trajectory folds.
     """
     run_dirs = None if run_dirs is None else {str(path) for path in run_dirs}
     wm_laws = None if wm_laws is None else {tuple(map(float, law)) for law in wm_laws}
     trial_keys = None if trial_keys is None else {(str(pid), int(index)) for pid, index in trial_keys}
     repeats = None if repeats is None else tuple(repeats)
-    if repeats is not None and (not repeats or len(set(repeats)) != len(repeats)
-                                or any(index < 0 for index in repeats)):
-        raise ValueError("repeat selection must be nonempty, unique, and nonnegative")
+    undirected_repeats = None if undirected_repeats is None else tuple(undirected_repeats)
+    for selection in (repeats, undirected_repeats):
+        if selection is not None and (not selection or len(set(selection)) != len(selection)
+                                      or any(index < 0 for index in selection)):
+            raise ValueError("repeat selection must be nonempty, unique, and nonnegative")
     for path in paths:
         path = Path(path)
         manifest = json.loads(path.read_text())
@@ -60,6 +63,7 @@ def iter_manifest_seeds(paths, *, repeats=None, run_dirs=None, wm_laws=None, tri
         if method not in {"planning_mc_bernstein_moments_exact_execution", "undirected_gamma_trajectory_cache"}:
             raise ValueError(f"unsupported recovery cache method in {path}: {method}")
         undirected = method == "undirected_gamma_trajectory_cache"
+        selected_repeats = undirected_repeats if undirected and undirected_repeats is not None else repeats
         if proposed_base_seed is not None and undirected and (total_records is None or total_records < 1):
             raise ValueError("proposed undirected seeds require full input total_records")
         for run_index, run in enumerate(manifest["runs"]):
@@ -72,7 +76,7 @@ def iter_manifest_seeds(paths, *, repeats=None, run_dirs=None, wm_laws=None, tri
                 if trial_keys is not None and key not in trial_keys:
                     continue
                 seeds = entry["seeds"] if undirected else [repeat["seed"] for repeat in entry]
-                selected = range(len(seeds)) if repeats is None else repeats
+                selected = range(len(seeds)) if selected_repeats is None else selected_repeats
                 for repeat in selected:
                     if repeat >= len(seeds):
                         raise ValueError(f"missing repeat {repeat}: {path}, trial {key}, run {run['run_dir']}")
@@ -91,6 +95,7 @@ def iter_manifest_seeds(paths, *, repeats=None, run_dirs=None, wm_laws=None, tri
 
 
 def audit_manifest_rng(fit_paths, truth_paths, *, fit_repeats=None, truth_repeats=None,
+                       fit_undirected_repeats=None, truth_undirected_repeats=None,
                        fit_run_dirs=None, truth_run_dirs=None, fit_wm_laws=None, truth_wm_laws=None,
                        trial_keys=None, max_collisions=100, proposed_truth_base_seed=None,
                        truth_total_records=None):
@@ -106,7 +111,8 @@ def audit_manifest_rng(fit_paths, truth_paths, *, fit_repeats=None, truth_repeat
     truth_by_trial = defaultdict(lambda: defaultdict(list))
     truth_count = 0
     for reference in iter_manifest_seeds(
-        truth_paths, repeats=truth_repeats, run_dirs=truth_run_dirs, wm_laws=truth_wm_laws,
+        truth_paths, repeats=truth_repeats, undirected_repeats=truth_undirected_repeats,
+        run_dirs=truth_run_dirs, wm_laws=truth_wm_laws,
         trial_keys=trial_keys, proposed_base_seed=proposed_truth_base_seed, total_records=truth_total_records,
     ):
         truth_by_trial[reference.trial_key][reference.seed].append(reference)
@@ -115,7 +121,8 @@ def audit_manifest_rng(fit_paths, truth_paths, *, fit_repeats=None, truth_repeat
         raise ValueError("no generating cache seeds selected for recovery RNG audit")
     collisions, collision_count, fit_count, covered = [], 0, 0, set()
     for reference in iter_manifest_seeds(
-        fit_paths, repeats=fit_repeats, run_dirs=fit_run_dirs, wm_laws=fit_wm_laws, trial_keys=truth_by_trial,
+        fit_paths, repeats=fit_repeats, undirected_repeats=fit_undirected_repeats,
+        run_dirs=fit_run_dirs, wm_laws=fit_wm_laws, trial_keys=truth_by_trial,
     ):
         fit_count += 1
         covered.add(reference.trial_key)
