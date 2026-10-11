@@ -271,6 +271,72 @@ def scientific_summary(fit, recoveries, accounting):
     }
 
 
+def sensitivity_comparison(primary, sensitivity):
+    """Compare frozen main fits using paired participant score sufficient statistics."""
+    if sensitivity["scope"] != "sensitivity" or set(sensitivity["fits"]["selected_by_validation"]) != {"main"}:
+        raise ValueError("sensitivity input must contain the separately fitted main sensitivity candidate")
+    if len(sensitivity["fits"]["fits"]) != 1:
+        raise ValueError("matched-main sensitivity input must contain one prespecified candidate")
+    if primary["split"] != sensitivity["split"]:
+        raise ValueError("primary and sensitivity fits require the same frozen participant split")
+    for key in ("data_sha256", "candidate_manifest_sha256"):
+        if primary["provenance"][key] != sensitivity["provenance"][key]:
+            raise ValueError("primary and sensitivity fits require the same data and candidate inventory")
+
+    def selected_main(report):
+        candidate_id = report["fits"]["selected_by_validation"]["main"]
+        return next(row for row in report["fits"]["fits"] if row["candidate_id"] == candidate_id)
+
+    main, matched = selected_main(primary), selected_main(sensitivity)
+    participants = []
+    originals = {str(row["pid"]): row for row in primary["test"]["participant_scores"]}
+    new = {str(row["pid"]): row for row in sensitivity["test"]["participant_scores"]}
+    if (not originals or originals.keys() != new.keys()
+            or len(originals) != len(primary["test"]["participant_scores"])
+            or len(new) != len(sensitivity["test"]["participant_scores"])):
+        raise ValueError("primary and sensitivity test participant identities differ or contain duplicates")
+    for pid in sorted(originals):
+        left, right = originals[pid], new[pid]
+        if left["trial_count"] != right["trial_count"] or left["trial_count"] < 1:
+            raise ValueError("primary and sensitivity test participant trial counts differ")
+        participants.append({"pid": pid, "trial_count": left["trial_count"],
+                             "primary_total_log_score": left["total_log_scores"]["main"],
+                             "sensitivity_total_log_score": right["total_log_scores"]["main"],
+                             "difference_total_log_score": right["total_log_scores"]["main"]
+                             - left["total_log_scores"]["main"]})
+    counts = np.asarray([row["trial_count"] for row in participants])
+    differences = np.asarray([row["difference_total_log_score"] for row in participants])
+    for report, field in ((primary, "primary_total_log_score"), (sensitivity, "sensitivity_total_log_score")):
+        if (counts.sum() != report["split"]["trial_counts"]["test"]
+                or not np.isclose(sum(row[field] for row in participants),
+                                  report["test"]["total_log_likelihoods"]["main"], atol=1e-6, rtol=1e-10)):
+            raise ValueError("stored participant scores do not reproduce the frozen test score/count")
+    bootstrap = primary["test"]["scores"]
+    repetitions, seed = bootstrap["bootstrap_repetitions"], bootstrap["bootstrap_seed"]
+    draws = np.random.default_rng(seed).integers(0, len(counts), size=(repetitions, len(counts)))
+    means = differences[draws].sum(axis=1) / counts[draws].sum(axis=1)
+    totals = {}
+    for split, field in (("train", "total_log_likelihood"), ("validation", "validation_log_likelihood")):
+        totals[split] = {"primary": main[field], "sensitivity": matched[field],
+                         "sensitivity_minus_primary": matched[field] - main[field]}
+    left, right = (report["test"]["total_log_likelihoods"]["main"] for report in (primary, sensitivity))
+    totals["test"] = {"primary": left, "sensitivity": right, "sensitivity_minus_primary": right - left}
+    return {
+        "method": "paired_participant_bootstrap_of_frozen_main_score_differences",
+        "primary_candidate": main, "sensitivity_candidate": matched, "total_log_likelihoods": totals,
+        "test_mean_log_score_difference": float(differences.sum() / counts.sum()),
+        "test_mean_log_score_difference_95_interval": np.quantile(means, [.025, .975]).tolist(),
+        "bootstrap_probability_above_zero": float((means > 0).mean()),
+        "equal_participant_mean_log_score_difference": float((differences / counts).mean()),
+        "bootstrap_repetitions": repetitions, "bootstrap_seed": seed,
+        "participant_count": len(counts), "trial_count": int(counts.sum()), "participant_scores": participants,
+        "scope": "Prespecified matched-main sensitivity, reported separately and interpreted as exploratory "
+                 "conditional on the inherited checkpoints and frozen split. No primary model is reselected.",
+        "uncertainty": "Participant sampling conditional on both frozen fits; excludes MC integration, "
+                       "checkpoint-training and parameter-selection uncertainty.",
+    }
+
+
 def protocol_recovery_figure(reports, directory):
     """Plot full train/validation/test procedure recovery separately from pooled ML."""
     rows = [row for report in reports for row in report["datasets"]]
@@ -507,6 +573,32 @@ def confirmation_markdown(reports):
     return lines
 
 
+def sensitivity_markdown(report):
+    if report is None:
+        return []
+    comparison = report["comparison"]
+    candidate = comparison["sensitivity_candidate"]
+    interval = comparison["test_mean_log_score_difference_95_interval"]
+    lines = ["", "## Matched-main sensitivity", "", comparison["scope"], "",
+             f"Sensitivity candidate: `{candidate['candidate_id']}`, parameters "
+             f"`{json.dumps(candidate['parameters'], sort_keys=True)}`, train-fitted lapse "
+             f"{candidate['lapse_rate']:.4f}.", "",
+             "| Split | Selected primary main total score | Sensitivity total score | Sensitivity − primary |",
+             "| --- | ---: | ---: | ---: |"]
+    for split, row in comparison["total_log_likelihoods"].items():
+        lines.append(f"| {split} | {row['primary']:.3f} | {row['sensitivity']:.3f} "
+                     f"| {row['sensitivity_minus_primary']:.3f} |")
+    lines += ["", f"Paired test mean difference: {comparison['test_mean_log_score_difference']:.5f} nats/trial "
+              f"(participant bootstrap 95% interval [{interval[0]:.5f}, {interval[1]:.5f}]; "
+              f"{comparison['participant_count']} participants, {comparison['trial_count']} trials, "
+              f"{comparison['bootstrap_repetitions']} resamples). "
+              f"Equal-participant mean difference: "
+              f"{comparison['equal_participant_mean_log_score_difference']:.5f} nats/trial.",
+              comparison["uncertainty"], "Raw paired participant scores, separate sensitivity-fit diagnostics, "
+              "and both source identities remain in `summary.json`."]
+    return lines
+
+
 def markdown_report(summary, recovery_panel, figure_prefix=""):
     split, test = summary["split"], summary["heldout"]
     lines = ["# Action-only model-fitting results", "",
@@ -565,6 +657,7 @@ def markdown_report(summary, recovery_panel, figure_prefix=""):
                   f"![Continuous stopping recovery]({figure_prefix}figure3_continuous_gamma.png)"]
     lines += ["", "## Scope and interpretation", ""] + [f"- {value}" for value in summary["limitations"]]
     lines += confirmation_markdown(summary.get("independent_truth_confirmation", []))
+    lines += sensitivity_markdown(summary.get("matched_main_sensitivity"))
     compute = summary["compute"]
     lines += ["", "## Compute and caching", ""]
     if compute.get("verified"):
@@ -601,6 +694,7 @@ def main():
     parser.add_argument("--continuous-recovery", nargs="*", type=Path, default=[])
     parser.add_argument("--truth-confirmation", nargs="*", type=Path, default=[])
     parser.add_argument("--mc-precision", type=Path)
+    parser.add_argument("--sensitivity-fit", type=Path)
     parser.add_argument("--candidates", type=Path)
     parser.add_argument("--accounting", type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
@@ -628,6 +722,8 @@ def main():
     protocol = [read_json(path) for path in args.protocol_recovery]
     mc_precision = read_json(args.mc_precision) if args.mc_precision else None
     confirmations = [read_json(path) for path in args.truth_confirmation]
+    sensitivity = read_json(args.sensitivity_fit) if args.sensitivity_fit else None
+    sensitivity_result = sensitivity_comparison(fit, sensitivity) if sensitivity is not None else None
     fit_sha256 = identity(args.fit)["sha256"]
     if mc_precision is not None and (mc_precision["split_sha256"] != fit["split"]["split_sha256"]
                                     or mc_precision["provenance"]["fit"]["sha256"] != fit_sha256):
@@ -644,6 +740,7 @@ def main():
                              "protocol_recovery": [identity(path) for path in args.protocol_recovery],
                              "truth_confirmation": [identity(path) for path in args.truth_confirmation],
                              "mc_precision": identity(args.mc_precision) if args.mc_precision else None,
+                             "sensitivity_fit": identity(args.sensitivity_fit) if args.sensitivity_fit else None,
                              "candidates": identity(args.candidates) if args.candidates else None,
                              "report_script": identity(__file__)}
     fit_figure(fit, args.output_dir)
@@ -658,6 +755,9 @@ def main():
     summary["protocol_recovery_figure"] = protocol_recovery_figure(protocol, args.output_dir)
     summary["independent_truth_confirmation"] = confirmations
     summary["analytic_mc_precision"] = mc_precision
+    summary["matched_main_sensitivity"] = ({"fit": sensitivity,
+                                            "comparison": sensitivity_result}
+                                           if sensitivity is not None else None)
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2, allow_nan=False) + "\n")
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
     figure_prefix = os.path.relpath(args.output_dir.resolve(), markdown_path.parent.resolve()) + "/"

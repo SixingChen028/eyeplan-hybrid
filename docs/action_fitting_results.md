@@ -10,6 +10,7 @@
   --continuous-recovery results/diagnostics/action_fitting_20261011/continuous_gamma_recovery.json \
   --truth-confirmation results/diagnostics/action_fitting_20261011/truth_confirmation.json \
   --mc-precision results/diagnostics/action_fitting_20261011/mc_precision.json \
+  --sensitivity-fit results/diagnostics/action_fitting_20261011/sensitivity_fit.json \
   --candidates results/diagnostics/action_fitting_20261011/candidate_manifest.json \
   --accounting results/diagnostics/action_fitting_20261011/sacct.psv \
   --output-dir results/diagnostics/action_fitting_20261011/report
@@ -28,5 +29,7 @@ Pass multiple primary output paths after `--protocol-recovery` to aggregate inde
 `--mc-precision` includes the standalone cached-covariance report in full, verifies its frozen fit/split identity, and adds total-score and held-out gap tables. Ordinary policy MCSEs use analytic M2 propagation; Gamma MCSEs use trajectory repeats. Leading log-bias values remain diagnostics at frozen parameters. Participant bootstrap intervals describe sampling uncertainty separately from either numerical MC estimate.
 
 Independent finalist confirmation tables show original and independently rescored train/validation/test totals, their changes and combined numerical MCSEs, plus frozen test-family gap comparisons. The report verifies the confirmation's frozen fit and split hashes and requires unchanged fitted parameters and selected models. The complete confirmation JSON, repeat scores, uncertainty methods, RNG audit, and provenance are retained.
+
+`--sensitivity-fit` accepts the separately completed `fit_action_models.py --scope sensitivity` output for the prespecified matched-main candidate (WM decay 0.95, neighbor activation 0.5, cost 0.005). It compares that candidate's frozen train/validation/test scores against the validation-selected primary main candidate. Paired test participant totals and trial counts reproduce the pooled-trial participant bootstrap without loading caches or optimizing parameters again. The report checks identical frozen split, data and candidate inventory, preserves raw paired participant scores and the full sensitivity fit/hash, and reports this exploratory sensitivity separately from primary model selection. Its bootstrap interval quantifies participant sampling conditional on both frozen fits; numerical integration and selection uncertainty remain separate.
 
 Outputs are written exclusively by default; use a fresh directory for a new result revision. `--overwrite` explicitly permits regenerating artifacts from the same completed source reports. `--markdown` selects another summary destination. Source report and generator hashes are included in `summary.json`.
