@@ -125,6 +125,29 @@ def score_splits(probabilities, repeat_probabilities, trials, assignment, varian
     return result
 
 
+def gamma_scores(paths, fitted, trial_keys, assignment):
+    """Rescore only the selected WM law, retaining every independent raw repeat."""
+    parameter = fitted["parameters"]
+    law = parameter["wm_decay"], parameter["wm_neighbor_activation"]
+    selected_paths = []
+    for path in paths:
+        manifest = read_json(path)
+        if manifest.get("method") == "undirected_gamma_trajectory_cache" and any(
+            (run["wm_decay"], run["wm_neighbor_activation"]) == law for run in manifest["runs"]
+        ):
+            selected_paths.append(path)
+    manifest, pooled, repeats = stream_undirected_candidates(selected_paths, candidate_specs_by_law={
+        law: [{"gamma_shape": parameter["gamma_shape"], "gamma_mean": parameter["gamma_mean"]}],
+    }, trial_keys=trial_keys)
+    observed = np.asarray([trial["observed_index"] for trial in manifest["trials"]])
+
+    def chosen(candidate):
+        return candidate.probabilities(fitted["lapse_rate"])[np.arange(len(observed)), observed]
+
+    return score_splits(chosen(pooled[0]), np.stack([chosen(repeated[0]) for repeated in repeats]),
+                        manifest["trials"], assignment)
+
+
 def confirmation_report(fit, inventory, ordinary_paths, gamma_paths, baseline, precision=None):
     selected = fit["fits"]["selected_by_validation"]
     fitted = {row["candidate_id"]: row for row in fit["fits"]["fits"]}
@@ -176,26 +199,31 @@ def confirmation_report(fit, inventory, ordinary_paths, gamma_paths, baseline, p
                 streamed["probabilities"][candidate_id], streamed["repeat_probabilities"][candidate_id],
                 streamed["trials"], fit["split"]["participant_assignment"], streamed["variances"][candidate_id],
             )
+    baseline_gamma = None
     if gamma is not None:
-        parameter = gamma["parameters"]
-        manifest, pooled, repeats = stream_undirected_candidates(gamma_paths, candidate_specs_by_law={
-            law: [{"gamma_shape": parameter["gamma_shape"], "gamma_mean": parameter["gamma_mean"]}],
-        }, trial_keys=keys)
-        observed = np.asarray([trial["observed_index"] for trial in manifest["trials"]])
-
-        def chosen(candidate):
-            return candidate.probabilities(gamma["lapse_rate"])[np.arange(len(observed)), observed]
-
-        scores[gamma["candidate_id"]] = score_splits(
-            chosen(pooled[0]), np.stack([chosen(repeated[0]) for repeated in repeats]),
-            manifest["trials"], fit["split"]["participant_assignment"],
-        )
+        assignment = fit["split"]["participant_assignment"]
+        scores[gamma["candidate_id"]] = gamma_scores(gamma_paths, gamma, keys, assignment)
+        baseline_gamma = gamma_scores(baseline, gamma, keys, assignment)
+        for split, original in original_scores(fit, gamma).items():
+            rescored = baseline_gamma[split]["confirmation_total_log_likelihood"]
+            if not np.isclose(rescored, original, atol=1e-7, rtol=1e-10):
+                raise ValueError(f"baseline Gamma {split} pooled likelihood differs from frozen fit")
     candidates = []
     for family, candidate_id in selected.items():
         row = fitted[candidate_id]
         original = original_scores(fit, row)
         for split, summary in scores[candidate_id].items():
             old_se, method = baseline_se(fit, precision, candidate_id, split)
+            if family == "undirected":
+                raw = baseline_gamma[split]
+                old_se, method = raw["confirmation_mc_se"], raw["confirmation_mc_se_method"]
+                summary.update({
+                    "baseline_independent_repeat_count": raw["confirmation_independent_repeat_count"],
+                    "baseline_repeat_total_log_likelihoods": raw["confirmation_repeat_total_log_likelihoods"],
+                    "baseline_repeat_only_mc_se": raw["confirmation_repeat_only_mc_se"],
+                    "baseline_rescored_total_log_likelihood": raw["confirmation_total_log_likelihood"],
+                    "baseline_rescored_minus_original": raw["confirmation_total_log_likelihood"] - original[split],
+                })
             new_se = summary["confirmation_mc_se"]
             combined = float(np.hypot(old_se, new_se)) if old_se is not None and new_se is not None else None
             summary.update({
@@ -238,7 +266,10 @@ def confirmation_report(fit, inventory, ordinary_paths, gamma_paths, baseline, p
             "with few repeats.",
             "Combined errors assume independent original/new and distinct-family integration streams; cross-problem "
             "uint32 seed coincidences are outside the same-problem independence audit.",
-            "If baseline analytic precision is absent, combined errors use the original fit's repeat-only approximation.",
+            "Baseline Gamma uncertainty uses all original raw repeats after verifying the pooled frozen score; "
+            "it remains a few-repeat approximation rather than within-history covariance propagation.",
+            "If ordinary baseline analytic precision is absent, its combined errors use the original fit's "
+            "repeat-only approximation.",
         ],
     }
 

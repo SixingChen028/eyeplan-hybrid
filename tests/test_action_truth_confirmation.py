@@ -90,6 +90,11 @@ def fixture(tmp_path):
                name: {split: {"approx_pooled_log_likelihood_mc_se": .02} for split in ["train", "validation", "test"]}
                for name in ["main", "gamma"]
            }}}
+    grouped_gamma_scores = np.log(gamma_repeat_ps[0].reshape(2, 2, 3).mean(axis=1))
+    for t, split in enumerate(["train", "validation", "test"]):
+        fit["numerical_precision"]["candidates"]["gamma"][split] = {
+            "approx_pooled_log_likelihood_mc_se": float(grouped_gamma_scores[:, t].std(ddof=1) / np.sqrt(2)),
+        }
     inventory = {"candidates": [{"id": "main", "runs": [{"run_dir": "seed1", "metadata_sha256": "ordinary_meta",
                                                             "params_sha256": "policy"}]}]}
     precision = {"candidates": {"main": {"splits": {
@@ -118,12 +123,29 @@ def test_fixed_confirmation_scores_and_combined_precision(tmp_path):
     gamma_row = report["candidates"][1]["splits"]["test"]
     assert gamma_row["confirmation_mc_se_method"].startswith("Gamma_")
     assert gamma_row["confirmation_analytic_mc_se"] is None
+    assert gamma_row["baseline_mc_se_method"] == "Gamma_independent_raw_trajectory_repeats_only"
+    assert gamma_row["baseline_independent_repeat_count"] == 4
+    assert gamma_row["confirmation_independent_repeat_count"] == 2
+    np.testing.assert_allclose(gamma_row["baseline_rescored_minus_original"], 0, atol=1e-14)
+    with np.load(baseline[1].with_suffix(".npz")) as arrays:
+        raw = arrays["t2"]
+    mass = gamma_stopping_probabilities(1, 2, raw.shape[1])
+    raw_probabilities = .75 * (raw[:, :, 0, 0] @ mass) + .125
+    raw_scores = np.log(raw_probabilities)
+    np.testing.assert_allclose(gamma_row["baseline_repeat_total_log_likelihoods"], raw_scores)
+    np.testing.assert_allclose(gamma_row["baseline_mc_se"], raw_scores.std(ddof=1) / 2)
+    grouped_probabilities = raw_probabilities.reshape(2, 2).mean(axis=1)
+    np.testing.assert_allclose(grouped_probabilities.mean(), raw_probabilities.mean())
+    grouped_se = fit["numerical_precision"]["candidates"]["gamma"]["test"]["approx_pooled_log_likelihood_mc_se"]
+    np.testing.assert_allclose(grouped_se, np.log(grouped_probabilities).std(ddof=1) / np.sqrt(2))
+    assert not np.isclose(gamma_row["baseline_mc_se"], grouped_se)
     gap = report["paired_family_gaps"][0]["splits"]["test"]
     np.testing.assert_allclose(gap["confirmation_gap"], np.log(expected_gamma[2]) - np.log(expected_main[2]))
     assert abs(gap["change_in_gap"]) > 0
 
 
-@pytest.mark.parametrize("failure", ["same_problem_seed", "source_hash", "Gamma_metadata", "trial_path"])
+@pytest.mark.parametrize("failure", ["same_problem_seed", "source_hash", "Gamma_metadata", "trial_path",
+                                     "baseline_Gamma_score"])
 def test_confirmation_rejects_nonindependent_or_mismatched_sources(tmp_path, failure):
     fit, inventory, ordinary, gamma, baseline, precision, _, _ = fixture(tmp_path)
     path = gamma[0]
@@ -134,6 +156,8 @@ def test_confirmation_rejects_nonindependent_or_mismatched_sources(tmp_path, fai
         manifest["source_sha256"]["frozen_simulator.py"] = "changed"
     elif failure == "Gamma_metadata":
         manifest["runs"][0]["metadata_sha256"] = "changed"
+    elif failure == "baseline_Gamma_score":
+        fit["fits"]["fits"][1]["total_log_likelihood"] += .01
     else:
         manifest["trials"][0]["paths"] = [[2], [1]]
     path.write_text(json.dumps(manifest))
