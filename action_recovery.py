@@ -117,7 +117,7 @@ def summarize_parameters(rows):
                 continue
             truth, fitted = np.asarray(truth), np.asarray(fitted)
             error = fitted - truth
-            correlation = float(np.corrcoef(truth, fitted)[0, 1]) if np.std(truth) > 0 and np.std(fitted) > 0 else None
+            correlation = float(np.corrcoef(truth, fitted)[0, 1]) if np.ptp(truth) > 0 and np.ptp(fitted) > 0 else None
             parameters[key] = {"bias": float(error.mean()), "rmse": float(np.sqrt(np.mean(error**2))),
                                "correlation": correlation, "truth_values": sorted(set(truth.tolist()))}
         result.append({"family": family, "design": design, "true_lapse": lapse, "parameters": parameters})
@@ -167,7 +167,9 @@ def recovery(candidates, truth_candidates, *, lapse_grid, true_lapses, trial_set
                 generating = validate_probabilities(truth.probabilities(true_lapse, indices))
                 if generating.shape != shape or np.any((generating > 0) != support):
                     raise ValueError("all candidate distributions must share the same legal path support")
-                observed = sample_paths(generating, repetitions, rng)
+                seed_text = json.dumps([seed, str(design), truth.candidate_id, float(true_lapse)])
+                cell_seed = int.from_bytes(hashlib.sha256(seed_text.encode()).digest()[:8], "little")
+                observed = sample_paths(generating, repetitions, np.random.default_rng(cell_seed))
                 columns = (np.arange(len(indices))[None, :] * shape[1] + observed).ravel()
                 observations.append(csr_matrix((np.ones(len(columns)), columns,
                                                 np.arange(0, len(columns) + 1, len(indices))),
@@ -258,6 +260,8 @@ def recovery(candidates, truth_candidates, *, lapse_grid, true_lapses, trial_set
             })
     return {
         "method": "finite_candidate_and_lapse_grid_recovery", "seed": seed, "repetitions": repetitions,
+        "synthetic_seed_rule": "sha256 of JSON [seed, design, true_candidate, true_lapse], "
+                               "first eight bytes little endian",
         "lapse_grid": lapse_grid.tolist(), "true_lapses": list(true_lapses),
         "trial_sets": {str(key): list(map(int, values)) for key, values in trial_sets.items()},
         "interval_method": "within_true_family_profile_likelihood_grid_envelope_cutoff_1.920729410347062",
@@ -274,22 +278,18 @@ def recovery(candidates, truth_candidates, *, lapse_grid, true_lapses, trial_set
 def assert_independent_repeats(caches, truth_repeat, fit_repeats):
     if truth_repeat in fit_repeats:
         raise ValueError("generative and fitting MC repetitions must be disjoint")
-    truth_seeds, fit_seeds = set(), set()
     for run in caches:
         for trial in run:
             if truth_repeat >= len(trial) or any(repeat >= len(trial) for repeat in fit_repeats):
                 raise ValueError("requested MC repetition missing from cache")
-            truth_seeds.add(trial[truth_repeat].seed)
-            fit_seeds.update(trial[repeat].seed for repeat in fit_repeats)
-    if truth_seeds & fit_seeds:
-        raise ValueError("generative and fitting caches share MC seeds")
+            if trial[truth_repeat].seed in {trial[repeat].seed for repeat in fit_repeats}:
+                raise ValueError("generative and fitting caches share MC seeds for a checkpoint/trial")
 
 
 def assert_independent_manifest_repeats(paths, truth_repeat, fit_repeats):
     """Check RNG separation directly from metadata, without reading covariance arrays."""
     if truth_repeat in fit_repeats:
         raise ValueError("generative and fitting MC repetitions must be disjoint")
-    truth_seeds, fit_seeds = set(), set()
     for path in paths:
         manifest = json.loads(Path(path).read_text())
         for run in manifest["runs"]:
@@ -297,10 +297,8 @@ def assert_independent_manifest_repeats(paths, truth_repeat, fit_repeats):
                 seeds = entries["seeds"] if isinstance(entries, dict) else [entry["seed"] for entry in entries]
                 if truth_repeat >= len(seeds) or any(repeat >= len(seeds) for repeat in fit_repeats):
                     raise ValueError("requested MC repetition missing from cache")
-                truth_seeds.add(seeds[truth_repeat])
-                fit_seeds.update(seeds[repeat] for repeat in fit_repeats)
-    if truth_seeds & fit_seeds:
-        raise ValueError("generative and fitting caches share MC seeds")
+                if seeds[truth_repeat] in {seeds[repeat] for repeat in fit_repeats}:
+                    raise ValueError("generative and fitting caches share MC seeds for a checkpoint/trial")
 
 
 def average_repeat_candidates(repeat_candidates, selected):
@@ -324,7 +322,10 @@ def average_repeat_candidates(repeat_candidates, selected):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("cache", type=Path, nargs="+")
+    parser.add_argument("cache", type=Path, nargs="*")
+    parser.add_argument("--undirected-cache", type=Path, nargs="+")
+    parser.add_argument("--gamma-shapes", type=float, nargs="+", default=[0.5, 1, 2, 4, 8])
+    parser.add_argument("--gamma-means", type=float, nargs="+", default=[2, 4, 8, 16, 32, 64])
     parser.add_argument("--candidate-manifest", type=Path, required=True)
     parser.add_argument("--scope", default="primary")
     parser.add_argument("--output", required=True, type=Path)
@@ -343,14 +344,38 @@ def main():
         parser.error("output already exists")
     if args.lapse_step <= 0 or args.truth_repeat < 0 or any(repeat < 0 for repeat in args.fit_repeats):
         parser.error("lapse step must be positive and repeat indices nonnegative")
-    from modules.action_cache_fitting import stream_cache_candidates
+    if not args.cache and not args.undirected_cache:
+        parser.error("at least one learned or undirected cache is required")
+    from modules.action_cache_fitting import (
+        align_candidate_trials, stream_cache_candidates, stream_undirected_candidates,
+    )
 
-    assert_independent_manifest_repeats(args.cache, args.truth_repeat, args.fit_repeats)
+    all_cache_paths = args.cache + (args.undirected_cache or [])
+    assert_independent_manifest_repeats(all_cache_paths, args.truth_repeat, args.fit_repeats)
     candidate_manifest = json.loads(args.candidate_manifest.read_text())
     candidate_manifest = {**candidate_manifest, "candidates": [
         candidate for candidate in candidate_manifest["candidates"] if candidate.get("scope", "primary") == args.scope
     ]}
-    manifest, _, _, repeat_candidates = stream_cache_candidates(args.cache, candidate_manifest)
+    if args.undirected_cache:
+        candidate_manifest["candidates"] = [candidate for candidate in candidate_manifest["candidates"]
+                                             if candidate["model"] != "undirected"]
+    if args.cache:
+        manifest, pooled, _, repeat_candidates = stream_cache_candidates(args.cache, candidate_manifest)
+        del pooled
+    else:
+        manifest, repeat_candidates = None, []
+    if args.undirected_cache:
+        undirected_manifest, pooled, undirected_repeats = stream_undirected_candidates(
+            args.undirected_cache, args.gamma_shapes, args.gamma_means,
+        )
+        del pooled
+        if manifest is None:
+            manifest, repeat_candidates = undirected_manifest, undirected_repeats
+        else:
+            if len(repeat_candidates) != len(undirected_repeats):
+                raise ValueError("learned and undirected caches need matching independent-repeat counts")
+            for learned, undirected in zip(repeat_candidates, undirected_repeats, strict=True):
+                learned += align_candidate_trials(undirected, undirected_manifest["trials"], manifest["trials"])
     candidates = average_repeat_candidates(repeat_candidates, args.fit_repeats)
     truth_candidates = repeat_candidates[args.truth_repeat]
     if args.truth_ids is not None and not set(args.truth_ids) <= {c.candidate_id for c in truth_candidates}:
@@ -374,8 +399,10 @@ def main():
                       progress=lambda value: print(json.dumps(value), flush=True))
     result["provenance"] = {
         "cache_manifests": [{"path": str(path.resolve()), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-                            for path in args.cache],
+                            for path in all_cache_paths],
         "truth_repeat": args.truth_repeat, "fit_repeats": args.fit_repeats, "scope": args.scope,
+        "gamma_grid": {"shapes": args.gamma_shapes, "means": args.gamma_means}
+        if args.undirected_cache else None,
         "candidate_manifest_sha256": hashlib.sha256(args.candidate_manifest.read_bytes()).hexdigest()
         if args.candidate_manifest else None,
         "independent_generative_and_fitting_mc": True,

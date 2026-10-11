@@ -128,3 +128,28 @@ def test_streamed_cache_recovery_cli(tmp_path, monkeypatch):
     assert_independent_manifest_repeats([cache_path], 1, [0])
     with pytest.raises(ValueError, match="disjoint"):
         assert_independent_manifest_repeats([cache_path], 0, [0])
+    gamma_arrays, gamma_estimates = {}, []
+    for trial in trials:
+        key = f"trial{trial['trial_index']}"
+        coefficient = np.column_stack([[0.65, 0.35], [0.5, 0.5]])
+        gamma_arrays[key] = np.tile(coefficient, (2, 3, 1, 1))
+        gamma_estimates.append({"key": key, "seeds": [1000 + 2 * trial["trial_index"],
+                                                       1001 + 2 * trial["trial_index"]]})
+    gamma_arrays_path = tmp_path / "gamma.npz"
+    np.savez(gamma_arrays_path, **gamma_arrays)
+    gamma_path = tmp_path / "gamma.json"
+    gamma_path.write_text(json.dumps({
+        "cache_version": 1, "method": "undirected_gamma_trajectory_cache", "arrays_file": gamma_arrays_path.name,
+        "arrays_sha256": hashlib.sha256(gamma_arrays_path.read_bytes()).hexdigest(), "trials": trials,
+        "runs": [{"wm_decay": 0.8, "wm_neighbor_activation": 0.5, "max_fixations": 3,
+                  "estimates": gamma_estimates}],
+    }))
+    gamma_output = tmp_path / "gamma_result.json"
+    monkeypatch.setattr(sys, "argv", ["action_recovery.py", str(cache_path), "--undirected-cache", str(gamma_path),
+                                      "--candidate-manifest", str(candidates_path), "--gamma-shapes", "1",
+                                      "--gamma-means", "4", "--output", str(gamma_output), "--trial-counts", "4",
+                                      "--true-lapses", "0.1", "1", "--lapse-step", "0.1", "--repetitions", "4"])
+    main()
+    result = json.loads(gamma_output.read_text())
+    assert len(result["cells"]) == 6
+    assert {cell["true_family"] for cell in result["cells"]} == {"main", "unbounded", "undirected"}
