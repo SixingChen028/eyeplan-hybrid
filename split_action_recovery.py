@@ -233,6 +233,10 @@ def split_recovery(candidates, truth_candidates, trials, split, *, truth_lapses,
         fitted, within = family_fits[fitted_family], family_fits[truth.family]
         interval = within["profile"]["approx_95_interval"]
         within_candidate = SimpleNamespace(family=truth.family, parameters=within["parameters"])
+        cognitive_truth = SimpleNamespace(family=truth.family, parameters={
+            key: value for key, value in truth.parameters.items()
+            if key in {"wm_decay", "wm_neighbor_activation", "cost"}
+        })
         rows.append({
             "design": "full_frozen_participant_split", "trials": len(trials), "repetition": repetition,
             "true_candidate": truth.candidate_id, "true_family": truth.family,
@@ -244,7 +248,7 @@ def split_recovery(candidates, truth_candidates, trials, split, *, truth_lapses,
                                                                                      fitted["parameters"]),
             "within_family_candidate": within["candidate_id"], "within_family_parameters": within["parameters"],
             "within_family_recovered": cognitive_match(truth.parameters, within["parameters"]),
-            "within_family_parameter_distance": parameter_distance(truth, within_candidate, candidates),
+            "within_family_parameter_distance": parameter_distance(cognitive_truth, within_candidate, candidates),
             "within_family_lapse": within["lapse_rate"], "lapse_interval": interval,
             "interval_covers_truth": bool(interval[0] - 1e-12 <= true_lapse <= interval[1] + 1e-12),
             "numerical_ties": len(tied), "uniform_boundary_identity_degenerate": true_lapse == 1,
