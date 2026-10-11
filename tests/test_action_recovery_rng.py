@@ -98,6 +98,21 @@ def test_grouped_undirected_repeat_indices_share_global_cross_family_guard(tmp_p
     assert report["collisions"][0]["fit"]["run_dir"] == "b"
 
 
+def test_minimal_metadata_accepted_by_loaders_can_be_audited(tmp_path):
+    learned = bundle(tmp_path, "learned", [("a", [[10, 11]])])
+    metadata = json.loads(learned.read_text())
+    del metadata["method"]
+    learned.write_text(json.dumps(metadata))
+    undirected = bundle(tmp_path, "undirected", [("u", [[20, 21]])], undirected=True)
+    metadata = json.loads(undirected.read_text())
+    del metadata["runs"][0]["run_dir"]
+    undirected.write_text(json.dumps(metadata))
+    report = assert_independent_manifest_rng(
+        [learned, undirected], [learned, undirected], fit_repeats=[0], truth_repeats=[1],
+    )
+    assert report["fit_seed_count"] == report["truth_seed_count"] == 2
+
+
 def test_uint32_wrapping_and_bounded_detailed_reports(tmp_path):
     fit = bundle(tmp_path, "fit", [("a", [[5]]), ("b", [[5]])])
     truth = bundle(tmp_path, "truth", [("c", [[2**32 + 5]])])

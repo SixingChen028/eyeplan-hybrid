@@ -60,7 +60,7 @@ def iter_manifest_seeds(paths, *, repeats=None, undirected_repeats=None, run_dir
         path = Path(path)
         manifest = json.loads(path.read_text())
         method = manifest.get("method")
-        if method not in {"planning_mc_bernstein_moments_exact_execution", "undirected_gamma_trajectory_cache"}:
+        if method not in {None, "planning_mc_bernstein_moments_exact_execution", "undirected_gamma_trajectory_cache"}:
             raise ValueError(f"unsupported recovery cache method in {path}: {method}")
         undirected = method == "undirected_gamma_trajectory_cache"
         selected_repeats = undirected_repeats if undirected and undirected_repeats is not None else repeats
@@ -70,7 +70,8 @@ def iter_manifest_seeds(paths, *, repeats=None, undirected_repeats=None, run_dir
             if not _selected_run(run, undirected, run_dirs, wm_laws):
                 continue
             wm_law = (float(run["wm_decay"]), float(run["wm_neighbor_activation"])) if undirected else None
-            checkpoint = run.get("checkpoint_identity", run.get("metadata_sha256", run["run_dir"]))
+            run_dir = str(run.get("run_dir", f"undirected WM={wm_law}"))
+            checkpoint = run.get("checkpoint_identity", run.get("metadata_sha256", run_dir))
             for offset, (trial, entry) in enumerate(zip(manifest["trials"], run["estimates"], strict=True)):
                 key = str(trial["pid"]), int(trial["trial_index"])
                 if trial_keys is not None and key not in trial_keys:
@@ -79,7 +80,7 @@ def iter_manifest_seeds(paths, *, repeats=None, undirected_repeats=None, run_dir
                 selected = range(len(seeds)) if selected_repeats is None else selected_repeats
                 for repeat in selected:
                     if repeat >= len(seeds):
-                        raise ValueError(f"missing repeat {repeat}: {path}, trial {key}, run {run['run_dir']}")
+                        raise ValueError(f"missing repeat {repeat}: {path}, trial {key}, run {run_dir}")
                     seed = int(seeds[repeat])
                     if proposed_base_seed is not None:
                         if undirected:
@@ -90,7 +91,7 @@ def iter_manifest_seeds(paths, *, repeats=None, undirected_repeats=None, run_dir
                             text = f"{proposed_base_seed}:{run['checkpoint_identity']}:{trial['record_index']}:{repeat}"
                             seed = int.from_bytes(hashlib.sha256(text.encode()).digest()[:4], "little")
                     # JAX PRNGKey uses uint32 seed material, including sequential seeds above 2**32.
-                    yield SeedReference(str(path), *key, str(run["run_dir"]), str(checkpoint), wm_law,
+                    yield SeedReference(str(path), *key, run_dir, str(checkpoint), wm_law,
                                         int(repeat), seed % 2**32)
 
 
