@@ -279,6 +279,30 @@ def protocol_recovery_figure(reports, directory):
     procedures = sorted({report["procedure"] for report in reports})
     if len(procedures) != 1:
         raise ValueError("report each exact/approximate fitting protocol in its own artifact directory")
+    split_hashes = {report["split"]["split_sha256"] for report in reports}
+    if len(split_hashes) != 1:
+        raise ValueError("protocol aggregation requires the same frozen participant split")
+    generating_settings = []
+    draws = set()
+    for report in reports:
+        settings = {}
+        for row in report["datasets"]:
+            key = (report["seed"], row["true_candidate"], row["true_lapse"], row["repetition"])
+            if key in draws:
+                raise ValueError("protocol aggregation contains duplicate synthetic draws")
+            draws.add(key)
+            settings[row["true_candidate"]] = (row["true_family"], row["true_lapse"], row["true_parameters"])
+        generating_settings.append(settings)
+    if any(settings != generating_settings[0] for settings in generating_settings[1:]):
+        raise ValueError("protocol aggregation requires the same generating families and fitted parameters")
+    gamma_methods = {report["gamma_recovery"] for report in reports}
+    if len(gamma_methods) != 1:
+        raise ValueError("protocol aggregation requires the same Gamma recovery procedure")
+    gamma_method = gamma_methods.pop()
+    procedure_label = {
+        "continuous_at_every_working_memory_law": "Matched continuous Gamma and lapse fitting",
+        "finite_gamma_initialization_grid_approximation": "Finite Gamma approximation",
+    }.get(gamma_method, gamma_method.replace("_", " "))
     families = sorted({row["true_family"] for row in rows})
     fitted_families = sorted({row["fitted_family"] for row in rows} | set(families))
     matrix = np.zeros((len(families), len(fitted_families)), dtype=int)
@@ -330,13 +354,13 @@ def protocol_recovery_figure(reports, directory):
     for axis in axes[1:]:
         axis.spines[["top", "right"]].set_visible(False)
         axis.grid(alpha=.15)
-    figure.suptitle(f"Primary full-design procedure recovery: {procedures[0]}; "
-                    f"{len(rows)} synthetic datasets", fontsize=12)
+    figure.suptitle(f"Primary full-design recovery: {procedure_label}; {len(rows)} synthetic datasets", fontsize=12)
     figure.text(.02, -.02, "A: Wilson 95% intervals. B/C: all raw fits, medians and empirical 95% recovery ranges. "
                 "C dashed lines: generating lapse. Test family comparisons include exact random movement.", fontsize=8)
     figure.tight_layout()
     save_figure(figure, directory, "figure4_protocol_recovery")
-    return {"procedure": procedures[0], "datasets": len(rows), "test_trials": test_count,
+    return {"procedure": procedures[0], "procedure_label": procedure_label,
+            "split_sha256": split_hashes.pop(), "datasets": len(rows), "test_trials": test_count,
             "true_families": families, "fitted_families": fitted_families, "counts": matrix.tolist()}
 
 
