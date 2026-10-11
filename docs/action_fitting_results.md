@@ -9,6 +9,7 @@
   --protocol-recovery results/diagnostics/action_fitting_20261011/protocol_recovery.json \
   --continuous-recovery results/diagnostics/action_fitting_20261011/continuous_gamma_recovery.json \
   --truth-confirmation results/diagnostics/action_fitting_20261011/truth_confirmation.json \
+  --mc-precision results/diagnostics/action_fitting_20261011/mc_precision.json \
   --candidates results/diagnostics/action_fitting_20261011/candidate_manifest.json \
   --accounting results/diagnostics/action_fitting_20261011/sacct.psv \
   --output-dir results/diagnostics/action_fitting_20261011/report
@@ -23,5 +24,7 @@ The summary identifies the pooled homogeneous estimand, inherited look-based che
 `--protocol-recovery` supplies primary full-design replay of the empirical fitting procedure, plotted separately as Figure 4: train-fitted lapse/stopping, validation-selected cognitive candidates within each family, then frozen test-family comparison including random movement. Its `procedure` metadata labels matched continuous Gamma fitting or a finite-grid approximation; different procedures must be reported in separate output directories. Figure 4 displays binomial uncertainty, every synthetic test-score gap and recovered lapse, and empirical recovery ranges. `--recovery` remains the secondary pooled-likelihood identifiability diagnostic on smaller designs. `--continuous-recovery` remains conditional on a fixed WM law. `--truth-confirmation` preserves independent finalist score-confirmation output and provenance separately from all synthetic recovery. The report does not infer equivalence between these procedures or MC fold precisions.
 
 Pass multiple primary output paths after `--protocol-recovery` to aggregate independently seeded chunks. Aggregation requires the same frozen split, generating parameters, and fitting procedure, and rejects repeated synthetic draw identities. Each source report's seed, precision metadata, and provenance remain separately recorded in the summary.
+
+`--mc-precision` includes the standalone cached-covariance report in full, verifies its frozen fit/split identity, and adds total-score and held-out gap tables. Ordinary policy MCSEs use analytic M2 propagation; Gamma MCSEs use trajectory repeats. Leading log-bias values remain diagnostics at frozen parameters. Participant bootstrap intervals describe sampling uncertainty separately from either numerical MC estimate.
 
 Outputs are written exclusively by default; use a fresh directory for a new result revision. `--overwrite` explicitly permits regenerating artifacts from the same completed source reports. `--markdown` selects another summary destination. Source report and generator hashes are included in `summary.json`.

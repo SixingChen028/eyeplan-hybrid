@@ -433,6 +433,43 @@ def cache_scope(fit):
             "scope": "Readable cache paths when reporting; run directories include learned and undirected laws"}
 
 
+def mc_precision_markdown(report):
+    if report is None:
+        return []
+    lines = ["", "Ordinary-policy MCSEs propagate cached within-history coefficient covariance (M2) through "
+             "the frozen probability mixtures. Gamma MCSEs use independent trajectory-repeat differences; "
+             "their precision is limited by the number of repeats. All scores below are total nats, not nats/trial.",
+             "", "| Family | Split | Frozen log likelihood | Numerical MCSE | Leading log-bias diagnostic |",
+             "| --- | --- | ---: | ---: | ---: |"]
+    for candidate in report["candidates"].values():
+        for split, row in candidate["splits"].items():
+            lines.append(f"| {LABELS.get(candidate['family'], candidate['family'])} | {split} "
+                         f"| {row['total_log_likelihood']:.3f} | {row['delta_total_log_likelihood_mc_se']:.3f} "
+                         f"| {row['estimated_total_log_bias']:.3f} |")
+    gamma = report.get("gamma_repeat_only")
+    if gamma and gamma.get("splits"):
+        for split, row in gamma["splits"].items():
+            mcse = row.get("approx_pooled_log_likelihood_mc_se")
+            value = f"{mcse:.3f}" if mcse is not None else "unavailable"
+            lines.append(f"| Undirected (repeat only) | {split} | {row['pooled_total_log_likelihood']:.3f} "
+                         f"| {value} | unavailable |")
+    lines += ["", "Leading log-bias values are delta-method diagnostics at fixed parameters. "
+              "They do not replace the fitted scores and exclude selection and optimizer effects.",
+              "", "| Frozen test comparison | Log-likelihood gap | Numerical gap MCSE | Method |",
+              "| --- | ---: | ---: | --- |"]
+    for comparison in report["paired_ordinary_comparisons"]:
+        row = comparison["splits"]["test"]
+        lines.append(f"| `{comparison['model']}` − `{comparison['reference']}` "
+                     f"| {row['total_log_likelihood_gap']:.3f} | {row['delta_gap_mc_se']:.3f} | Analytic M2 |")
+    for comparison in report.get("mixed_gamma_comparisons", []):
+        row = comparison["splits"]["test"]
+        mcse = row.get("mixed_gap_mc_se")
+        value = f"{mcse:.3f}" if mcse is not None else "unavailable"
+        lines.append(f"| `{comparison['model']}` − `{comparison['reference']}` "
+                     f"| {row['total_log_likelihood_gap']:.3f} | {value} | Ordinary M2 + Gamma repeats |")
+    return lines
+
+
 def markdown_report(summary, recovery_panel, figure_prefix=""):
     split, test = summary["split"], summary["heldout"]
     lines = ["# Action-only model-fitting results", "",
@@ -459,8 +496,9 @@ def markdown_report(summary, recovery_panel, figure_prefix=""):
     lines += ["", "## Numerical precision", "", f"Independent numerical repetitions: "
               f"{summary['numerical_precision']['independent_repeat_count']}.",
               "Pooled log-score precision and paired model-gap MC standard errors are recorded in `summary.json`. "
-              "These integration diagnostics are distinct from participant bootstrap uncertainty.",
-              "", "## Primary fitting-protocol recovery", ""]
+              "These integration diagnostics are distinct from participant bootstrap uncertainty."]
+    lines += mc_precision_markdown(summary.get("analytic_mc_precision"))
+    lines += ["", "## Primary fitting-protocol recovery", ""]
     protocol = summary.get("protocol_recovery_figure")
     if protocol:
         lines += [f"Primary recovery replays the frozen train/validation/test design using procedure "
@@ -529,6 +567,7 @@ def main():
     parser.add_argument("--protocol-recovery", nargs="*", type=Path, default=[])
     parser.add_argument("--continuous-recovery", nargs="*", type=Path, default=[])
     parser.add_argument("--truth-confirmation", nargs="*", type=Path, default=[])
+    parser.add_argument("--mc-precision", type=Path)
     parser.add_argument("--candidates", type=Path)
     parser.add_argument("--accounting", type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
@@ -554,12 +593,17 @@ def main():
     recoveries = [read_json(path) for path in args.recovery]
     continuous = [read_json(path) for path in args.continuous_recovery]
     protocol = [read_json(path) for path in args.protocol_recovery]
+    mc_precision = read_json(args.mc_precision) if args.mc_precision else None
+    if mc_precision is not None and (mc_precision["split_sha256"] != fit["split"]["split_sha256"]
+                                    or mc_precision["provenance"]["fit"]["sha256"] != identity(args.fit)["sha256"]):
+        raise ValueError("MC precision report differs from the frozen fit or participant split")
     summary = scientific_summary(fit, recoveries, accounting_summary(args.accounting))
     summary["cache_scope"] = cache_scope(fit)
     summary["provenance"] = {"fit": identity(args.fit), "recovery": [identity(path) for path in args.recovery],
                              "continuous_recovery": [identity(path) for path in args.continuous_recovery],
                              "protocol_recovery": [identity(path) for path in args.protocol_recovery],
                              "truth_confirmation": [identity(path) for path in args.truth_confirmation],
+                             "mc_precision": identity(args.mc_precision) if args.mc_precision else None,
                              "candidates": identity(args.candidates) if args.candidates else None,
                              "report_script": identity(__file__)}
     fit_figure(fit, args.output_dir)
@@ -573,6 +617,7 @@ def main():
                                     for report in protocol]
     summary["protocol_recovery_figure"] = protocol_recovery_figure(protocol, args.output_dir)
     summary["independent_truth_confirmation"] = [read_json(path) for path in args.truth_confirmation]
+    summary["analytic_mc_precision"] = mc_precision
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2, allow_nan=False) + "\n")
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
     figure_prefix = os.path.relpath(args.output_dir.resolve(), markdown_path.parent.resolve()) + "/"
