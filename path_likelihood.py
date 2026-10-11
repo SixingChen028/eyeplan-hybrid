@@ -65,7 +65,7 @@ def main():
         "code_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "runs": [],
     }
-    for run_dir in args.run_dirs:
+    for run_index, run_dir in enumerate(args.run_dirs):
         metadata = read_metadata(str(run_dir))
         assert_compat_version(get_compat_version(metadata), source=str(run_dir))
         run_args = metadata["args"]
@@ -86,7 +86,7 @@ def main():
         for trial_index, (record, problem, observed_index) in enumerate(trials):
             estimates = []
             for repeat in range(args.repeats):
-                seed = args.seed + trial_index * args.repeats + repeat
+                seed = args.seed + (run_index * len(trials) + trial_index) * args.repeats + repeat
                 started = time.perf_counter()
                 result = estimator.estimate(
                     problem, params, env_params, samples=args.samples, batch_size=args.batch_size, seed=seed,
