@@ -111,6 +111,25 @@ def fit_lapse(candidate, observed_indices, indices=None, lapse_bounds=(MIN_LAPSE
 
     grid = np.linspace(lower, upper, profile_points)
     scores = np.asarray([score(lapse) for lapse in grid])
+    return refine_lapse_profile(candidate, observed_indices, indices, grid, scores)
+
+
+def refine_lapse_profile(candidate, observed_indices, indices, grid, scores):
+    """Apply the empirical local-max refinement to a precomputed training profile.
+
+    Shared synthetic designs can score their coarse profiles together, then use
+    this same optimizer and interval construction without evaluating the grid again.
+    """
+    grid, scores = np.asarray(grid, dtype=float), np.asarray(scores, dtype=float)
+    if (grid.ndim != 1 or scores.shape != grid.shape or len(grid) < 3
+            or np.any(np.diff(grid) <= 0) or not MIN_LAPSE_RATE <= grid[0] < grid[-1] <= 1
+            or np.any(~np.isfinite(scores))):
+        raise ValueError("invalid precomputed lapse profile")
+    lower, upper = float(grid[0]), float(grid[-1])
+
+    def score(lapse):
+        return float(observed_log_probabilities(candidate, lapse, observed_indices, indices).sum())
+
     optima = [(scores[0], lower), (scores[-1], upper)]
     for i in range(1, len(grid) - 1):
         if scores[i] >= scores[i - 1] and scores[i] >= scores[i + 1] and (
