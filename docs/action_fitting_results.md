@@ -27,4 +27,6 @@ Pass multiple primary output paths after `--protocol-recovery` to aggregate inde
 
 `--mc-precision` includes the standalone cached-covariance report in full, verifies its frozen fit/split identity, and adds total-score and held-out gap tables. Ordinary policy MCSEs use analytic M2 propagation; Gamma MCSEs use trajectory repeats. Leading log-bias values remain diagnostics at frozen parameters. Participant bootstrap intervals describe sampling uncertainty separately from either numerical MC estimate.
 
+Independent finalist confirmation tables show original and independently rescored train/validation/test totals, their changes and combined numerical MCSEs, plus frozen test-family gap comparisons. The report verifies the confirmation's frozen fit and split hashes and requires unchanged fitted parameters and selected models. The complete confirmation JSON, repeat scores, uncertainty methods, RNG audit, and provenance are retained.
+
 Outputs are written exclusively by default; use a fresh directory for a new result revision. `--overwrite` explicitly permits regenerating artifacts from the same completed source reports. `--markdown` selects another summary destination. Source report and generator hashes are included in `summary.json`.

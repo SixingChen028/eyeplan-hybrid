@@ -470,6 +470,43 @@ def mc_precision_markdown(report):
     return lines
 
 
+def confirmation_markdown(reports):
+    if not reports:
+        return []
+    lines = ["", "## Independent finalist confirmation", "",
+             "New independent histories rescore the same responses at the frozen selected parameters. "
+             "No parameters are refitted or models reselected. Total scores and numerical errors are in nats; "
+             "the combined delta MCSE includes original and new integration uncertainty. "
+             "Ordinary MCSEs use analytic M2 propagation; Gamma MCSEs use independent trajectory repeats."]
+    for index, report in enumerate(reports, start=1):
+        lines += ["", f"Confirmation input {index}: same-problem RNG audit "
+                  f"`{report['independence']['independent']}`.", "",
+                  "| Family | Split | Original score | Independent score | Change | Combined delta MCSE |",
+                  "| --- | --- | ---: | ---: | ---: | ---: |"]
+        for candidate in report["candidates"]:
+            for split, row in candidate["splits"].items():
+                mcse = row.get("combined_delta_mc_se")
+                value = f"{mcse:.3f}" if mcse is not None else "unavailable"
+                lines.append(f"| {LABELS.get(candidate['family'], candidate['family'])} | {split} "
+                             f"| {row['original_total_log_likelihood']:.3f} "
+                             f"| {row['confirmation_total_log_likelihood']:.3f} "
+                             f"| {row['confirmation_minus_original']:.3f} | {value} |")
+        lines += ["", "| Frozen test comparison | Original gap | Independent gap | Change | Combined change MCSE |",
+                  "| --- | ---: | ---: | ---: | ---: |"]
+        for comparison in report["paired_family_gaps"]:
+            row = comparison["splits"]["test"]
+            mcse = row.get("combined_change_mc_se")
+            value = f"{mcse:.3f}" if mcse is not None else "unavailable"
+            model, reference = comparison["model"], comparison["reference"]
+            lines.append(f"| {LABELS.get(model, model)} − {LABELS.get(reference, reference)} "
+                         f"| {row['original_gap']:.3f} | {row['confirmation_gap']:.3f} "
+                         f"| {row['change_in_gap']:.3f} | {value} |")
+    lines += ["", "These comparisons assess integration stability separately from participant sampling and "
+              "synthetic recovery. Gamma errors can be noisy with few repeats. Full repeat scores, uncertainty "
+              "methods, cache identities, RNG checks, and source hashes remain in `summary.json`."]
+    return lines
+
+
 def markdown_report(summary, recovery_panel, figure_prefix=""):
     split, test = summary["split"], summary["heldout"]
     lines = ["# Action-only model-fitting results", "",
@@ -527,11 +564,7 @@ def markdown_report(summary, recovery_panel, figure_prefix=""):
                   "optimizer success, boundary rates and weak-curvature rates remain in `summary.json`.", "",
                   f"![Continuous stopping recovery]({figure_prefix}figure3_continuous_gamma.png)"]
     lines += ["", "## Scope and interpretation", ""] + [f"- {value}" for value in summary["limitations"]]
-    if summary.get("independent_truth_confirmation"):
-        lines += ["", "## Independent finalist confirmation", "",
-                  "Independent finalist score-confirmation reports are retained in full in `summary.json`, "
-                  "including their numerical comparisons, status and cache/parameter provenance. "
-                  "They assess integration stability at frozen fitted parameters separately from synthetic recovery."]
+    lines += confirmation_markdown(summary.get("independent_truth_confirmation", []))
     compute = summary["compute"]
     lines += ["", "## Compute and caching", ""]
     if compute.get("verified"):
@@ -594,9 +627,16 @@ def main():
     continuous = [read_json(path) for path in args.continuous_recovery]
     protocol = [read_json(path) for path in args.protocol_recovery]
     mc_precision = read_json(args.mc_precision) if args.mc_precision else None
+    confirmations = [read_json(path) for path in args.truth_confirmation]
+    fit_sha256 = identity(args.fit)["sha256"]
     if mc_precision is not None and (mc_precision["split_sha256"] != fit["split"]["split_sha256"]
-                                    or mc_precision["provenance"]["fit"]["sha256"] != identity(args.fit)["sha256"]):
+                                    or mc_precision["provenance"]["fit"]["sha256"] != fit_sha256):
         raise ValueError("MC precision report differs from the frozen fit or participant split")
+    for report in confirmations:
+        if (report["split_sha256"] != fit["split"]["split_sha256"]
+                or report["provenance"]["fit"]["sha256"] != fit_sha256
+                or report["parameters_refitted"] or report["models_reselected"]):
+            raise ValueError("confirmation report must rescore this frozen fit and split without reselection")
     summary = scientific_summary(fit, recoveries, accounting_summary(args.accounting))
     summary["cache_scope"] = cache_scope(fit)
     summary["provenance"] = {"fit": identity(args.fit), "recovery": [identity(path) for path in args.recovery],
@@ -616,7 +656,7 @@ def main():
     summary["protocol_recovery"] = [{key: value for key, value in report.items() if key != "datasets"}
                                     for report in protocol]
     summary["protocol_recovery_figure"] = protocol_recovery_figure(protocol, args.output_dir)
-    summary["independent_truth_confirmation"] = [read_json(path) for path in args.truth_confirmation]
+    summary["independent_truth_confirmation"] = confirmations
     summary["analytic_mc_precision"] = mc_precision
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2, allow_nan=False) + "\n")
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
