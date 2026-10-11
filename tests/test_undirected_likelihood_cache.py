@@ -16,6 +16,8 @@ from modules.path_likelihood import PathLikelihoodEstimator, TreeProblem, condit
 from modules.undirected_likelihood_cache import (
     UndirectedTrajectoryEstimator, gamma_stopping_probabilities, lapse_weights, load_undirected_cache_bundle,
     load_undirected_candidates,
+    refine_gamma_coefficients,
+    load_undirected_trajectory_arrays,
 )
 
 
@@ -115,7 +117,47 @@ def test_cli_cache_roundtrip_and_hash_check(tmp_path):
     assert candidates[0].candidate_id != candidates[1].candidate_id
     assert trials == manifest["trials"]
     np.testing.assert_allclose(candidates[0].probabilities(0.2)[0], caches[0][0].evaluate_repeats(2, 8, 0.2)[0])
+    selected_trials, trajectory, seeds = load_undirected_trajectory_arrays(
+        [output], 0.7, 0.4, trial_keys=[(None, 0)], repeat_indices=(1,),
+    )
+    assert selected_trials == trials
+    np.testing.assert_array_equal(trajectory[0, :, 0], caches[0][0].mean_coefficients[1])
+    assert seeds[0, 0] == caches[0][0].seeds[1]
+    assert seeds[0, 0] != caches[0][0].seeds[0]
     with output.with_suffix(".npz").open("ab") as file:
         file.write(b"corruption")
     with pytest.raises(ValueError, match="hash"):
         load_undirected_cache_bundle(output)
+
+
+def test_continuous_gamma_refinement_recovers_identifiable_synthetic_likelihood():
+    target_count = 20
+    true_shape, true_mean, true_lapse = 2, 8, 0.15
+    mass = gamma_stopping_probabilities(true_shape, true_mean / true_shape, target_count)
+    coefficients = []
+    for threshold in (1, 3, 6, 10, 16):
+        greedy_left = 0.5 + 0.45 * (np.arange(target_count) >= threshold)
+        probability_left = mass @ ((1 - true_lapse) * greedy_left + true_lapse * 0.5)
+        left_count = round(1000 * probability_left)
+        for greedy, count in ((greedy_left, left_count), (1 - greedy_left, 1000 - left_count)):
+            path_coefficients = np.stack([greedy, np.full(target_count, 0.5)], axis=-1)
+            coefficients.extend([path_coefficients] * count)
+    coefficients = np.stack(coefficients, axis=1)
+    starts = [{"gamma_shape": 1, "gamma_scale": 6, "lapse_rate": 0.3}]
+    result = refine_gamma_coefficients(coefficients, np.ones(coefficients.shape[1], dtype=int), starts)
+    assert result["gamma_shape"] == pytest.approx(true_shape, abs=0.1)
+    assert result["gamma_mean"] == pytest.approx(true_mean, abs=0.2)
+    assert result["lapse_rate"] == pytest.approx(true_lapse, abs=0.03)
+    assert result["mean_total_fixations"] <= target_count
+    assert len(result["starts"]) >= 3
+    assert not result["flatness"]["weak_local_curvature"]
+
+
+def test_continuous_gamma_refinement_reports_flat_stopping_likelihood():
+    # Uniform observed paths contain no information about stopping or movement lapse.
+    coefficients = np.full((5, 4, 2), 0.5)
+    result = refine_gamma_coefficients(coefficients, np.ones(4, dtype=int),
+                                       [{"gamma_shape": 2, "gamma_mean": 8, "lapse_rate": 0.2}])
+    assert result["train_log_likelihood"] == pytest.approx(4 * np.log(0.5))
+    assert result["flatness"]["weak_local_curvature"]
+    assert result["flatness"]["near_best_start_count"] == len(result["starts"])
