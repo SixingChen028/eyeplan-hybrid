@@ -15,6 +15,7 @@ import numpy as np
 
 from modules.a2c import load_jax_params
 from modules.compat import assert_compat_version, get_compat_version
+from modules.config import ENV_STATIC_PARAM_KEYS, PARAM_DEFAULTS
 from modules.evaluation import (
     env_from_run_args, env_params_from_run_args, read_metadata, resolve_params_path_from_metadata,
 )
@@ -24,6 +25,19 @@ from modules.path_likelihood_cache import CACHE_VERSION
 
 def file_hash(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def estimator_for_run(run_args, estimators):
+    """Reuse compiled planning code across checkpoints with identical static settings."""
+    settings = {key: run_args[key] for key in ENV_STATIC_PARAM_KEYS}
+    settings.update({key: run_args.get(key, default) for key, default in PARAM_DEFAULTS["network"].items()})
+    settings["lesion_policy"] = run_args.get("lesion_policy")
+    key = json.dumps(settings, sort_keys=True)
+    if key not in estimators:
+        env = env_from_run_args(run_args)
+        undirected = run_args.get("lesion_policy") == "random_search_gamma_stopping"
+        estimators[key] = PathLikelihoodEstimator(env, undirected=undirected)
+    return estimators[key]
 
 
 def main():
@@ -85,18 +99,19 @@ def main():
         "source_sha256": {name: file_hash(source_root / name) for name in source_files}, "runs": [],
     }
     arrays = {}
+    estimators = {}
     for run_index, run_dir in enumerate(args.run_dirs):
         metadata = read_metadata(str(run_dir))
         assert_compat_version(get_compat_version(metadata), source=str(run_dir))
         run_args = metadata["args"]
-        env = env_from_run_args(run_args)
+        estimator = estimator_for_run(run_args, estimators)
+        env = estimator.env
         env_params = env_params_from_run_args(env, run_args)
         undirected = run_args.get("lesion_policy") == "random_search_gamma_stopping"
         params_path = None if undirected else resolve_params_path_from_metadata(str(run_dir), metadata)
         params = {} if undirected else load_jax_params(
             params_path, expected_compat_version=get_compat_version(metadata),
         )
-        estimator = PathLikelihoodEstimator(env, undirected=undirected)
         metadata_hash = file_hash(run_dir / "metadata.json")
         params_hash = None if undirected else file_hash(params_path)
         checkpoint_identity = metadata_hash + ":" + str(params_hash)
@@ -104,6 +119,7 @@ def main():
             "run_dir": str(run_dir.resolve()), "metadata": metadata,
             "metadata_sha256": metadata_hash, "checkpoint_identity": checkpoint_identity,
             "params_file": params_path, "params_sha256": params_hash,
+            "jit_path_width": (env.num_nodes - 1) // 2,
             "estimates": [],
         }
         for trial_index, problem in enumerate(trials):
@@ -125,7 +141,9 @@ def main():
                     "elapsed_seconds": time.perf_counter() - started,
                 })
             run["estimates"].append(estimates)
-            print(f"run={run_dir.name} record={selected[trial_index][0]} repeats={len(estimates)}", flush=True)
+            times = ",".join(f"{estimate['elapsed_seconds']:.4f}" for estimate in estimates)
+            print(f"run={run_dir.name} record={selected[trial_index][0]} repeats={len(estimates)} seconds={times}",
+                  flush=True)
         output["runs"].append(run)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with array_path.open("xb") as file:

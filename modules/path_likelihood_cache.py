@@ -61,7 +61,9 @@ def build_lapse_cache(estimator, problem, policy_params, env_params, *, samples,
     if not np.all(np.isin(np.delete(problem.points, problem.root), np.asarray(estimator.env.point_set))):
         raise ValueError("problem rewards must use the checkpoint's raw point units")
     degree = max(map(len, problem.paths))
-    paths = problem.padded_paths()[:, :degree]
+    # Full binary trees with n nodes have maximum possible depth (n-1)/2.
+    # Fixed JIT input width avoids recompilation as the supplied graph changes.
+    paths = problem.padded_paths()[:, :(estimator.env.num_nodes - 1) // 2]
     shape = (len(problem.paths), degree + 1)
     mean = np.zeros(shape, dtype=np.float64)
     m2 = np.zeros((*shape, degree + 1), dtype=np.float64)
@@ -83,7 +85,7 @@ def build_lapse_cache(estimator, problem, policy_params, env_params, *, samples,
         )
         coefficients, fixations = estimator._coefficient_batch(policy_params, env_params, *args, keys)
         n = min(batch_size, samples - start)
-        coefficients = np.asarray(coefficients, dtype=np.float64)[:n]
+        coefficients = np.asarray(coefficients, dtype=np.float64)[:n, :, :degree + 1]
         fixations = np.asarray(fixations)[:n]
         batch_mean = coefficients.mean(axis=0)
         centered = coefficients - batch_mean

@@ -107,3 +107,43 @@ def test_cache_cli_shards_keep_rng_identity_and_hash_protection(tmp_path):
         file.write(b"corruption")
     with pytest.raises(ValueError, match="hash"):
         load_cache_bundle(output)
+
+
+def test_fixed_jit_width_preserves_draws_and_compact_statistics_across_tree_depths():
+    _, defaults = load_canonical_defaults()
+    defaults.update(num_nodes=15, t_max=3)
+    env = DecisionTreeEnv(**{key: defaults[key] for key in ENV_STATIC_PARAM_KEYS})
+    params = env.make_params(wm_decay=0.8, wm_neighbor_activation=0.4, cost=0)
+    estimator = PathLikelihoodEstimator(env, undirected=True)
+    graphs = [[[2 * i + 1, 2 * i + 2] if i < 7 else [] for i in range(15)], [[] for _ in range(15)]]
+    for depth, node in enumerate([0, 1, 3, 5, 7, 9, 11]):
+        graphs[1][node] = [2 * depth + 1, 2 * depth + 2]
+    for graph in graphs:
+        problem = TreeProblem.from_record({"graph": graph, "start": 0, "rewards": [0] + [8, -8] * 7})
+        cache = estimator.estimate_lapse_cache(problem, {}, params, samples=17, batch_size=8, seed=3)
+        keys = jax.vmap(lambda i: jax.random.fold_in(jax.random.PRNGKey(3), i))(jnp.arange(17, dtype=jnp.uint32))
+        states = estimator._sample_batch({}, params, problem.root, problem.points,
+                                         problem.children, problem.parents, keys)
+        degree = max(map(len, problem.paths))
+        compact = np.asarray(jax.jit(jax.vmap(conditional_path_coefficients, in_axes=(0, None, None, None)))(
+            states, params, problem.depths, problem.padded_paths()[:, :degree],
+        ), dtype=np.float64)
+        centered = compact - compact.mean(axis=0)
+        assert cache.mean_coefficients.shape == (8, degree + 1)
+        np.testing.assert_allclose(cache.mean_coefficients, compact.mean(axis=0), atol=1e-12)
+        np.testing.assert_allclose(cache.coefficient_m2, np.einsum("npi,npj->pij", centered, centered), atol=1e-12)
+    assert estimator._coefficient_batch._cache_size() == 1
+
+
+def test_estimator_reuse_keeps_dynamic_parameters_and_checkpoints_out_of_static_key():
+    from lapse_likelihood_cache import estimator_for_run
+
+    _, args = load_canonical_defaults()
+    args.update(num_nodes=5, t_max=4)
+    estimators = {}
+    first = estimator_for_run(args, estimators)
+    other_fit = {**args, "wm_decay": 0.3, "cost": 0.02, "seed": 12}
+    assert estimator_for_run(other_fit, estimators) is first
+    for key, value in [("t_max", 5), ("hidden_size", args["hidden_size"] + 1),
+                       ("lesion_policy", "random_search_gamma_stopping")]:
+        assert estimator_for_run({**args, key: value}, estimators) is not first
