@@ -144,50 +144,36 @@ def load_undirected_cache_bundle(manifest_path):
 
 def load_undirected_candidates(manifest_path, candidate_specs=None, repeat_indices=None):
     """Build fitting candidates from one bundle, optionally selecting independent MC repetition groups."""
-    from modules.action_fitting import Candidate
+    from modules.action_cache_fitting import coefficient_candidates
 
     manifest, caches = load_undirected_cache_bundle(manifest_path)
     if candidate_specs is None:
         candidate_specs = [{"gamma_shape": shape, "gamma_scale": mean / shape}
                            for shape in (0.5, 1, 2, 4, 8) for mean in (2, 4, 8, 16, 32, 64)]
-    candidates = []
+    specifications, candidate_coefficients = [], []
     maximum_paths = max(len(trial["paths"]) for trial in manifest["trials"])
     maximum_degree = max(len(path) for trial in manifest["trials"] for path in trial["paths"])
-    path_lengths = np.zeros((len(manifest["trials"]), maximum_paths), dtype=np.int32)
-    valid_paths = np.zeros_like(path_lengths, dtype=bool)
-    for trial_index, trial in enumerate(manifest["trials"]):
-        lengths = [len(path) for path in trial["paths"]]
-        path_lengths[trial_index, :len(lengths)] = lengths
-        valid_paths[trial_index, :len(lengths)] = True
-    powers = np.arange(maximum_degree + 1)
-    binomial = np.asarray([[[comb(int(length), int(k)) if k <= length else 0 for k in powers]
-                            for length in lengths] for lengths in path_lengths])
-
-    def evaluator(coefficients):
-        def evaluate(lapse_rate):
-            if not MIN_LAPSE_RATE <= lapse_rate <= 1:
-                raise ValueError(f"lapse_rate must be in [{MIN_LAPSE_RATE}, 1]")
-            weights = binomial * lapse_rate**powers * (1 - lapse_rate)**np.maximum(
-                path_lengths[..., None] - powers, 0,
-            )
-            return np.sum(coefficients * weights, axis=-1) * valid_paths
-        return evaluate
-
-    for run_index, (run, trial_caches) in enumerate(zip(manifest["runs"], caches, strict=True)):
+    for run, trial_caches in zip(manifest["runs"], caches, strict=True):
         for spec in candidate_specs:
             shape, scale = spec["gamma_shape"], spec["gamma_scale"]
             coefficients = np.zeros((len(trial_caches), maximum_paths, maximum_degree + 1))
             for trial_index, cache in enumerate(trial_caches):
-                selected = (cache.mean_coefficients if repeat_indices is None
-                            else cache.mean_coefficients[list(repeat_indices)])
-                if selected.ndim != 4 or selected.shape[0] == 0:
-                    raise ValueError("repeat_indices must select a nonempty sequence of independent repetitions")
-                mass = gamma_stopping_probabilities(shape, scale, selected.shape[1])
-                integrated = np.einsum("tpk,t->pk", selected.mean(axis=0), mass)
+                integrated = integrate_undirected_coefficients(cache, shape, scale, repeat_indices)
                 coefficients[trial_index, :integrated.shape[0], :integrated.shape[1]] = integrated
             parameters = {"wm_decay": run["wm_decay"], "wm_neighbor_activation": run["wm_neighbor_activation"],
                           "gamma_shape": shape, "gamma_scale": scale, "gamma_mean": shape * scale}
             identifier = (f"undirected_decay{run['wm_decay']:g}_neighbor{run['wm_neighbor_activation']:g}"
                           f"_shape{shape:g}_scale{scale:g}")
-            candidates.append(Candidate(identifier, "undirected", parameters, evaluator(coefficients)))
-    return candidates, manifest["trials"]
+            specifications.append({"id": identifier, "model": "undirected", "parameters": parameters})
+            candidate_coefficients.append(coefficients)
+    return coefficient_candidates(specifications, candidate_coefficients, manifest["trials"]), manifest["trials"]
+
+
+def integrate_undirected_coefficients(cache, shape, scale, repeat_indices=None):
+    """Collapse a trajectory cache to mean path Bernstein coefficients for one stopping distribution."""
+    selected = (cache.mean_coefficients if repeat_indices is None
+                else cache.mean_coefficients[list(repeat_indices)])
+    if selected.ndim != 4 or selected.shape[0] == 0:
+        raise ValueError("repeat_indices must select a nonempty sequence of independent repetitions")
+    mass = gamma_stopping_probabilities(shape, scale, selected.shape[1])
+    return np.einsum("tpk,t->pk", selected.mean(axis=0), mass)
