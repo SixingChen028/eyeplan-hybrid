@@ -133,7 +133,7 @@ def test_predictive_metrics_use_entire_path_distribution():
     assert precision["candidates"]["test"]["test"]["approx_pooled_log_likelihood_mc_se"] == 0
 
 
-def make_undirected_shards(tmp_path):
+def make_undirected_shards(tmp_path, repeat_count=2):
     records = [{"pid": f"p{i}", "trial_index": 0, "graph": [[1, 2], [], []], "start": 0,
                 "rewards": [0, 1, -1], "moves": [1 if i % 2 else 2]} for i in range(6)]
     data_path = tmp_path / "data.json"
@@ -142,8 +142,8 @@ def make_undirected_shards(tmp_path):
     for shard in range(2):
         arrays, trials, entries = {}, [], []
         for i in range(shard * 3, shard * 3 + 3):
-            left = np.array([[.55, .7, .8, .9], [.57, .72, .82, .92]])
-            raw = np.zeros((2, 4, 2, 2))
+            left = np.stack([np.array([.55, .7, .8, .9]) + .02 * repeat for repeat in range(repeat_count)])
+            raw = np.zeros((repeat_count, 4, 2, 2))
             raw[:, :, 0, 0] = left
             raw[:, :, 1, 0] = 1 - left
             raw[:, :, :, 1] = .5
@@ -151,7 +151,8 @@ def make_undirected_shards(tmp_path):
             arrays[key] = raw
             trials.append({"pid": f"p{i}", "trial_index": 0, "moves": records[i]["moves"],
                            "paths": [[1], [2]], "observed_index": 0 if records[i]["moves"] == [1] else 1})
-            entries.append({"key": key, "samples_per_repeat": 10, "seeds": [i * 2, i * 2 + 1]})
+            entries.append({"key": key, "samples_per_repeat": 10,
+                            "seeds": [i * repeat_count + repeat for repeat in range(repeat_count)]})
         array_path = tmp_path / f"gamma{shard}.npz"
         np.savez_compressed(array_path, **arrays)
         manifest = {"cache_version": 1, "method": "undirected_gamma_trajectory_cache",
@@ -214,3 +215,98 @@ def test_cli_refines_gamma_using_training_only(tmp_path):
     assert len(report["refined_undirected_candidate_specs"]) == 1
     assert report["fits"]["selected_by_validation"]["undirected"].endswith("_refined")
     assert report["numerical_precision"]["independent_repeat_count"] == 2
+
+
+def test_disjoint_streamed_repeat_groups_preserve_full_mean_and_subset_scoring(tmp_path):
+    from modules.action_fitting import independent_repeat_groups
+    from modules.action_cache_fitting import stream_undirected_candidates
+
+    _, paths = make_undirected_shards(tmp_path, repeat_count=4)
+    _, pooled, raw = stream_undirected_candidates(paths, [1], [2])
+    groups = independent_repeat_groups(len(raw), 2)
+    _, grouped_pooled, grouped = stream_undirected_candidates(paths, [1], [2], repeat_groups=groups)
+    assert groups == [[0, 1], [2, 3]]
+    assert sorted(index for group in groups for index in group) == list(range(4))
+    assert len(raw) == 4 and len(grouped) == 2
+    observed = np.array([0, 1, 0, 1, 0, 1])
+    for lapse in [.01, .2, 1]:
+        raw_mean = np.mean([repeat[0].probabilities(lapse) for repeat in raw], axis=0)
+        grouped_mean = np.mean([fold[0].probabilities(lapse) for fold in grouped], axis=0)
+        np.testing.assert_allclose(grouped_mean, raw_mean)
+        np.testing.assert_allclose(grouped_pooled[0].probabilities(lapse), pooled[0].probabilities(lapse))
+        for fold, members in zip(grouped, groups):
+            expected = np.mean([raw[index][0].probabilities(lapse) for index in members], axis=0)
+            np.testing.assert_allclose(fold[0].probabilities(lapse), expected)
+        np.testing.assert_allclose(grouped[0][0].probabilities(lapse, [1]),
+                                   grouped[0][0].probabilities(lapse)[[1]])
+        selected = grouped[0][0].probabilities(lapse)[np.arange(len(observed)), observed]
+        np.testing.assert_allclose(np.exp(observed_log_probabilities(grouped[0][0], lapse, observed)), selected)
+
+
+def test_cli_pairs_four_gamma_repeats_with_two_ordinary_repeats(tmp_path):
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    data_path, gamma_paths = make_undirected_shards(tmp_path, repeat_count=4)
+    records = json.loads(data_path.read_text())
+    trials, entries, arrays = [], [], {}
+    for i, record in enumerate(records):
+        problem = {key: record[key] for key in ("graph", "start", "rewards")}
+        trials.append({"pid": record["pid"], "trial_index": 0, "paths": [[1], [2]],
+                       "observed_index": 0 if record["moves"] == [1] else 1,
+                       "problem_sha256": hashlib.sha256(json.dumps(problem, sort_keys=True).encode()).hexdigest()})
+        repeats = []
+        for repeat, left in enumerate([.65, .75]):
+            key = f"t{i}_r{repeat}"
+            arrays[key + "_mean"] = np.array([[left, .5], [1 - left, .5]])
+            repeats.append({"key": key, "samples": 10})
+        entries.append(repeats)
+    array_path = tmp_path / "ordinary.npz"
+    np.savez_compressed(array_path, **arrays)
+    ordinary_path = tmp_path / "ordinary.json"
+    ordinary_path.write_text(json.dumps({
+        "cache_version": 1, "data_sha256": hashlib.sha256(data_path.read_bytes()).hexdigest(),
+        "arrays_file": array_path.name, "arrays_sha256": hashlib.sha256(array_path.read_bytes()).hexdigest(),
+        "trials": trials, "runs": [{"run_dir": "seed", "estimates": entries}],
+    }))
+    candidate_path = tmp_path / "candidates.json"
+    candidate_path.write_text(json.dumps({"candidates": [
+        {"id": "main", "model": "main", "parameters": {}, "runs": [{"run_dir": "seed"}]},
+        {"id": "law", "model": "undirected"},
+    ]}))
+    for coarse_only in [True, False]:
+        output = tmp_path / f"fit_{coarse_only}.json"
+        command = [
+            sys.executable, "fit_action_models.py", "--data", str(data_path), "--cache", str(ordinary_path),
+            "--undirected-cache", *map(str, gamma_paths), "--gamma-shapes", "1", "--gamma-means", "2", "4",
+            "--candidates", str(candidate_path), "--split", str(tmp_path / "split.json"), "--output", str(output),
+            "--profile-points", "11", "--bootstrap-repetitions", "20",
+        ]
+        if coarse_only:
+            command.append("--coarse-gamma-only")
+        result = subprocess.run(command, cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True)
+        assert result.returncode == 0, result.stderr
+        report = json.loads(output.read_text())
+        grouping = {"ordinary": [[0], [1]], "undirected": [[0, 1], [2, 3]]}
+        assert report["provenance"]["numerical_repeat_groups"] == grouping
+        assert report["numerical_precision"]["repeat_grouping"] == grouping
+        assert report["numerical_precision"]["independent_repeat_count"] == 2
+        for candidate in report["numerical_precision"]["candidates"].values():
+            assert len(candidate["test"]["repeat_total_log_likelihoods"]) == 2
+        # Pooled complete-path likelihood still uses the mean of all four raw Gamma repeats.
+        from modules.action_cache_fitting import stream_undirected_candidates
+        if coarse_only:
+            _, gamma_candidates, _ = stream_undirected_candidates(gamma_paths, [1], [2, 4])
+        else:
+            parameter = report["refined_undirected_candidate_specs"][0]["parameters"]
+            _, gamma_candidates, _ = stream_undirected_candidates(gamma_paths, candidate_specs_by_law={
+                (.9, .5): [{"gamma_shape": parameter["gamma_shape"], "gamma_mean": parameter["gamma_mean"]}],
+            })
+        fitted = {fit["candidate_id"]: fit for fit in report["fits"]["fits"]}
+        observed = np.asarray([trial["observed_index"] for trial in trials])
+        for candidate in gamma_candidates:
+            fit = fitted[candidate.candidate_id]
+            rows = report["split"]["indices"]["train"]
+            expected = observed_log_probabilities(candidate, fit["lapse_rate"], observed, rows).sum()
+            np.testing.assert_allclose(expected, fit["total_log_likelihood"], atol=1e-10)

@@ -10,7 +10,7 @@ import numpy as np
 
 from modules.action_fitting import (
     cognitive_grid_diagnostics, evaluate_test, fit_all_candidates, freeze_participant_split,
-    posterior_predictive_checks, repeat_score_diagnostics, select_fitted_candidates,
+    independent_repeat_groups, posterior_predictive_checks, repeat_score_diagnostics, select_fitted_candidates,
 )
 
 
@@ -80,17 +80,21 @@ def main():
         manifest, candidates, observed, repeat_candidates = stream_cache_candidates(args.cache, candidate_manifest)
     else:
         manifest, candidates, observed, repeat_candidates = None, [], None, []
+    repeat_grouping = {"ordinary": [[r] for r in range(len(repeat_candidates))]} if args.cache else {}
     if args.undirected_cache:
+        first_gamma_manifest = json.loads(args.undirected_cache[0].read_text())
+        raw_repeat_count = len(first_gamma_manifest["runs"][0]["estimates"][0]["seeds"])
+        fold_count = len(repeat_candidates) if args.cache else raw_repeat_count
+        repeat_grouping["undirected"] = independent_repeat_groups(raw_repeat_count, fold_count)
         undirected_manifest, undirected_candidates, undirected_repeats = stream_undirected_candidates(
             args.undirected_cache, args.gamma_shapes, args.gamma_means,
+            repeat_groups=repeat_grouping["undirected"],
         )
         if manifest is None:
             manifest = undirected_manifest
             observed = np.asarray([trial["observed_index"] for trial in manifest["trials"]])
             candidates, repeat_candidates = undirected_candidates, undirected_repeats
         else:
-            if len(undirected_repeats) != len(repeat_candidates):
-                raise ValueError("directed and undirected caches need matching independent-repeat counts")
             candidates += align_candidate_trials(
                 undirected_candidates, undirected_manifest["trials"], manifest["trials"],
             )
@@ -140,6 +144,7 @@ def main():
         )
         refined_manifest, refined_candidates, refined_repeats = stream_undirected_candidates(
             args.undirected_cache, candidate_specs_by_law=refined_specs,
+            repeat_groups=repeat_grouping["undirected"],
         )
         refined_candidates = align_candidate_trials(refined_candidates, refined_manifest["trials"], manifest["trials"])
         new_fitted = fit_all_candidates(refined_candidates, observed, indices,
@@ -167,13 +172,16 @@ def main():
             candidates, fitted, observed, ordered_records, indices["test"],
             bootstrap_repetitions=args.bootstrap_repetitions, seed=args.seed,
         ),
-        "numerical_precision": repeat_score_diagnostics(candidates, repeat_candidates, fitted, observed, indices),
+        "numerical_precision": repeat_score_diagnostics(
+            candidates, repeat_candidates, fitted, observed, indices, repeat_grouping=repeat_grouping,
+        ),
         "provenance": {
             "data_file": str(args.data.resolve()), "data_sha256": file_hash(args.data),
             "candidate_manifest": str(args.candidates.resolve()),
             "candidate_manifest_sha256": file_hash(args.candidates),
             "cache_manifests": [{"path": str(path.resolve()), "sha256": file_hash(path)}
                                 for path in (args.cache or []) + (args.undirected_cache or [])],
+            "numerical_repeat_groups": repeat_grouping,
             "code_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
             "source_sha256": {path: file_hash(path) for path in [
                 "fit_action_models.py", "modules/action_fitting.py", "modules/action_cache_fitting.py",

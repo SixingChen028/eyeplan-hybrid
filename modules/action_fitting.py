@@ -451,7 +451,8 @@ def independent_repeat_diagnostics(manifest, caches, candidate_manifest, candida
     return repeat_score_diagnostics(candidates, repeat_candidates, fitted, observed_indices, split_indices)
 
 
-def repeat_score_diagnostics(candidates, repeat_candidates, fitted, observed_indices, split_indices):
+def repeat_score_diagnostics(candidates, repeat_candidates, fitted, observed_indices, split_indices,
+                             repeat_grouping=None):
     """Compare aggregate ensemble likelihoods across independent numerical repeats."""
     repeats = len(repeat_candidates)
     by_id = {candidate.candidate_id: candidate for candidate in candidates}
@@ -463,7 +464,8 @@ def repeat_score_diagnostics(candidates, repeat_candidates, fitted, observed_ind
                 totals[candidate.candidate_id][split].append(float(observed_log_probabilities(
                     candidate, fits[candidate.candidate_id]["lapse_rate"], observed_indices, indices,
                 ).sum()))
-    report = {"independent_repeat_count": repeats, "candidates": {}, "paired_selected_test_gaps": []}
+    report = {"independent_repeat_count": repeats, "candidates": {}, "paired_selected_test_gaps": [],
+              "repeat_grouping": repeat_grouping}
     for candidate_id, splits in totals.items():
         report["candidates"][candidate_id] = {}
         for split, values in splits.items():
@@ -485,3 +487,11 @@ def repeat_score_diagnostics(candidates, repeat_candidates, fitted, observed_ind
                 "approx_pooled_gap_mc_se": float(np.std(gaps, ddof=1) / np.sqrt(repeats)) if repeats > 1 else None,
             })
     return report
+
+
+def independent_repeat_groups(source_count, target_count):
+    """Partition raw repeat indices into equal-sized, contiguous independent groups."""
+    if target_count < 1 or source_count < target_count or source_count % target_count:
+        raise ValueError("raw repeat count must be a positive multiple of the requested independent-fold count")
+    size = source_count // target_count
+    return [list(range(start, start + size)) for start in range(0, source_count, size)]
