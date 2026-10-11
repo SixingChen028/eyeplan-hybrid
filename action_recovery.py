@@ -286,18 +286,22 @@ def assert_independent_repeats(caches, truth_repeat, fit_repeats):
                 raise ValueError("generative and fitting caches share MC seeds for a checkpoint/trial")
 
 
-def assert_independent_manifest_repeats(paths, truth_repeat, fit_repeats):
+def assert_independent_manifest_repeats(paths, truth_repeat, fit_repeats, *, repeat_groups=None):
     """Check RNG separation directly from metadata, without reading covariance arrays."""
     if truth_repeat in fit_repeats:
         raise ValueError("generative and fitting MC repetitions must be disjoint")
+    truth_indices = [truth_repeat] if repeat_groups is None else repeat_groups[truth_repeat]
+    fit_indices = fit_repeats if repeat_groups is None else [
+        index for repeat in fit_repeats for index in repeat_groups[repeat]
+    ]
     for path in paths:
         manifest = json.loads(Path(path).read_text())
         for run in manifest["runs"]:
             for entries in run["estimates"]:
                 seeds = entries["seeds"] if isinstance(entries, dict) else [entry["seed"] for entry in entries]
-                if truth_repeat >= len(seeds) or any(repeat >= len(seeds) for repeat in fit_repeats):
+                if any(repeat >= len(seeds) for repeat in [*truth_indices, *fit_indices]):
                     raise ValueError("requested MC repetition missing from cache")
-                if seeds[truth_repeat] in {seeds[repeat] for repeat in fit_repeats}:
+                if {seeds[repeat] for repeat in truth_indices} & {seeds[repeat] for repeat in fit_indices}:
                     raise ValueError("generative and fitting caches share MC seeds for a checkpoint/trial")
 
 
@@ -320,10 +324,76 @@ def average_repeat_candidates(repeat_candidates, selected):
     return result
 
 
+def cache_trial_metadata(paths):
+    """Read only manifest task identities, in the same order as the streaming loaders."""
+    trials = {}
+    for path in paths:
+        manifest = json.loads(Path(path).read_text())
+        for trial in manifest["trials"]:
+            key = (str(trial["pid"]), int(trial["trial_index"]))
+            if key in trials and trials[key] != trial:
+                raise ValueError(f"inconsistent trial identity: {key}")
+            trials[key] = trial
+    return [trials[key] for key in sorted(trials)]
+
+
+def cache_repeat_count(paths):
+    counts = set()
+    for path in paths:
+        manifest = json.loads(Path(path).read_text())
+        for run in manifest["runs"]:
+            for entries in run["estimates"]:
+                counts.add(len(entries["seeds"]) if isinstance(entries, dict) else len(entries))
+    if len(counts) != 1 or next(iter(counts)) < 1:
+        raise ValueError("cache manifests need matching positive independent-repeat counts")
+    return next(iter(counts))
+
+
+def select_recovery_trials(trials, trial_counts, participant_designs, seed):
+    """Select original deterministic designs before allocating any coefficient arrays."""
+    if participant_designs < 0:
+        raise ValueError("participant-designs must be nonnegative")
+    order = np.random.default_rng(seed).permutation(len(trials))
+    trial_sets = {}
+    for count in trial_counts:
+        if not 1 <= count <= len(order):
+            raise ValueError("trial counts must be positive and no larger than the cached task-design pool")
+        trial_sets[f"fixed_{count}_trial_design"] = sorted(order[:count].tolist())
+    participants = sorted({str(trial["pid"]) for trial in trials})
+    for pid in participants[:participant_designs]:
+        trial_sets[f"participant_{pid}"] = [i for i, trial in enumerate(trials) if str(trial["pid"]) == pid]
+    if not trial_sets:
+        raise ValueError("at least one fixed or participant trial design is required")
+    selected = sorted({index for indices in trial_sets.values() for index in indices})
+    compact_indices = {original: compact for compact, original in enumerate(selected)}
+    compact_sets = {design: [compact_indices[index] for index in indices] for design, indices in trial_sets.items()}
+    keys = [(str(trials[index]["pid"]), int(trials[index]["trial_index"])) for index in selected]
+    return keys, compact_sets, trial_sets
+
+
+def undirected_repeat_groups(repeat_count, learned_repeat_count=None, groups=None):
+    """Match independent fold precision by averaging adjacent undirected MC repeats."""
+    from modules.action_cache_fitting import selected_repeat_groups
+
+    if groups is None:
+        folds = repeat_count if learned_repeat_count is None else learned_repeat_count
+        if repeat_count % folds:
+            raise ValueError("undirected repeat count must divide into equal learned-cache folds; "
+                             "supply --undirected-repeat-groups explicitly")
+        size = repeat_count // folds
+        groups = [list(range(index * size, (index + 1) * size)) for index in range(folds)]
+    groups = selected_repeat_groups(repeat_count, repeat_groups=groups)
+    if learned_repeat_count is not None and len(groups) != learned_repeat_count:
+        raise ValueError("undirected repeat groups must match the learned-cache independent-fold count")
+    return groups
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("cache", type=Path, nargs="*")
     parser.add_argument("--undirected-cache", type=Path, nargs="+")
+    parser.add_argument("--undirected-repeat-groups", type=json.loads,
+                        help='JSON disjoint raw-repeat groups, e.g. "[[0,1],[2,3]]"; default matches learned folds')
     parser.add_argument("--gamma-shapes", type=float, nargs="+", default=[0.5, 1, 2, 4, 8])
     parser.add_argument("--gamma-means", type=float, nargs="+", default=[2, 4, 8, 16, 32, 64])
     parser.add_argument("--candidate-manifest", type=Path, required=True)
@@ -349,9 +419,27 @@ def main():
     from modules.action_cache_fitting import (
         align_candidate_trials, stream_cache_candidates, stream_undirected_candidates,
     )
+    from modules.action_recovery_rng import assert_independent_manifest_rng
 
     all_cache_paths = args.cache + (args.undirected_cache or [])
-    assert_independent_manifest_repeats(all_cache_paths, args.truth_repeat, args.fit_repeats)
+    original_trials = cache_trial_metadata(args.cache or args.undirected_cache)
+    trial_keys, trial_sets, original_trial_sets = select_recovery_trials(
+        original_trials, args.trial_counts, args.participant_designs, args.seed,
+    )
+    requested_repeats = sorted({args.truth_repeat, *args.fit_repeats})
+    learned_repeat_count = cache_repeat_count(args.cache) if args.cache else None
+    groups = None
+    if args.cache:
+        assert_independent_manifest_repeats(args.cache, args.truth_repeat, args.fit_repeats)
+    if args.undirected_cache:
+        groups = undirected_repeat_groups(cache_repeat_count(args.undirected_cache), learned_repeat_count,
+                                          args.undirected_repeat_groups)
+        if max(requested_repeats) >= len(groups):
+            parser.error("requested MC repetition missing from undirected repeat groups")
+        assert_independent_manifest_repeats(args.undirected_cache, args.truth_repeat, args.fit_repeats,
+                                            repeat_groups=groups)
+    elif args.undirected_repeat_groups is not None:
+        parser.error("--undirected-repeat-groups requires --undirected-cache")
     candidate_manifest = json.loads(args.candidate_manifest.read_text())
     candidate_manifest = {**candidate_manifest, "candidates": [
         candidate for candidate in candidate_manifest["candidates"] if candidate.get("scope", "primary") == args.scope
@@ -359,14 +447,24 @@ def main():
     if args.undirected_cache:
         candidate_manifest["candidates"] = [candidate for candidate in candidate_manifest["candidates"]
                                              if candidate["model"] != "undirected"]
+    rng_audit = assert_independent_manifest_rng(
+        all_cache_paths, all_cache_paths, fit_repeats=args.fit_repeats, truth_repeats=[args.truth_repeat],
+        fit_undirected_repeats=[index for repeat in args.fit_repeats for index in groups[repeat]]
+        if groups is not None else None,
+        truth_undirected_repeats=groups[args.truth_repeat] if groups is not None else None,
+        trial_keys=trial_keys,
+    )
     if args.cache:
-        manifest, pooled, _, repeat_candidates = stream_cache_candidates(args.cache, candidate_manifest)
+        manifest, pooled, _, repeat_candidates = stream_cache_candidates(
+            args.cache, candidate_manifest, trial_keys=trial_keys, repeat_indices=requested_repeats,
+        )
         del pooled
     else:
         manifest, repeat_candidates = None, []
     if args.undirected_cache:
         undirected_manifest, pooled, undirected_repeats = stream_undirected_candidates(
             args.undirected_cache, args.gamma_shapes, args.gamma_means,
+            trial_keys=trial_keys, repeat_groups=[groups[repeat] for repeat in requested_repeats],
         )
         del pooled
         if manifest is None:
@@ -376,28 +474,20 @@ def main():
                 raise ValueError("learned and undirected caches need matching independent-repeat counts")
             for learned, undirected in zip(repeat_candidates, undirected_repeats, strict=True):
                 learned += align_candidate_trials(undirected, undirected_manifest["trials"], manifest["trials"])
-    candidates = average_repeat_candidates(repeat_candidates, args.fit_repeats)
-    truth_candidates = repeat_candidates[args.truth_repeat]
+    repeat_positions = {repeat: position for position, repeat in enumerate(requested_repeats)}
+    candidates = average_repeat_candidates(repeat_candidates, [repeat_positions[repeat] for repeat in args.fit_repeats])
+    truth_candidates = repeat_candidates[repeat_positions[args.truth_repeat]]
     if args.truth_ids is not None and not set(args.truth_ids) <= {c.candidate_id for c in truth_candidates}:
         parser.error("unknown truth candidate id")
-    rng = np.random.default_rng(args.seed)
-    trial_order = rng.permutation(len(manifest["trials"]))
-    trial_sets = {}
-    for count in args.trial_counts:
-        if not 1 <= count <= len(trial_order):
-            parser.error("trial counts must be positive and no larger than the cached task-design pool")
-        trial_sets[f"fixed_{count}_trial_design"] = sorted(trial_order[:count].tolist())
-    participants = sorted({str(trial["pid"]) for trial in manifest["trials"]})
-    if args.participant_designs < 0:
-        parser.error("participant-designs must be nonnegative")
-    for pid in participants[:args.participant_designs]:
-        trial_sets[f"participant_{pid}"] = [i for i, trial in enumerate(manifest["trials"])
-                                             if str(trial["pid"]) == pid]
     lapse_grid = np.unique(np.r_[np.arange(0.01, 1, args.lapse_step), 1.0, args.true_lapses])
     result = recovery(candidates, truth_candidates, lapse_grid=lapse_grid, true_lapses=args.true_lapses,
                       trial_sets=trial_sets, repetitions=args.repetitions, seed=args.seed, truth_ids=args.truth_ids,
                       progress=lambda value: print(json.dumps(value), flush=True))
+    # Public indices still refer to the full, sorted source task pool.
+    result["trial_sets"] = original_trial_sets
     result["provenance"] = {
+        "source_trial_count": len(original_trials), "loaded_trial_keys": trial_keys,
+        "undirected_repeat_groups": groups,
         "cache_manifests": [{"path": str(path.resolve()), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
                             for path in all_cache_paths],
         "truth_repeat": args.truth_repeat, "fit_repeats": args.fit_repeats, "scope": args.scope,
@@ -405,11 +495,11 @@ def main():
         if args.undirected_cache else None,
         "candidate_manifest_sha256": hashlib.sha256(args.candidate_manifest.read_bytes()).hexdigest()
         if args.candidate_manifest else None,
-        "independent_generative_and_fitting_mc": True,
+        "independent_generative_and_fitting_mc": True, "rng_audit": rng_audit,
         "code_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "source_sha256": {path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
                           for path in ["action_recovery.py", "modules/action_fitting.py",
-                                       "modules/action_cache_fitting.py"]},
+                                       "modules/action_cache_fitting.py", "modules/action_recovery_rng.py"]},
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x") as file:
