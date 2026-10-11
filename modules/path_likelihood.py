@@ -1,6 +1,7 @@
 """Action-only likelihoods: sample planning, integrate path execution exactly."""
 
 from dataclasses import dataclass
+from math import comb
 
 import jax
 import jax.numpy as jnp
@@ -70,11 +71,8 @@ class TreeProblem:
         return paths
 
 
-def conditional_path_probabilities(
-    state: DecisionTreeState, params: DecisionTreeParams, depths: jax.Array, paths: jax.Array,
-    lapse_rate: float,
-) -> jax.Array:
-    """Exact probabilities of complete paths given memory immediately before stopping.
+def conditional_edge_probabilities(state, params, depths):
+    """Greedy edge probabilities given memory immediately before stopping.
 
     Each child Q is its stopping value or zero. At depth d it must survive d-1
     unprotected execution fixations before its parent refreshes it. Distinct
@@ -99,11 +97,45 @@ def conditional_path_probabilities(
     right = effective_q[:, :, 1]
     p_left = jnp.sum(weights * ((left > right) + 0.5 * (left == right)), axis=-1)
     p_right = jnp.sum(weights * ((right > left) + 0.5 * (left == right)), axis=-1)
-    choices = (1.0 - lapse_rate) * jnp.stack([p_left, p_right], axis=-1) + lapse_rate / 2.0
+    choices = jnp.stack([p_left, p_right], axis=-1)
     parents = jnp.maximum(state.parent_nodes, 0)
     is_right = state.child_nodes[parents, 1] == jnp.arange(state.activation.shape[0])
-    edge_probability = choices[parents, is_right.astype(jnp.int32)]
+    return choices[parents, is_right.astype(jnp.int32)]
+
+
+def conditional_path_probabilities(
+    state: DecisionTreeState, params: DecisionTreeParams, depths: jax.Array, paths: jax.Array,
+    lapse_rate: float,
+) -> jax.Array:
+    """Integrate execution forgetting, greedy ties, and independent movement lapses."""
+    greedy = conditional_edge_probabilities(state, params, depths)
+    edge_probability = (1.0 - lapse_rate) * greedy + lapse_rate / 2.0
     return jnp.prod(jnp.where(paths >= 0, edge_probability[jnp.maximum(paths, 0)], 1.0), axis=-1)
+
+
+def conditional_path_coefficients(state, params, depths, paths):
+    """Nonnegative Bernstein coefficients, with each path's own polynomial degree.
+
+    Paths must be padded to maximum path depth, rather than number of nodes.
+    Coefficient k averages products with k uniform and d-k greedy branches.
+    """
+    paths = jnp.asarray(paths)
+    greedy = conditional_edge_probabilities(state, params, depths)
+    degree = paths.shape[1]
+    coefficients = jnp.zeros((paths.shape[0], degree + 1)).at[:, 0].set(1.0)
+
+    def multiply(step, coefficients):
+        node = paths[:, step]
+        shifted = jnp.pad(coefficients[:, :-1], ((0, 0), (1, 0)))
+        updated = greedy[jnp.maximum(node, 0), None] * coefficients + 0.5 * shifted
+        return jnp.where(node[:, None] >= 0, updated, coefficients)
+
+    if degree:
+        coefficients = jax.lax.fori_loop(0, degree, multiply, coefficients)
+    lengths = jnp.sum(paths >= 0, axis=1)
+    binomial = jnp.asarray([[comb(d, k) if k <= d else 1 for k in range(degree + 1)]
+                            for d in range(degree + 1)], dtype=coefficients.dtype)
+    return coefficients / binomial[lengths]
 
 
 class PathLikelihoodEstimator:
@@ -215,3 +247,10 @@ class PathLikelihoodEstimator:
             "horizon_fraction": horizon_total / count,
             "probability_sum": float(mean.sum()),
         }
+
+    def estimate_lapse_cache(self, problem, policy_params, env_params, *, samples, batch_size=512, seed=0):
+        """Sample planning once and retain moments reusable for every movement lapse rate."""
+        from modules.path_likelihood_cache import build_lapse_cache
+
+        return build_lapse_cache(self, problem, policy_params, env_params,
+                                samples=samples, batch_size=batch_size, seed=seed)
