@@ -117,7 +117,7 @@ def summarize_trials(probabilities, variances, trials, assignment, *, tail_count
     return {"splits": splits, "trials": trial_rows if include_trials else None}
 
 
-def stream_selected_precision(cache_paths, fit, candidate_inventory, candidate_ids=None):
+def stream_selected_precision(cache_paths, fit, candidate_inventory, candidate_ids=None, *, include_repeats=False):
     """Stream raw within-history moments for frozen cognitive candidates."""
     fitted = {row["candidate_id"]: row for row in fit["fits"]["fits"]}
     selected = fit["fits"]["selected_by_validation"]
@@ -183,6 +183,7 @@ def stream_selected_precision(cache_paths, fit, candidate_inventory, candidate_i
     index = {key: t for t, key in enumerate(keys)}
     probabilities = {candidate_id: np.zeros(len(trials)) for candidate_id in candidate_ids}
     variances = {candidate_id: np.zeros(len(trials)) for candidate_id in candidate_ids}
+    repeat_probabilities = {} if include_repeats else None
     seen = {key: np.zeros(len(trials), dtype=bool) for key in expected}
     # Exact same-trial seed reuse would invalidate independent-stream propagation.
     # Cross-problem coincidences of uint32 hashes are not treated as duplicated
@@ -212,7 +213,11 @@ def stream_selected_precision(cache_paths, fit, candidate_inventory, candidate_i
                     means, moment_variances, counts = [], [], []
                     observed = trial["observed_index"]
                     length = len(trial["paths"][observed])
-                    for entry in estimates:
+                    if include_repeats and candidate_id not in repeat_probabilities:
+                        repeat_probabilities[candidate_id] = np.zeros((len(estimates), len(trials)))
+                    if include_repeats and len(estimates) != len(repeat_probabilities[candidate_id]):
+                        raise ValueError("selected candidate has inconsistent independent-repeat counts")
+                    for repeat, entry in enumerate(estimates):
                         seed = int(entry["seed"])
                         if seed in trial_seeds[t]:
                             raise ValueError(
@@ -225,6 +230,8 @@ def stream_selected_precision(cache_paths, fit, candidate_inventory, candidate_i
                         means.append(probability)
                         moment_variances.append(variance)
                         counts.append(entry["samples"])
+                        if include_repeats:
+                            repeat_probabilities[candidate_id][repeat, t] += probability / checkpoint_count
                     probability, variance = aggregate_independent_moments(means, moment_variances, counts)
                     probabilities[candidate_id][t] += probability / checkpoint_count
                     variances[candidate_id][t] += variance / checkpoint_count**2
@@ -233,6 +240,7 @@ def stream_selected_precision(cache_paths, fit, candidate_inventory, candidate_i
         raise ValueError("a selected checkpoint is missing complete trial coverage")
     return {
         "trials": trials, "probabilities": probabilities, "variances": variances,
+        "repeat_probabilities": repeat_probabilities,
         "checkpoint_counts": {candidate_id: len(specifications[candidate_id]["runs"])
                               for candidate_id in candidate_ids},
         "samples_per_checkpoint_trial": {candidate_id: {
