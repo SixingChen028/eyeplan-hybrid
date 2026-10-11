@@ -17,7 +17,7 @@ from modules.compat import assert_compat_version, get_compat_version
 from modules.evaluation import (
     env_from_run_args, env_params_from_run_args, read_metadata, resolve_params_path_from_metadata,
 )
-from modules.path_likelihood import PathLikelihoodEstimator, TreeProblem
+from modules.path_likelihood import MIN_LAPSE_RATE, PathLikelihoodEstimator, TreeProblem
 
 
 def file_hash(path):
@@ -37,8 +37,14 @@ def main():
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--repeats", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--lapse-rate", type=float, default=MIN_LAPSE_RATE,
+        help=f"Probability of a uniform random legal move at each execution step, in [{MIN_LAPSE_RATE}, 1]",
+    )
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
+    if not MIN_LAPSE_RATE <= args.lapse_rate <= 1.0:
+        parser.error(f"lapse-rate must be in [{MIN_LAPSE_RATE}, 1]")
     if args.output.exists():
         parser.error("output already exists")
     if args.repeats < 1 or args.limit is not None and args.limit < 1:
@@ -62,6 +68,8 @@ def main():
         "method": "stopping_state_mc_exact_execution", "data_file": str(args.data.resolve()),
         "data_sha256": file_hash(args.data), "samples": args.samples, "batch_size": args.batch_size,
         "repeats": args.repeats, "seed": args.seed, "trial_count": len(trials),
+        "lapse_rate": args.lapse_rate,
+        "lapse_rule": "independent_uniform_legal_child_at_each_movement_step",
         "code_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "runs": [],
     }
@@ -76,7 +84,7 @@ def main():
         params = {} if undirected else load_jax_params(
             params_path, expected_compat_version=get_compat_version(metadata),
         )
-        estimator = PathLikelihoodEstimator(env, undirected=undirected)
+        estimator = PathLikelihoodEstimator(env, undirected=undirected, lapse_rate=args.lapse_rate)
         run = {
             "run_dir": str(run_dir.resolve()), "metadata": metadata,
             "metadata_sha256": file_hash(run_dir / "metadata.json"),

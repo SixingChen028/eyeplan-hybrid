@@ -14,7 +14,7 @@ from modules.a2c import save_jax_params
 from modules.compat import COMPAT_VERSION
 from modules.environment import DecisionTreeEnv
 from modules.network import actor_critic_forward, flatten_observation, init_mlp_actor_critic_params, sample_actions
-from modules.path_likelihood import PathLikelihoodEstimator, TreeProblem, conditional_path_probabilities
+from modules.path_likelihood import MIN_LAPSE_RATE, PathLikelihoodEstimator, TreeProblem, conditional_path_probabilities
 
 
 def make_env(n=5, t_max=4):
@@ -30,7 +30,7 @@ def make_problem():
     })
 
 
-def enumerate_execution(problem, activation, q, decay, neighbor):
+def enumerate_execution(problem, activation, q, decay, neighbor, lapse_rate):
     """Independent reference: enumerate whole retention masks and movement ties."""
     result = np.zeros(len(problem.paths))
 
@@ -53,15 +53,17 @@ def enumerate_execution(problem, activation, q, decay, neighbor):
                 result[problem.paths.index(tuple(path))] += mass * probability
             else:
                 winners = children[cleared[children] == max(cleared[children])]
-                for child in winners:
-                    walk(int(child), refreshed, cleared, [*path, int(child)], mass * probability / len(winners))
+                for child in children:
+                    choice = (1 - lapse_rate) * (child in winners) / len(winners) + lapse_rate / len(children)
+                    walk(int(child), refreshed, cleared, [*path, int(child)], mass * probability * choice)
 
     walk(problem.root, np.asarray(activation, dtype=float), np.asarray(q, dtype=float), [], 1.0)
     return result
 
 
 @pytest.mark.parametrize("decay, neighbor", [(0.0, 0.4), (0.7, 0.3), (1.0, 0.4), (1.0, 1.0)])
-def test_exact_execution_matches_retention_enumeration(decay, neighbor):
+@pytest.mark.parametrize("lapse_rate", [0.0, MIN_LAPSE_RATE, 0.2, 1.0])
+def test_exact_execution_matches_retention_enumeration(decay, neighbor, lapse_rate):
     env = make_env()
     problem = make_problem()
     params = env.make_params(wm_decay=decay, wm_neighbor_activation=neighbor, cost=0)
@@ -73,8 +75,8 @@ def test_exact_execution_matches_retention_enumeration(decay, neighbor):
     for q in ([8, -4, 0, -2, 4], [-8, 4, 0, -2, -4], [0, 0, 0, 0, 0]):
         activation = jnp.asarray([0.5, 0.9, 1, 0.6, 0.75])
         state = state._replace(activation=activation, q_values=jnp.asarray(q, dtype=jnp.float32))
-        actual = conditional_path_probabilities(state, params, problem.depths, problem.padded_paths())
-        expected = enumerate_execution(problem, activation, q, decay, neighbor)
+        actual = conditional_path_probabilities(state, params, problem.depths, problem.padded_paths(), lapse_rate)
+        expected = enumerate_execution(problem, activation, q, decay, neighbor, lapse_rate)
         np.testing.assert_allclose(actual, expected, atol=1e-7)
         np.testing.assert_allclose(np.sum(actual), 1, atol=1e-7)
 
@@ -114,8 +116,8 @@ def test_stopping_sampler_respects_initial_and_forced_stop(stop):
     np.testing.assert_array_equal(states.time_elapsed, 0 if stop else env.t_max - 1)
     if stop:
         # Root reward is zero and no descendant has been visited, so choices are uniform.
-        probabilities = jax.vmap(conditional_path_probabilities, in_axes=(0, None, None, None))(
-            states, params, problem.depths, problem.padded_paths(),
+        probabilities = jax.vmap(conditional_path_probabilities, in_axes=(0, None, None, None, None))(
+            states, params, problem.depths, problem.padded_paths(), estimator.lapse_rate,
         )
         np.testing.assert_allclose(probabilities, np.broadcast_to([0.25, 0.25, 0.5], probabilities.shape))
 
@@ -142,7 +144,7 @@ def test_mc_recovers_exact_tiny_planning_likelihood():
     policy["policy"]["b"] = jnp.zeros(env.action_size)
     result = PathLikelihoodEstimator(env).estimate(problem, policy, params, samples=8192, batch_size=512, seed=7)
     # Root/stop -> tie; looking at either child -> left. Each case has mass 1/4.
-    expected = np.array([0.75, 0.25])
+    expected = (1 - result["lapse_rate"]) * np.array([0.75, 0.25]) + result["lapse_rate"] / 2
     error = np.abs(np.asarray(result["probabilities"]) - expected)
     assert np.all(error < 5 * np.asarray(result["standard_errors"]))
 
@@ -213,7 +215,7 @@ def test_exact_execution_matches_unchanged_deep_tree_simulator():
         activation=jnp.asarray([1, 0.9, 0.7, 0.8, 0.5, 0.9, 0.7, 0.6, 0.8]),
         q_values=jnp.asarray([0, 8, -4, 4, -8, -2, -4, 8, 2], dtype=jnp.float32),
     )
-    expected = np.asarray(conditional_path_probabilities(state, params, problem.depths, problem.padded_paths()))
+    expected = np.asarray(conditional_path_probabilities(state, params, problem.depths, problem.padded_paths(), 0.0))
     n = 32768
 
     def simulate(key):
@@ -241,10 +243,39 @@ def test_cli_scores_moves_and_ignores_looks(tmp_path):
     output = tmp_path / "output.json"
     subprocess.run([
         sys.executable, "path_likelihood.py", str(run), "--data", str(data), "--output", str(output),
-        "--samples", "8", "--batch-size", "4", "--repeats", "1",
+        "--samples", "8", "--batch-size", "4", "--repeats", "1", "--lapse-rate", "0.2",
     ], cwd=Path(__file__).resolve().parents[1], check=True, capture_output=True, text=True)
     result = json.loads(output.read_text())
+    assert result["lapse_rate"] == 0.2
     for trial in result["runs"][0]["trials"]:
         estimate = trial["estimates"][0]
+        assert estimate["lapse_rate"] == result["lapse_rate"]
         assert estimate["observed_probability"] == 0.5
         assert estimate["observed_standard_error"] == 0
+
+
+@pytest.mark.parametrize("lapse_rate", [0.0, MIN_LAPSE_RATE / 2, -0.1, 1.01, np.nan, np.inf])
+def test_estimator_rejects_invalid_lapse_rates(lapse_rate):
+    with pytest.raises(ValueError, match="lapse_rate must be"):
+        PathLikelihoodEstimator(make_env(), lapse_rate=lapse_rate)
+
+
+def test_lapses_apply_at_each_move_and_give_every_path_support():
+    env = make_env()
+    problem = make_problem()
+    params = env.make_params(wm_decay=1, wm_neighbor_activation=1, cost=0)
+    estimator = PathLikelihoodEstimator(env)
+    state = estimator.initial_state(
+        problem.root, jnp.asarray(problem.points), jnp.asarray(problem.children), jnp.asarray(problem.parents),
+        jax.random.PRNGKey(0), params,
+    )._replace(activation=jnp.ones(5), q_values=jnp.asarray([-8, -4, 0, 2, 8], dtype=jnp.float32))
+    # First path requires two disfavored moves; each has lapse probability lambda/2.
+    lapse = estimator.lapse_rate
+    actual = conditional_path_probabilities(state, params, problem.depths, problem.padded_paths(), lapse)
+    np.testing.assert_allclose(actual, [(lapse / 2)**2, (lapse / 2) * (1 - lapse / 2), 1 - lapse / 2])
+    assert np.all(actual > 0)
+    uniform = PathLikelihoodEstimator(env, undirected=True, lapse_rate=1).estimate(
+        problem, {}, params, samples=32, batch_size=16,
+    )
+    np.testing.assert_array_equal(uniform["probabilities"], [0.25, 0.25, 0.5])
+    np.testing.assert_array_equal(uniform["standard_errors"], 0)

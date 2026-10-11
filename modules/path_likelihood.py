@@ -11,6 +11,9 @@ from modules.network import actor_critic_forward, sample_actions
 from modules.random_search import RandomSearchSimulator
 
 
+MIN_LAPSE_RATE = 0.01
+
+
 @dataclass(frozen=True)
 class TreeProblem:
     root: int
@@ -69,6 +72,7 @@ class TreeProblem:
 
 def conditional_path_probabilities(
     state: DecisionTreeState, params: DecisionTreeParams, depths: jax.Array, paths: jax.Array,
+    lapse_rate: float,
 ) -> jax.Array:
     """Exact probabilities of complete paths given memory immediately before stopping.
 
@@ -95,7 +99,7 @@ def conditional_path_probabilities(
     right = effective_q[:, :, 1]
     p_left = jnp.sum(weights * ((left > right) + 0.5 * (left == right)), axis=-1)
     p_right = jnp.sum(weights * ((right > left) + 0.5 * (left == right)), axis=-1)
-    choices = jnp.stack([p_left, p_right], axis=-1)
+    choices = (1.0 - lapse_rate) * jnp.stack([p_left, p_right], axis=-1) + lapse_rate / 2.0
     parents = jnp.maximum(state.parent_nodes, 0)
     is_right = state.child_nodes[parents, 1] == jnp.arange(state.activation.shape[0])
     edge_probability = choices[parents, is_right.astype(jnp.int32)]
@@ -103,9 +107,12 @@ def conditional_path_probabilities(
 
 
 class PathLikelihoodEstimator:
-    def __init__(self, env: DecisionTreeEnv, *, undirected: bool = False):
+    def __init__(self, env: DecisionTreeEnv, *, undirected: bool = False, lapse_rate: float = MIN_LAPSE_RATE):
+        if not MIN_LAPSE_RATE <= lapse_rate <= 1.0:
+            raise ValueError(f"lapse_rate must be in [{MIN_LAPSE_RATE}, 1]")
         self.env = env
         self.undirected = undirected
+        self.lapse_rate = float(lapse_rate)
         # Reuse the ordinary Gamma target and uniform legal-fixation rule.
         self.random_search = RandomSearchSimulator(env, env_params=None) if undirected else None
         self._sample_batch = jax.jit(jax.vmap(self._sample_stopping_state, in_axes=(None,) * 6 + (0,)))
@@ -157,8 +164,8 @@ class PathLikelihoodEstimator:
 
     def _batch_probabilities(self, policy_params, env_params, root, points, children, parents, depths, paths, keys):
         states = self._sample_batch(policy_params, env_params, root, points, children, parents, keys)
-        probabilities = jax.vmap(conditional_path_probabilities, in_axes=(0, None, None, None))(
-            states, env_params, depths, paths,
+        probabilities = jax.vmap(conditional_path_probabilities, in_axes=(0, None, None, None, None))(
+            states, env_params, depths, paths, self.lapse_rate,
         )
         return probabilities, states.time_elapsed
 
@@ -200,6 +207,7 @@ class PathLikelihoodEstimator:
             horizon_total += int((fixations == self.env.t_max - 1).sum())
         se = np.sqrt(m2 / ((count - 1) * count))
         return {
+            "lapse_rate": self.lapse_rate,
             "paths": [list(path) for path in problem.paths],
             "probabilities": mean.tolist(), "standard_errors": se.tolist(),
             "nonzero_samples": nonzero.tolist(), "samples": count,
