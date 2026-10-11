@@ -46,7 +46,7 @@ def write_cache(tmp_path, name, trials, *, undirected=False, seed=0):
                       "moves": trial["paths"][trial["observed_index"]]} for trial in trials] if undirected else trials
     return write_json(tmp_path / f"{name}.json", {
         "cache_version": 1, "data_sha256": "same_frozen_data", "trials": cached_trials,
-        "git_sha": name, "source_sha256": {"simulator.py": "gamma_source" if undirected else "learned_source"},
+        "code_sha": name, "source_sha256": {"simulator.py": "gamma_source" if undirected else "learned_source"},
         "runs": runs, "arrays_file": array_path.name,
         "arrays_sha256": hashlib.sha256(array_path.read_bytes()).hexdigest(),
         "method": "undirected_gamma_trajectory_cache" if undirected else
@@ -209,7 +209,7 @@ def test_primary_cli_rejects_semantic_task_and_data_mismatches_before_arrays(rec
 
 def test_primary_source_contract_allows_different_heads_and_sample_counts(recovery_inputs, monkeypatch):
     paths, _, _, output, argv = recovery_inputs
-    assert json.loads(paths[0].read_text())["git_sha"] != json.loads(paths[2].read_text())["git_sha"]
+    assert json.loads(paths[0].read_text())["code_sha"] != json.loads(paths[2].read_text())["code_sha"]
     for path in paths[2:]:
         manifest = json.loads(path.read_text())
         for run in manifest["runs"]:
