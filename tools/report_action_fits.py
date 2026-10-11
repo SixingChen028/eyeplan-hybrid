@@ -227,7 +227,7 @@ def recovery_figure(recoveries, directory):
         axis.spines[["top", "right"]].set_visible(False)
         axis.grid(alpha=.15)
     lapses = sorted({row["true_lapse"] for row in selected})
-    figure.suptitle(f"Recovery: {design}; {len(selected):,} synthetic datasets; "
+    figure.suptitle(f"Secondary pooled recovery: {design}; {len(selected):,} synthetic datasets; "
                     f"generating lapses {lapses}", fontsize=11)
     figure.text(.02, -.03, "A: scenario-pooled proportions and Wilson 95% intervals. B: medians and empirical 95% "
                 "recovery ranges. B/C: at most 300 jittered raw draws per family. "
@@ -251,7 +251,8 @@ def scientific_summary(fit, recoveries, accounting):
         "cognitive_grid": fit["grid_diagnostics"], "numerical_precision": fit["numerical_precision"],
         "predictive_checks": fit.get("predictive_checks"),
         "gamma_refinement": fit.get("gamma_refinement", fit["fits"].get("gamma_refinement")),
-        "recovery": [{key: report.get(key) for key in ("method", "scope", "repetitions", "true_lapses", "trial_sets",
+        "secondary_pooled_recovery": [{key: report.get(key) for key in
+                     ("method", "scope", "repetitions", "true_lapses", "trial_sets",
                      "cells", "parameter_summary", "identifiability", "provenance")} for report in recoveries],
         "compute": accounting,
         "limitations": [
@@ -268,6 +269,75 @@ def scientific_summary(fit, recoveries, accounting):
             "numerical MC repeat spreads and synthetic recovery replication are separate uncertainties.",
         ],
     }
+
+
+def protocol_recovery_figure(reports, directory):
+    """Plot full train/validation/test procedure recovery separately from pooled ML."""
+    rows = [row for report in reports for row in report["datasets"]]
+    if not rows:
+        return None
+    procedures = sorted({report["procedure"] for report in reports})
+    if len(procedures) != 1:
+        raise ValueError("report each exact/approximate fitting protocol in its own artifact directory")
+    families = sorted({row["true_family"] for row in rows})
+    fitted_families = sorted({row["fitted_family"] for row in rows} | set(families))
+    matrix = np.zeros((len(families), len(fitted_families)), dtype=int)
+    for row in rows:
+        matrix[families.index(row["true_family"]), fitted_families.index(row["fitted_family"])] += 1
+    totals = matrix.sum(axis=1)
+    fractions = matrix / totals[:, None]
+    figure, axes = plt.subplots(1, 3, figsize=(14, 4.3), gridspec_kw={"width_ratios": [1.2, 1, 1]})
+    axes[0].imshow(fractions, vmin=0, vmax=1, cmap="Blues", aspect="auto")
+    for i in range(len(families)):
+        for j in range(len(fitted_families)):
+            lower, upper = wilson(matrix[i, j], totals[i])
+            axes[0].text(j, i, f"{fractions[i, j]:.2f}\n[{lower:.2f}, {upper:.2f}]", ha="center", va="center",
+                         fontsize=8, color="white" if fractions[i, j] > .58 else "black")
+    axes[0].set(xticks=np.arange(len(fitted_families)),
+                xticklabels=[LABELS.get(family, family) for family in fitted_families],
+                yticks=np.arange(len(families)), yticklabels=[LABELS.get(family, family) for family in families],
+                xlabel="Family with best frozen test score", ylabel="Generating family", title="A   Protocol recovery")
+    axes[0].tick_params(axis="x", labelrotation=35)
+    rng = np.random.default_rng(20261011)
+    test_counts = {report["split"]["trial_counts"]["test"] for report in reports}
+    if len(test_counts) != 1:
+        raise ValueError("protocol figure requires a shared frozen test design")
+    test_count = test_counts.pop()
+    for index, family in enumerate(families):
+        selected = [row for row in rows if row["true_family"] == family]
+        color = COLORS.get(family, "#333333")
+        gaps = np.asarray([row["test_gap_to_best_competitor"] / test_count for row in selected])
+        lower, median, upper = np.quantile(gaps, [.025, .5, .975])
+        axes[1].scatter(gaps, index + rng.uniform(-.11, .11, len(gaps)), s=18, color=color, alpha=.4, linewidths=0)
+        axes[1].errorbar(median, index, xerr=[[median - lower], [upper - median]], fmt="D", color=color,
+                         capsize=3, markersize=5)
+        recovered = np.asarray([row["within_family_lapse"] for row in selected])
+        lower, median, upper = np.quantile(recovered, [.025, .5, .975])
+        axes[2].scatter(index + rng.uniform(-.11, .11, len(recovered)), recovered, s=18, color=color,
+                        alpha=.4, linewidths=0)
+        axes[2].errorbar(index, median, yerr=[[median - lower], [upper - median]], fmt="D", color=color,
+                         capsize=3, markersize=5)
+        truths = sorted({row["true_lapse"] for row in selected})
+        for truth in truths:
+            axes[2].plot([index - .26, index + .26], [truth, truth], color="black", lw=.9, ls="--")
+    axes[1].axvline(0, color="#666666", lw=.8, ls="--")
+    axes[1].set(yticks=np.arange(len(families)), yticklabels=[LABELS.get(family, family) for family in families],
+                xlabel="Generating-family test advantage (nats / trial)", title="B   Against best competitor")
+    axes[1].invert_yaxis()
+    axes[2].set(xticks=np.arange(len(families)), xticklabels=[LABELS.get(family, family) for family in families],
+                ylabel="Validation-selected within-family lapse", title="C   Parameter recovery")
+    axes[2].tick_params(axis="x", labelrotation=30)
+    for axis in axes[1:]:
+        axis.spines[["top", "right"]].set_visible(False)
+        axis.grid(alpha=.15)
+    figure.suptitle(f"Primary full-design procedure recovery: {procedures[0]}; "
+                    f"{len(rows)} synthetic datasets", fontsize=12)
+    figure.text(.02, -.02, "A: Wilson 95% intervals. B/C: all raw fits, medians and empirical 95% recovery ranges. "
+                "C dashed lines: generating lapse. Test family comparisons include exact random movement.", fontsize=8)
+    figure.tight_layout()
+    save_figure(figure, directory, "figure4_protocol_recovery")
+    return {"procedure": procedures[0], "datasets": len(rows), "test_trials": test_count,
+            "true_families": families, "fitted_families": fitted_families, "counts": matrix.tolist()}
 
 
 def continuous_recovery_figure(reports, directory):
@@ -366,7 +436,20 @@ def markdown_report(summary, recovery_panel, figure_prefix=""):
               f"{summary['numerical_precision']['independent_repeat_count']}.",
               "Pooled log-score precision and paired model-gap MC standard errors are recorded in `summary.json`. "
               "These integration diagnostics are distinct from participant bootstrap uncertainty.",
-              "", "## Recovery", ""]
+              "", "## Primary fitting-protocol recovery", ""]
+    protocol = summary.get("protocol_recovery_figure")
+    if protocol:
+        lines += [f"Primary recovery replays the frozen train/validation/test design using procedure "
+                  f"`{protocol['procedure']}` across {protocol['datasets']} synthetic datasets. "
+                  "Lapse and stopping parameters are trained, cognitive choices are validated within each family, "
+                  "and family ranking uses their frozen test scores including the exact random baseline. "
+                  "The output's procedure label distinguishes matched continuous Gamma fitting from a finite-Gamma "
+                  "approximation. Independent truth-cache identities and fitted MC precision are preserved "
+                  "with the source protocol summaries.", "",
+                  f"![Primary protocol recovery]({figure_prefix}figure4_protocol_recovery.png)"]
+    else:
+        lines.append("Primary fitting-protocol recovery was not supplied; it is unverified.")
+    lines += ["", "## Secondary pooled identifiability", ""]
     if recovery_panel:
         lines += [f"The representative figure uses `{recovery_panel['design']}` and "
                   f"{recovery_panel['datasets']:,} synthetic datasets. All designs, generating settings, "
@@ -374,7 +457,7 @@ def markdown_report(summary, recovery_panel, figure_prefix=""):
                   "and the source recovery reports.", "",
                   f"![Model and parameter recovery]({figure_prefix}figure2_recovery.png)"]
     else:
-        lines.append("No completed recovery report was supplied; recovery is unverified.")
+        lines.append("No secondary pooled recovery report was supplied.")
     if summary.get("continuous_gamma_recovery"):
         lines += ["", "Continuous Gamma/lapse recovery uses the empirical multistart optimizer conditional on "
                   "a fixed WM law, with independent generating/fitting trajectory folds. This assesses continuous "
@@ -382,6 +465,11 @@ def markdown_report(summary, recovery_panel, figure_prefix=""):
                   "optimizer success, boundary rates and weak-curvature rates remain in `summary.json`.", "",
                   f"![Continuous stopping recovery]({figure_prefix}figure3_continuous_gamma.png)"]
     lines += ["", "## Scope and interpretation", ""] + [f"- {value}" for value in summary["limitations"]]
+    if summary.get("independent_truth_confirmation"):
+        lines += ["", "## Independent finalist confirmation", "",
+                  "Independent finalist score-confirmation reports are retained in full in `summary.json`, "
+                  "including their numerical comparisons, status and cache/parameter provenance. "
+                  "They assess integration stability at frozen fitted parameters separately from synthetic recovery."]
     compute = summary["compute"]
     lines += ["", "## Compute and caching", ""]
     if compute.get("verified"):
@@ -405,6 +493,8 @@ def markdown_report(summary, recovery_panel, figure_prefix=""):
     if summary.get("continuous_gamma_recovery"):
         lines += ["- `figure3_continuous_gamma.png` / `.pdf`: "
                   "continuous stopping recovery conditional on fixed WM.", ""]
+    if protocol:
+        lines += ["- `figure4_protocol_recovery.png` / `.pdf`: primary train/validation/test procedure recovery.", ""]
     return "\n".join(lines)
 
 
@@ -412,7 +502,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fit", required=True, type=Path)
     parser.add_argument("--recovery", nargs="*", type=Path, default=[])
+    parser.add_argument("--protocol-recovery", nargs="*", type=Path, default=[])
     parser.add_argument("--continuous-recovery", nargs="*", type=Path, default=[])
+    parser.add_argument("--truth-confirmation", nargs="*", type=Path, default=[])
     parser.add_argument("--candidates", type=Path)
     parser.add_argument("--accounting", type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
@@ -427,6 +519,9 @@ def main():
     if args.continuous_recovery:
         products += [args.output_dir / name for name in
                      ("figure3_continuous_gamma.png", "figure3_continuous_gamma.pdf")]
+    if args.protocol_recovery:
+        products += [args.output_dir / name for name in
+                     ("figure4_protocol_recovery.png", "figure4_protocol_recovery.pdf")]
     if not args.overwrite and any(path.exists() for path in [*products, markdown_path]):
         parser.error("an output exists; choose a new output directory or pass --overwrite")
     plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10, "axes.titlesize": 11,
@@ -434,10 +529,13 @@ def main():
     fit = read_json(args.fit)
     recoveries = [read_json(path) for path in args.recovery]
     continuous = [read_json(path) for path in args.continuous_recovery]
+    protocol = [read_json(path) for path in args.protocol_recovery]
     summary = scientific_summary(fit, recoveries, accounting_summary(args.accounting))
     summary["cache_scope"] = cache_scope(fit)
     summary["provenance"] = {"fit": identity(args.fit), "recovery": [identity(path) for path in args.recovery],
                              "continuous_recovery": [identity(path) for path in args.continuous_recovery],
+                             "protocol_recovery": [identity(path) for path in args.protocol_recovery],
+                             "truth_confirmation": [identity(path) for path in args.truth_confirmation],
                              "candidates": identity(args.candidates) if args.candidates else None,
                              "report_script": identity(__file__)}
     fit_figure(fit, args.output_dir)
@@ -447,6 +545,10 @@ def main():
                                              ("method", "scope", "working_memory_law", "repetitions", "cells",
                                               "summary_by_design", "provenance")} for report in continuous]
     summary["continuous_gamma_figure"] = continuous_recovery_figure(continuous, args.output_dir)
+    summary["protocol_recovery"] = [{key: value for key, value in report.items() if key != "datasets"}
+                                    for report in protocol]
+    summary["protocol_recovery_figure"] = protocol_recovery_figure(protocol, args.output_dir)
+    summary["independent_truth_confirmation"] = [read_json(path) for path in args.truth_confirmation]
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2, allow_nan=False) + "\n")
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
     figure_prefix = os.path.relpath(args.output_dir.resolve(), markdown_path.parent.resolve()) + "/"
