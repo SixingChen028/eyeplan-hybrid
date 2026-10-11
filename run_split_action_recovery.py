@@ -9,6 +9,7 @@ import subprocess
 import numpy as np
 
 from action_recovery import cache_repeat_count, cache_trial_metadata
+from action_truth_confirmation import validate_collections
 from modules.action_cache_fitting import align_candidate_trials, stream_cache_candidates, stream_undirected_candidates
 from modules.action_fitting import Candidate, canonical_hash
 from modules.action_recovery_rng import assert_independent_manifest_rng
@@ -34,6 +35,15 @@ def selected_run_dirs(paths, inventory):
             if any(actual == name or actual.endswith("/" + name) for name in expected):
                 selected.add(actual)
     return sorted(selected)
+
+
+def validate_cache_task_coverage(paths, reference_trials):
+    """Every family-specific cache collection must cover all frozen task designs."""
+    reference = {(str(trial["pid"]), int(trial["trial_index"])) for trial in reference_trials}
+    covered = {(str(trial["pid"]), int(trial["trial_index"]))
+               for path in paths for trial in json.loads(path.read_text())["trials"]}
+    if covered != reference:
+        raise ValueError("cache collection does not cover the complete frozen task designs")
 
 
 def validate_frozen_design(trials, split, fitted):
@@ -151,12 +161,12 @@ def main():
     truth_law = (parameters["wm_decay"], parameters["wm_neighbor_activation"])
     custom_specs = {truth_law: [{"gamma_shape": parameters["gamma_shape"], "gamma_mean": parameters["gamma_mean"]}]}
     trials = cache_trial_metadata(args.cache)
-    for paths in (args.undirected_cache, args.truth_cache, args.truth_undirected_cache):
-        if cache_trial_metadata(paths) != trials:
-            raise ValueError("baseline and generating cache task identities/path layouts differ")
-    validate_frozen_design(trials, split, report)
     fit_paths = args.cache + args.undirected_cache
     truth_paths = args.truth_cache + args.truth_undirected_cache
+    validate_collections(fit_paths, truth_paths, report, truth_law)
+    for paths in (args.cache, args.undirected_cache, args.truth_cache, args.truth_undirected_cache):
+        validate_cache_task_coverage(paths, trials)
+    validate_frozen_design(trials, split, report)
     fit_runs = selected_run_dirs(args.cache, inventory)
     truth_runs = selected_run_dirs(args.truth_cache, truth_inventory)
     audit = assert_independent_manifest_rng(fit_paths, truth_paths, fit_run_dirs=fit_runs,
@@ -208,6 +218,7 @@ def main():
         "code_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "source_sha256": {path: file_hash(path) for path in [
             "run_split_action_recovery.py", "split_action_recovery.py", "modules/action_fitting.py",
+            "action_truth_confirmation.py",
             "modules/action_cache_fitting.py", "modules/action_recovery_rng.py",
             "modules/undirected_likelihood_cache.py",
         ]},
