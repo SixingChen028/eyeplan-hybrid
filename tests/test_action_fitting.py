@@ -131,3 +131,86 @@ def test_predictive_metrics_use_entire_path_distribution():
     assert np.allclose(optimal, [0, .74, .74])
     precision = repeat_score_diagnostics([candidate], [[candidate], [candidate]], fitted, [1], {"test": [0]})
     assert precision["candidates"]["test"]["test"]["approx_pooled_log_likelihood_mc_se"] == 0
+
+
+def make_undirected_shards(tmp_path):
+    records = [{"pid": f"p{i}", "trial_index": 0, "graph": [[1, 2], [], []], "start": 0,
+                "rewards": [0, 1, -1], "moves": [1 if i % 2 else 2]} for i in range(6)]
+    data_path = tmp_path / "data.json"
+    data_path.write_text(json.dumps(records))
+    paths = []
+    for shard in range(2):
+        arrays, trials, entries = {}, [], []
+        for i in range(shard * 3, shard * 3 + 3):
+            left = np.array([[.55, .7, .8, .9], [.57, .72, .82, .92]])
+            raw = np.zeros((2, 4, 2, 2))
+            raw[:, :, 0, 0] = left
+            raw[:, :, 1, 0] = 1 - left
+            raw[:, :, :, 1] = .5
+            key = f"trial{i}"
+            arrays[key] = raw
+            trials.append({"pid": f"p{i}", "trial_index": 0, "moves": records[i]["moves"],
+                           "paths": [[1], [2]], "observed_index": 0 if records[i]["moves"] == [1] else 1})
+            entries.append({"key": key, "samples_per_repeat": 10, "seeds": [i * 2, i * 2 + 1]})
+        array_path = tmp_path / f"gamma{shard}.npz"
+        np.savez_compressed(array_path, **arrays)
+        manifest = {"cache_version": 1, "method": "undirected_gamma_trajectory_cache",
+                    "data_sha256": hashlib.sha256(data_path.read_bytes()).hexdigest(),
+                    "arrays_file": array_path.name, "arrays_sha256": hashlib.sha256(array_path.read_bytes()).hexdigest(),
+                    "trials": trials, "runs": [{"wm_decay": .9, "wm_neighbor_activation": .5,
+                                                "max_fixations": 4, "estimates": entries}]}
+        path = tmp_path / f"gamma{shard}.json"
+        path.write_text(json.dumps(manifest))
+        paths.append(path)
+    return data_path, paths
+
+
+def test_streamed_gamma_and_observed_refinement_coefficients(tmp_path):
+    from modules.action_cache_fitting import (
+        align_candidate_trials, stream_undirected_candidates, undirected_observed_coefficients,
+    )
+    from modules.undirected_likelihood_cache import gamma_stopping_probabilities
+
+    _, paths = make_undirected_shards(tmp_path)
+    manifest, candidates, repeats = stream_undirected_candidates(paths, [1], [2])
+    mass = gamma_stopping_probabilities(1, 2, 4)
+    expected_left = (mass @ np.array([.56, .71, .81, .91])) * .8 + .1
+    assert np.allclose(candidates[0].probabilities(.2)[:, 0], expected_left)
+    assert len(repeats) == 2
+    keys = [[trial["pid"], trial["trial_index"]] for trial in reversed(manifest["trials"])]
+    coefficients, lengths = undirected_observed_coefficients(paths, (.9, .5), keys)
+    assert coefficients.shape == (4, 6, 2)
+    assert np.all(lengths == 1)
+    aligned = align_candidate_trials(candidates, manifest["trials"], list(reversed(manifest["trials"])))
+    assert np.allclose(aligned[0].probabilities(.2), candidates[0].probabilities(.2)[::-1])
+    refined_manifest, refined, _ = stream_undirected_candidates(
+        paths, candidate_specs_by_law={(.9, .5): [{"gamma_shape": 1, "gamma_mean": 2}]},
+    )
+    assert refined[0].candidate_id.endswith("_refined")
+    assert refined_manifest["trials"] == manifest["trials"]
+    assert np.allclose(refined[0].probabilities(.2), candidates[0].probabilities(.2))
+
+
+def test_cli_refines_gamma_using_training_only(tmp_path):
+    from pathlib import Path
+    import subprocess
+    import sys
+
+    data_path, cache_paths = make_undirected_shards(tmp_path)
+    candidate_path = tmp_path / "candidates.json"
+    candidate_path.write_text(json.dumps({"candidates": [{"id": "law", "model": "undirected"}]}))
+    output = tmp_path / "fit.json"
+    split = tmp_path / "split.json"
+    result = subprocess.run([
+        sys.executable, "fit_action_models.py", "--data", str(data_path),
+        "--undirected-cache", *map(str, cache_paths), "--gamma-shapes", "1", "--gamma-means", "2", "4",
+        "--candidates", str(candidate_path), "--split", str(split), "--output", str(output),
+        "--profile-points", "11", "--bootstrap-repetitions", "20",
+    ], cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    report = json.loads(output.read_text())
+    assert report["gamma_refinement"][0]["training_trials"] == report["split"]["trial_counts"]["train"]
+    assert len(report["coarse_gamma_fits"]) == 2
+    assert len(report["refined_undirected_candidate_specs"]) == 1
+    assert report["fits"]["selected_by_validation"]["undirected"].endswith("_refined")
+    assert report["numerical_precision"]["independent_repeat_count"] == 2

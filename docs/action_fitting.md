@@ -24,6 +24,10 @@ Fit from ordinary Bernstein cache shards and an explicit candidate inventory:
   --output results/diagnostics/action_fitting_20261011/fit.json
 ```
 
+For action-fitted undirected stopping, add `--undirected-cache gamma_cache_*.json`. These caches contain full uniform-fixation trajectories. The loader integrates an initial Gamma shape/mean grid without new simulation, then the default workflow jointly refines Gamma shape, Gamma mean, and movement lapse on training trials for every cached WM law. It compares those WM-specific training optima on validation trials. The report saves the coarse fits, all continuous refinement diagnostics, and the final refined stopping settings for recovery. `--coarse-gamma-only` is an explicit development option.
+
+For the complete dataset, the 1,500-candidate initial Gamma grid with two independent repeats needs about 30 GiB for compact coefficients because trees can have depth seven. Request 48 GB for the initial fitting job. The coarse coefficients are released before continuous refinement; the 50 final refined laws need about 1 GiB. Keep trajectory manifests split by WM law and trial range, so re-reading one law for refinement remains inexpensive.
+
 Run fitting and substantive simulation on Torch. Local verification uses only small synthetic fixtures. Cache filenames in the example are placeholders for actual manifests; the loader verifies each NPZ hash, trial identity, and frozen checkpoint hashes. It streams coefficient arrays, discards the per-sample covariance arrays, and retains only cognitive-candidate mixtures and their independent numerical repetitions.
 
 Each candidate identifies a model family, cognitive parameters, and checkpoint runs. The loader averages independent latent samples within each checkpoint using sample-count weights, then averages checkpoint seed probabilities with equal checkpoint weight. It takes logs only after forming these mixtures. All inventory checkpoints must have every trial cached exactly once, including when supplied in trial shards.
@@ -38,5 +42,7 @@ Reports include:
 - Aggregate training, validation, and test log likelihoods under each independent latent-MC repetition at fixed pooled fitted optima, approximate pooled numerical standard errors, and repetition-level model-comparison gaps. This numerical variation is distinct from participant sampling uncertainty and trained-policy-seed variation.
 
 Likelihood-ratio support sets and cognitive boundary flags are finite-grid diagnostics. Their nominal asymptotic cutoffs do not establish continuous-parameter confidence intervals. Recovery measures empirical performance conditional on the supplied trained grid and independent cache repetitions; see `action_recovery.py` for its separate interface.
+
+Continuous Gamma refinement uses `modules/action_gamma_fitting.py` and the training-only optimizer in `modules/undirected_likelihood_cache.py`. The Gamma shape bounds are `[0.1, 100]` and uncapped mean bounds are `[0.1, 1000]`; actual stopping retains the original 100-fixation task cap. Boundary flags, effective capped means, multistart agreement, and local curvature diagnose weak stopping identifiability. The final report's `refined_undirected_candidate_specs` exports each WM law's action-fitted stopping parameters for finite-grid recovery scenarios.
 
 Reusable fitting functions are in `modules/action_fitting.py`. `Candidate` supports optional subset and observed-path evaluators, so recovery and likelihood optimization can score selected designs without expanding every full path distribution. `modules/action_cache_fitting.py` builds these callbacks from compact Bernstein coefficients.

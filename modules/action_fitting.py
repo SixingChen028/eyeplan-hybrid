@@ -140,7 +140,7 @@ def fit_lapse(candidate, observed_indices, indices=None, lapse_bounds=(MIN_LAPSE
     }
 
 
-def fit_all_candidates(candidates, observed_indices, split_indices, profile_points=101):
+def fit_all_candidates(candidates, observed_indices, split_indices, profile_points=101, progress=None):
     """Fit train lapse, then select finite cognitive candidates on validation."""
     if len({candidate.candidate_id for candidate in candidates}) != len(candidates):
         raise ValueError("candidate IDs must be unique")
@@ -151,7 +151,14 @@ def fit_all_candidates(candidates, observed_indices, split_indices, profile_poin
             candidate, fit["lapse_rate"], observed_indices, split_indices["validation"],
         ).sum())
         fits.append(fit)
-    families = sorted({candidate.family for candidate in candidates})
+        if progress is not None:
+            progress(len(fits), len(candidates), fit)
+    return select_fitted_candidates(fits)
+
+
+def select_fitted_candidates(fits):
+    """Select each family's validation winner from already training-fitted choices."""
+    families = sorted({fit["family"] for fit in fits})
     selected = {}
     training_best = {}
     for family in families:
@@ -363,8 +370,10 @@ def cognitive_grid_diagnostics(candidates, fitted):
                 "selected_at_grid_boundary": len(values) > 1 and selected_value in (values[0], values[-1]),
                 "fixed_on_available_grid": len(values) == 1,
             }
-        report[family] = {"candidate_count": len(group), "parameters": dimensions,
-                          "interpretation": "finite_policy_grid_diagnostics_not_continuous_parameter_confidence_intervals"}
+        report[family] = {
+            "candidate_count": len(group), "parameters": dimensions,
+            "interpretation": "finite_policy_grid_diagnostics_not_continuous_parameter_confidence_intervals",
+        }
     return report
 
 
@@ -416,8 +425,10 @@ def posterior_predictive_checks(candidates, fitted, observed_indices, records, t
                 calibration.append({
                     "lower": float(lower), "upper": float(lower + .1),
                     "columns": ["max_path_probability", "top_path_accuracy"],
-                    **participant_bootstrap(np.stack([confidence[mask], (predicted[mask] == actual[mask]).astype(float)], 1),
-                                            pids[mask], repetitions=bootstrap_repetitions, seed=seed),
+                    **participant_bootstrap(
+                        np.stack([confidence[mask], (predicted[mask] == actual[mask]).astype(float)], 1),
+                        pids[mask], repetitions=bootstrap_repetitions, seed=seed,
+                    ),
                 })
         report[family] = {"candidate_id": candidate_id, "metrics": checks,
                           "probability_scores": {"columns": ["observed_path_probability", "multiclass_brier_score"],

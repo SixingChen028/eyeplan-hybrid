@@ -10,7 +10,7 @@ import numpy as np
 
 from modules.action_fitting import (
     cognitive_grid_diagnostics, evaluate_test, fit_all_candidates, freeze_participant_split,
-    posterior_predictive_checks, repeat_score_diagnostics,
+    posterior_predictive_checks, repeat_score_diagnostics, select_fitted_candidates,
 )
 
 
@@ -29,6 +29,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", required=True, type=Path)
     parser.add_argument("--cache", nargs="+", type=Path)
+    parser.add_argument("--undirected-cache", nargs="+", type=Path)
+    parser.add_argument("--gamma-shapes", nargs="+", type=float, default=[.5, 1, 2, 4, 8])
+    parser.add_argument("--gamma-means", nargs="+", type=float, default=[2, 4, 8, 16, 32, 64])
+    parser.add_argument(
+        "--coarse-gamma-only", action="store_true", help="development diagnostic; skip continuous refinement",
+    )
     parser.add_argument("--candidates", type=Path)
     parser.add_argument("--split", required=True, type=Path)
     parser.add_argument("--output", type=Path)
@@ -49,19 +55,48 @@ def main():
     print(f"frozen_split={args.split} counts={split['participant_counts']} hash={split['split_sha256']}", flush=True)
     if args.freeze_split_only:
         return
-    if not args.cache or not args.candidates or not args.output:
-        parser.error("fitting requires --cache, --candidates, and --output")
+    if not (args.cache or args.undirected_cache) or not args.candidates or not args.output:
+        parser.error("fitting requires --cache and/or --undirected-cache, --candidates, and --output")
     if args.output.exists():
         parser.error("output already exists")
-    from modules.action_cache_fitting import stream_cache_candidates
+    from modules.action_cache_fitting import (
+        align_candidate_trials, stream_cache_candidates, stream_undirected_candidates,
+    )
 
+    data_hash = file_hash(args.data)
+    for path in (args.cache or []) + (args.undirected_cache or []):
+        if json.loads(path.read_text())["data_sha256"] != data_hash:
+            raise ValueError("cache data hash differs from complete fitting data")
     candidate_manifest = json.loads(args.candidates.read_text())
     candidate_manifest = {**candidate_manifest, "candidates": [
         candidate for candidate in candidate_manifest["candidates"] if candidate.get("scope", "primary") == args.scope
     ]}
     if not candidate_manifest["candidates"]:
         parser.error("no candidates in selected scope")
-    manifest, candidates, observed, repeat_candidates = stream_cache_candidates(args.cache, candidate_manifest)
+    if args.undirected_cache:
+        candidate_manifest["candidates"] = [candidate for candidate in candidate_manifest["candidates"]
+                                             if candidate["model"] != "undirected"]
+    if args.cache:
+        manifest, candidates, observed, repeat_candidates = stream_cache_candidates(args.cache, candidate_manifest)
+    else:
+        manifest, candidates, observed, repeat_candidates = None, [], None, []
+    if args.undirected_cache:
+        undirected_manifest, undirected_candidates, undirected_repeats = stream_undirected_candidates(
+            args.undirected_cache, args.gamma_shapes, args.gamma_means,
+        )
+        if manifest is None:
+            manifest = undirected_manifest
+            observed = np.asarray([trial["observed_index"] for trial in manifest["trials"]])
+            candidates, repeat_candidates = undirected_candidates, undirected_repeats
+        else:
+            if len(undirected_repeats) != len(repeat_candidates):
+                raise ValueError("directed and undirected caches need matching independent-repeat counts")
+            candidates += align_candidate_trials(
+                undirected_candidates, undirected_manifest["trials"], manifest["trials"],
+            )
+            for ordinary, undirected in zip(repeat_candidates, undirected_repeats, strict=True):
+                ordinary += align_candidate_trials(undirected, undirected_manifest["trials"], manifest["trials"])
+            del ordinary, undirected
     record_by_key = {(str(r["pid"]), int(r["trial_index"])): r for r in records}
     cache_keys = [(str(t["pid"]), int(t["trial_index"])) for t in manifest["trials"]]
     if set(cache_keys) != set(record_by_key):
@@ -70,7 +105,7 @@ def main():
     for record, trial in zip(ordered_records, manifest["trials"]):
         problem = {key: record[key] for key in ("graph", "start", "rewards")}
         problem_hash = hashlib.sha256(json.dumps(problem, sort_keys=True).encode()).hexdigest()
-        if problem_hash != trial["problem_sha256"]:
+        if "problem_sha256" in trial and problem_hash != trial["problem_sha256"]:
             raise ValueError("cache problem hash differs from complete data")
         if record["moves"] != trial["paths"][trial["observed_index"]]:
             raise ValueError("cache observed path differs from complete data")
@@ -78,13 +113,53 @@ def main():
     indices = {name: [i for i, record in enumerate(ordered_records) if assignment[str(record["pid"])] == name]
                for name in ("train", "validation", "test")}
     print(f"candidates={len(candidates)} trials={len(observed)}", flush=True)
-    fitted = fit_all_candidates(candidates, observed, indices, profile_points=args.profile_points)
+
+    def progress(current, total, fit):
+        print(f"fitted={current}/{total} candidate={fit['candidate_id']} "
+              f"train_ll={fit['total_log_likelihood']:.4f} val_ll={fit['validation_log_likelihood']:.4f}", flush=True)
+
+    fitted = fit_all_candidates(candidates, observed, indices, profile_points=args.profile_points, progress=progress)
+    coarse_gamma_fits = None
+    gamma_refinement = None
+    if args.undirected_cache and not args.coarse_gamma_only:
+        from modules.action_gamma_fitting import refine_all_gamma
+
+        coarse_gamma_fits = [fit for fit in fitted["fits"] if fit["family"] == "undirected"]
+        # Release the large coarse Gamma coefficient grid before continuous refinement.
+        candidates = [candidate for candidate in candidates if candidate.family != "undirected"]
+        repeat_candidates = [[candidate for candidate in repeated if candidate.family != "undirected"]
+                             for repeated in repeat_candidates]
+        del undirected_candidates, undirected_repeats
+
+        def refinement_progress(current, total, fit):
+            print(f"refined_gamma={current}/{total} decay={fit['wm_decay']} neighbor={fit['wm_neighbor_activation']} "
+                  f"train_ll={fit['train_log_likelihood']:.4f}", flush=True)
+
+        refined_specs, gamma_refinement = refine_all_gamma(
+            args.undirected_cache, manifest["trials"], fitted, indices["train"], progress=refinement_progress,
+        )
+        refined_manifest, refined_candidates, refined_repeats = stream_undirected_candidates(
+            args.undirected_cache, candidate_specs_by_law=refined_specs,
+        )
+        refined_candidates = align_candidate_trials(refined_candidates, refined_manifest["trials"], manifest["trials"])
+        new_fitted = fit_all_candidates(refined_candidates, observed, indices,
+                                        profile_points=args.profile_points, progress=progress)
+        candidates += refined_candidates
+        for ordinary, repeated in zip(repeat_candidates, refined_repeats, strict=True):
+            ordinary += align_candidate_trials(repeated, refined_manifest["trials"], manifest["trials"])
+        fitted = select_fitted_candidates([fit for fit in fitted["fits"] if fit["family"] != "undirected"]
+                                          + new_fitted["fits"])
     random_probability = np.asarray([2.0**-len(record["moves"]) for record in ordered_records])
     report = {
         "method": "pooled_action_only_finite_cognitive_grid_continuous_movement_lapse",
         "objective": "sum_trial_log_probability_equal_trial_weight",
         "checkpoint_seed_rule": "average_path_probabilities_before_logs_equal_checkpoint_weight",
         "split": split, "scope": args.scope, "fits": fitted,
+        "coarse_gamma_fits": coarse_gamma_fits, "gamma_refinement": gamma_refinement,
+        "refined_undirected_candidate_specs": [
+            {"id": candidate.candidate_id, "model": candidate.family, "parameters": candidate.parameters}
+            for candidate in candidates if candidate.family == "undirected"
+        ] if gamma_refinement is not None else [],
         "test": evaluate_test(candidates, fitted, observed, indices, [r["pid"] for r in ordered_records],
                               random_probability, bootstrap_repetitions=args.bootstrap_repetitions, seed=args.seed),
         "grid_diagnostics": cognitive_grid_diagnostics(candidates, fitted),
@@ -95,10 +170,15 @@ def main():
         "numerical_precision": repeat_score_diagnostics(candidates, repeat_candidates, fitted, observed, indices),
         "provenance": {
             "data_file": str(args.data.resolve()), "data_sha256": file_hash(args.data),
-            "candidate_manifest": str(args.candidates.resolve()), "candidate_manifest_sha256": file_hash(args.candidates),
-            "cache_manifests": [{"path": str(path.resolve()), "sha256": file_hash(path)} for path in args.cache],
+            "candidate_manifest": str(args.candidates.resolve()),
+            "candidate_manifest_sha256": file_hash(args.candidates),
+            "cache_manifests": [{"path": str(path.resolve()), "sha256": file_hash(path)}
+                                for path in (args.cache or []) + (args.undirected_cache or [])],
             "code_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-            "source_sha256": {path: file_hash(path) for path in ["fit_action_models.py", "modules/action_fitting.py", "modules/action_cache_fitting.py"]},
+            "source_sha256": {path: file_hash(path) for path in [
+                "fit_action_models.py", "modules/action_fitting.py", "modules/action_cache_fitting.py",
+                "modules/action_gamma_fitting.py",
+            ]},
         },
     }
     write_new_json(args.output, report)
