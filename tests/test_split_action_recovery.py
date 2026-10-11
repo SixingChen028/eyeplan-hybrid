@@ -121,3 +121,27 @@ def test_sparse_initialization_profiles_match_empirical_continuous_lapse():
     assert refine_lapse_profile(candidate, observations[0], indices["train"], grid, scores) == reference
     with pytest.raises(ValueError, match="precomputed lapse profile"):
         refine_lapse_profile(candidate, observations[0], indices["train"], grid, scores[:-1])
+
+
+def test_aligned_gamma_initialization_refines_generated_actions():
+    from modules.action_cache_fitting import align_candidate_trials, coefficient_candidates
+    from modules.action_fitting import fit_lapse
+
+    trials, split, _ = fixture()
+    coefficients = np.tile(np.array([[.9, .5], [.1, .5]]), (len(trials), 1, 1))
+    gamma = coefficient_candidates([{"id": "gamma", "model": "undirected", "parameters": {"wm_decay": .8}}],
+                                   [coefficients], trials)[0]
+    order = np.random.default_rng(5).permutation(len(trials))
+    aligned = align_candidate_trials([gamma], trials, [trials[index] for index in order])[0]
+    # Human paths are all zero; the generated paths differ and have an interior lapse optimum.
+    synthetic = np.tile([0, 0, 1], 12)[None, :]
+    indices = {name: np.arange(i * 12, (i + 1) * 12)
+               for i, name in enumerate(("train", "validation", "test"))}
+    fit = coarse_gamma_fits([aligned], synthetic, indices, (36, 2), profile_points=11)[0][0]
+    source_observed = synthetic[0, np.argsort(order)]
+    direct = fit_lapse(gamma, source_observed, order[indices["train"]], profile_points=11)
+    empirical = fit_lapse(gamma, np.zeros(36, dtype=int), order[indices["train"]], profile_points=11)
+    assert fit["lapse_rate"] == pytest.approx(direct["lapse_rate"], abs=1e-7)
+    assert fit["total_log_likelihood"] == pytest.approx(direct["total_log_likelihood"], abs=1e-10)
+    assert fit["lapse_rate"] > .1
+    assert empirical["lapse_rate"] == .01

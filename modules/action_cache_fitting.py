@@ -340,6 +340,7 @@ def align_candidate_trials(candidates, source_trials, target_trials):
     if set(source) != set(target_keys):
         raise ValueError("ordinary and undirected trial sets differ")
     order = np.asarray([source[key] for key in target_keys])
+    inverse_order = np.argsort(order)
     source_observed = np.asarray([trial["observed_index"] for trial in source_trials], dtype=int)
     for row, index in zip(target_trials, order):
         if row["paths"] != source_trials[index]["paths"] or row["observed_index"] != source_observed[index]:
@@ -353,11 +354,15 @@ def align_candidate_trials(candidates, source_trials, target_trials):
             return candidate.probabilities(lapse, order[indices])
 
         def observed(lapse, observed_indices, indices, candidate=candidate):
+            supplied_observed = np.asarray(observed_indices, dtype=int)
+            if supplied_observed.shape != (len(order),):
+                raise ValueError("observed paths must match the aligned trial count")
+            remapped_observed = supplied_observed[inverse_order]
             rows = order if indices is None else order[indices]
             if candidate.evaluate_observed is not None:
-                return candidate.evaluate_observed(lapse, source_observed, rows)
+                return candidate.evaluate_observed(lapse, remapped_observed, rows)
             probabilities = candidate.probabilities(lapse, rows)
-            return probabilities[np.arange(len(rows)), source_observed[rows]]
+            return probabilities[np.arange(len(rows)), remapped_observed[rows]]
 
         aligned.append(Candidate(
             candidate.candidate_id, candidate.family, candidate.parameters, evaluate, subset, observed,

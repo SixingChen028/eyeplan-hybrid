@@ -75,3 +75,30 @@ def test_ordinary_stream_subsets_trials_and_sample_weighted_repeat_means(tmp_pat
 def test_invalid_repeat_grouping_is_rejected(groups):
     with pytest.raises(ValueError, match="nonempty, disjoint, and in range"):
         selected_repeat_groups(4, repeat_groups=groups)
+
+
+@pytest.mark.parametrize("fast_observed", [False, True])
+def test_aligned_likelihood_remaps_supplied_responses_and_subset_order(fast_observed):
+    from modules.action_cache_fitting import align_candidate_trials, coefficient_candidates
+    from modules.action_fitting import Candidate, observed_log_probabilities
+
+    source = [{"pid": "p", "trial_index": i, "paths": [[1], [2]], "observed_index": i % 2}
+              for i in range(4)]
+    target_order = np.array([2, 0, 3, 1])
+    target = [source[index] for index in target_order]
+    coefficients = np.stack([np.column_stack([base, [.5, .5]]) for base in
+                             ([.9, .1], [.3, .7], [.6, .4], [.2, .8])])
+    original = coefficient_candidates([{"id": "gamma", "model": "undirected", "parameters": {}}],
+                                      [coefficients], source)[0]
+    if not fast_observed:
+        original = Candidate(original.candidate_id, original.family, original.parameters,
+                             original.evaluate, original.evaluate_subset)
+    aligned = align_candidate_trials([original], source, target)[0]
+    synthetic = 1 - np.array([trial["observed_index"] for trial in target])
+    source_synthetic = synthetic[np.argsort(target_order)]
+    for indices in (None, np.array([0, 2]), np.array([3, 1, 0])):
+        source_rows = target_order if indices is None else target_order[indices]
+        expected = observed_log_probabilities(original, .23, source_synthetic, source_rows)
+        np.testing.assert_allclose(observed_log_probabilities(aligned, .23, synthetic, indices), expected)
+    with pytest.raises(ValueError, match="aligned trial count"):
+        aligned.evaluate_observed(.23, synthetic[:-1], None)
