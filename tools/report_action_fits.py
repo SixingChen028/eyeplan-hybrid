@@ -61,8 +61,12 @@ def accounting_summary(path):
     # Allocation rows have no .batch/.extern suffix. Array-parent summaries are
     # excluded when their individual array allocations are present.
     allocations = [row for row in records if "." not in row["JobIDRaw"]]
-    array_parents = {row["JobIDRaw"].split("_")[0] for row in allocations if "_" in row["JobIDRaw"]}
-    allocations = [row for row in allocations if row["JobIDRaw"] not in array_parents]
+
+    def public_id(row):
+        return row.get("JobID") or row["JobIDRaw"]
+
+    array_parents = {public_id(row).split("_")[0] for row in allocations if "_" in public_id(row)}
+    allocations = [row for row in allocations if public_id(row) not in array_parents]
     unique = {row["JobIDRaw"]: row for row in allocations}
     cpu_seconds = gpu_seconds = 0.0
     for row in unique.values():
