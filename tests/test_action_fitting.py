@@ -5,11 +5,13 @@ import json
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from modules.action_cache_fitting import coefficient_candidates, stream_cache_candidates
 from modules.action_fitting import (
-    Candidate, candidates_from_cache, evaluate_test, fit_all_candidates, fit_lapse, freeze_participant_split,
+    MIN_LAPSE_RATE, Candidate, candidates_from_cache, evaluate_test, fit_all_candidates, fit_lapse, freeze_participant_split,
     observed_log_probabilities, participant_bootstrap, posterior_predictive_checks, repeat_score_diagnostics,
+    refine_lapse_profile,
 )
 
 
@@ -43,6 +45,72 @@ def test_continuous_lapse_fit_and_boundary():
     boundary = fit_lapse(candidate, np.zeros(50, dtype=int))
     assert boundary["lapse_at_boundary"]
     assert boundary["lapse_rate"] == .01
+
+
+@pytest.mark.parametrize("edge,left_count", [("lower", 1600), ("upper", 1002)])
+def test_binary_branch_lapse_refines_boundary_adjacent_maximum(edge, left_count):
+    grid = np.linspace(MIN_LAPSE_RATE, 1, 101)
+    expected_lapse = grid[0] + .4 * (grid[1] - grid[0]) if edge == "lower" else grid[-1] - .4 * (grid[-1] - grid[-2])
+    observed = np.r_[np.zeros(left_count, dtype=int), np.ones(2000 - left_count, dtype=int)]
+    frequency = left_count / len(observed)
+    base_probability = (frequency - expected_lapse * .5) / (1 - expected_lapse)
+    candidate = bernoulli_candidate("near-boundary", np.full(len(observed), base_probability))
+    scores = np.array([observed_log_probabilities(candidate, lapse, observed).sum() for lapse in grid])
+    assert np.argmax(scores) in (0, len(grid) - 1)
+
+    fit = fit_lapse(candidate, observed, profile_points=len(grid))
+    assert fit == refine_lapse_profile(candidate, observed, None, grid, scores)
+    assert fit["lapse_rate"] == pytest.approx(expected_lapse, abs=2e-6)
+    assert not fit["lapse_at_boundary"]
+    assert fit["total_log_likelihood"] >= scores.max()
+    expected_score = left_count * np.log(frequency) + (len(observed) - left_count) * np.log(1 - frequency)
+    assert fit["total_log_likelihood"] == pytest.approx(expected_score, abs=1e-9)
+
+
+@pytest.mark.parametrize("left_count,edge", [(50, "lower"), (25, "upper")])
+def test_binary_branch_lapse_keeps_exact_boundary_optimum(left_count, edge):
+    expected_lapse = MIN_LAPSE_RATE if edge == "lower" else 1.
+    observed = np.r_[np.zeros(left_count, dtype=int), np.ones(50 - left_count, dtype=int)]
+    candidate = bernoulli_candidate("boundary", np.full(len(observed), .875))
+    fit = fit_lapse(candidate, observed)
+    assert fit["lapse_rate"] == expected_lapse
+    assert fit["lapse_at_boundary"]
+    assert fit["total_log_likelihood"] == observed_log_probabilities(candidate, expected_lapse, observed).sum()
+
+
+def test_flat_lapse_profile_preserves_lower_bound_without_refinement():
+    evaluations = []
+
+    def probabilities(lapse):
+        evaluations.append(lapse)
+        return np.array([[.5, .5]])
+
+    candidate = Candidate("constant", "main", {}, probabilities)
+    fit = fit_lapse(candidate, [0], profile_points=11)
+    assert len(evaluations) == 11
+    assert fit["lapse_rate"] == MIN_LAPSE_RATE
+    assert fit["profile"]["likelihood_ratio_95_support"] == np.linspace(MIN_LAPSE_RATE, 1, 11).tolist()
+
+
+def test_multimodal_lapse_profile_keeps_coarse_maximum_and_refines_each_peak():
+    left = np.array([.27, .71, .9, .22, .94, .79, .13, .5])
+    coefficients = np.stack([left, 1 - left])[None, :, :]
+    trials = [{"paths": [list(range(7)), list(range(7, 14))]}]
+    candidate = coefficient_candidates(
+        [{"id": "multimodal", "model": "main", "parameters": {}}], [coefficients], trials,
+    )[0]
+    # The three-point bracket spans two peaks. Its bounded search settles on a
+    # lower peak, so the already evaluated middle point must remain available.
+    coarse = fit_lapse(candidate, [0], profile_points=3)
+    middle = np.linspace(MIN_LAPSE_RATE, 1, 3)[1]
+    assert coarse["lapse_rate"] == middle
+    assert coarse["total_log_likelihood"] == pytest.approx(np.log(candidate.probabilities(middle)[0, 0]))
+
+    dense = fit_lapse(candidate, [0], profile_points=101)
+    reference_grid = np.linspace(MIN_LAPSE_RATE, 1, 10001)
+    reference_scores = [observed_log_probabilities(candidate, lapse, [0])[0] for lapse in reference_grid]
+    assert dense["total_log_likelihood"] >= max(reference_scores) - 1e-9
+    assert dense["lapse_rate"] > .4
 
 
 def test_validation_selects_without_using_test_responses():

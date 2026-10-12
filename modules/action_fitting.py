@@ -131,15 +131,24 @@ def refine_lapse_profile(candidate, observed_indices, indices, grid, scores):
         return float(observed_log_probabilities(candidate, lapse, observed_indices, indices).sum())
 
     optima = [(scores[0], lower), (scores[-1], upper)]
+    intervals = []
     for i in range(1, len(grid) - 1):
         if scores[i] >= scores[i - 1] and scores[i] >= scores[i + 1] and (
             scores[i] > scores[i - 1] or scores[i] > scores[i + 1]
         ):
-            optimum = minimize_scalar(
-                lambda lapse: -score(lapse), bounds=(grid[i - 1], grid[i + 1]), method="bounded",
-                options={"xatol": 1e-8},
-            )
-            optima.append((-float(optimum.fun), float(optimum.x)))
+            intervals.append((grid[i - 1], grid[i + 1]))
+    # A coarse endpoint maximum can hide a continuous peak in its adjacent cell.
+    if scores[0] > scores[1]:
+        intervals.append((grid[0], grid[1]))
+    if scores[-1] > scores[-2]:
+        intervals.append((grid[-2], grid[-1]))
+    for bounds in intervals:
+        optimum = minimize_scalar(lambda lapse: -score(lapse), bounds=bounds, method="bounded",
+                                  options={"xatol": 1e-8})
+        optima.append((-float(optimum.fun), float(optimum.x)))
+    # Local refinement must never discard a better point already evaluated.
+    coarse_best = int(np.argmax(scores))
+    optima.append((scores[coarse_best], float(grid[coarse_best])))
     best_score, best_lapse = max(optima, key=lambda pair: pair[0])
     # Report discrete support, including disconnected regions; finite policy grid
     # and MC error make these diagnostic likelihood intervals, not calibrated CIs.
