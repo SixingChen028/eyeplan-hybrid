@@ -87,6 +87,43 @@ def repeat_tail_diagnostics(probabilities, repeats, trials, assignment):
     return result
 
 
+def audit_gamma_rng(paths, laws, trial_keys):
+    """Verify independent repeats within laws and exact cross-law RNG coupling."""
+    schedules = {law: {} for law in laws}
+    stream_count = 0
+    for reference in iter_manifest_seeds(paths, run_dirs=[], wm_laws=laws):
+        by_repeat = schedules[reference.wm_law].setdefault(reference.trial_key, {})
+        if reference.repeat in by_repeat or reference.seed in by_repeat.values():
+            raise ValueError("Gamma law raw repeats duplicate a same-problem RNG stream")
+        by_repeat[reference.repeat] = reference.seed
+        stream_count += 1
+    expected_trials, repeat_counts = set(trial_keys), set()
+    for law, trials in schedules.items():
+        if set(trials) != expected_trials:
+            raise ValueError("Gamma law RNG schedule has missing or unexpected problems")
+        for key, by_repeat in trials.items():
+            if len(by_repeat) < 2 or set(by_repeat) != set(range(len(by_repeat))):
+                raise ValueError("Gamma law RNG schedule has missing independent raw repeats")
+            repeat_counts.add(len(by_repeat))
+            trials[key] = tuple(by_repeat[index] for index in range(len(by_repeat)))
+    if len(repeat_counts) != 1:
+        raise ValueError("Gamma laws have different raw repeat counts")
+    pairs = []
+    ordered_laws = sorted(laws)
+    for index, left in enumerate(ordered_laws):
+        for right in ordered_laws[index + 1:]:
+            paired = all(schedules[left][key] == schedules[right][key] for key in expected_trials)
+            independent = all(not set(schedules[left][key]) & set(schedules[right][key])
+                              for key in expected_trials)
+            if not paired and not independent:
+                raise ValueError("Gamma laws have partial or misaligned same-problem RNG coupling")
+            pairs.append({"laws": [list(left), list(right)],
+                          "coupling": "exact_paired_common_random_numbers" if paired else "independent_streams"})
+    return {"checked": True, "streams_checked": stream_count, "problems_per_law": len(expected_trials),
+            "within_law_repeats_independent": True, "raw_repeat_count": repeat_counts.pop(),
+            "cross_law_pairs": pairs}
+
+
 def gamma_precision_report(fit, cache_paths, top_k=3):
     frozen = top_gamma_fits(fit, top_k)
     wm_values = {name: sorted({row["parameters"][name] for row in fit["fits"]["fits"]
@@ -94,13 +131,7 @@ def gamma_precision_report(fit, cache_paths, top_k=3):
                  for name in ("wm_decay", "wm_neighbor_activation")}
     laws = {(row["parameters"]["wm_decay"], row["parameters"]["wm_neighbor_activation"]) for row in frozen}
     paths, trials_by_key, horizons = frozen_gamma_manifests(cache_paths, fit, laws)
-    seeds_by_trial, stream_count = {}, 0
-    for reference in iter_manifest_seeds(paths, run_dirs=[], wm_laws=laws):
-        seen = seeds_by_trial.setdefault(reference.trial_key, set())
-        if reference.seed in seen:
-            raise ValueError("Gamma raw repeats/laws reuse a same-problem RNG seed")
-        seen.add(reference.seed)
-        stream_count += 1
+    rng_audit = audit_gamma_rng(paths, laws, trials_by_key)
     specifications = {(row["parameters"]["wm_decay"], row["parameters"]["wm_neighbor_activation"]): [{
         "gamma_shape": row["parameters"]["gamma_shape"], "gamma_mean": row["parameters"]["gamma_mean"],
     }] for row in frozen}
@@ -160,25 +191,38 @@ def gamma_precision_report(fit, cache_paths, top_k=3):
         for right in candidates[i + 1:]:
             a, b = left["splits"]["validation"], right["splits"]["validation"]
             gap = a["pooled_total_log_likelihood"] - b["pooled_total_log_likelihood"]
-            se = float(np.hypot(a["raw_repeat_total_log_likelihood_mc_se"],
-                                b["raw_repeat_total_log_likelihood_mc_se"]))
+            pair_laws = sorted([[row["parameters"]["wm_decay"], row["parameters"]["wm_neighbor_activation"]]
+                                for row in (left, right)])
+            coupling = next(pair["coupling"] for pair in rng_audit["cross_law_pairs"]
+                            if pair["laws"] == pair_laws)
+            paired = coupling == "exact_paired_common_random_numbers"
+            repeat_gaps = np.asarray(a["raw_repeat_total_log_likelihoods"]) - b["raw_repeat_total_log_likelihoods"]
+            se = (float(repeat_gaps.std(ddof=1) / np.sqrt(len(repeat_gaps))) if paired
+                  else float(np.hypot(a["raw_repeat_total_log_likelihood_mc_se"],
+                                      b["raw_repeat_total_log_likelihood_mc_se"])))
             comparisons.append({"model": left["candidate_id"], "reference": right["candidate_id"],
-                                "validation_log_likelihood_gap": gap, "independent_law_gap_mc_se": se,
+                                "validation_log_likelihood_gap": gap, "validation_gap_mc_se": se,
                                 "gap_over_numerical_se": gap / se if se else None,
-                                "method": "quadrature_of_independent_law_raw_repeat_total_log_likelihood_SEs"})
-    return {"schema_version": 1, "method": "frozen_top_validation_Gamma_raw_repeat_precision",
+                                "rng_coupling": coupling,
+                                "raw_repeat_validation_log_likelihood_gaps": repeat_gaps.tolist() if paired else None,
+                                "repeat_variance_degrees_of_freedom": len(repeat_gaps) - 1 if paired else None,
+                                "method": "paired_raw_repeat_total_log_likelihood_gap_SE" if paired else
+                                "quadrature_of_independent_law_raw_repeat_total_log_likelihood_SEs"})
+    return {"schema_version": 2, "method": "frozen_top_validation_Gamma_raw_repeat_precision",
         "parameters_refitted": False, "models_reselected": False, "split_sha256": fit["split"]["split_sha256"],
         "selected_undirected_candidate": fit["fits"]["selected_by_validation"]["undirected"],
         "requested_top_k": top_k, "candidates": candidates, "validation_comparisons": comparisons,
-        "same_problem_seed_independence": {"checked": True, "streams_checked": stream_count},
+        "same_problem_rng_audit": rng_audit,
         "used_cache_manifests": [{"path": str(path.resolve()), "sha256": file_hash(path)} for path in paths],
         "limitations": [
             "All parameters and the established validation ranking remain frozen; this is a numerical diagnostic.",
             "Raw-repeat likelihood SEs have few degrees of freedom and approximate precision of the pooled score.",
             "Per-trial delta-log SE and leading Jensen bias use repeat-estimated probability variances; "
             "they are noisy diagnostics rather than within-history covariance estimates or score corrections.",
-            "Summed delta variances assume independent problem integrations; same-problem RNG reuse is rejected, "
-            "but cross-problem uint32 seed coincidences are outside the independence check.",
+            "Within-law raw repeats must have distinct same-problem seeds. Exact cross-law common RNG schedules "
+            "use paired repeat likelihood gaps; disjoint streams use quadrature; partial coupling is rejected.",
+            "Summed delta variances assume independent problem integrations; cross-problem uint32 seed "
+            "coincidences are outside the independence check.",
             "Nonselected candidates' test scores are diagnostic only and cannot be used to revise selection.",
             "Participant sampling, parameter-selection uncertainty, and trained-policy uncertainty are excluded.",
         ]}

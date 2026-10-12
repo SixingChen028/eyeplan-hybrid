@@ -58,7 +58,8 @@ def test_frozen_top_three_raw_repeat_scores_and_gap_precision(tmp_path):
     assert not report["parameters_refitted"] and not report["models_reselected"]
     assert [row["candidate_id"] for row in report["candidates"]] == ["gamma", "gamma1", "gamma2"]
     assert len(report["used_cache_manifests"]) == 3
-    assert report["same_problem_seed_independence"]["streams_checked"] == 3 * 3 * 4
+    assert report["same_problem_rng_audit"]["streams_checked"] == 3 * 3 * 4
+    assert report["same_problem_rng_audit"]["within_law_repeats_independent"]
     for candidate in report["candidates"]:
         raw_probabilities = expected[candidate["candidate_id"]]
         for t, split in enumerate(["train", "validation", "test"]):
@@ -79,9 +80,65 @@ def test_frozen_top_three_raw_repeat_scores_and_gap_precision(tmp_path):
     left, right = [row["splits"]["validation"] for row in report["candidates"][:2]]
     np.testing.assert_allclose(pair["validation_log_likelihood_gap"],
                                left["pooled_total_log_likelihood"] - right["pooled_total_log_likelihood"])
-    np.testing.assert_allclose(pair["independent_law_gap_mc_se"],
+    assert pair["rng_coupling"] == "independent_streams"
+    np.testing.assert_allclose(pair["validation_gap_mc_se"],
                                np.hypot(left["raw_repeat_total_log_likelihood_mc_se"],
                                         right["raw_repeat_total_log_likelihood_mc_se"]))
+
+
+def common_rng_fixture(tmp_path):
+    fit, paths, expected = gamma_fixture(tmp_path)
+    source = json.loads(paths[0].read_text())["runs"][0]["estimates"]
+    for path in paths[1:3]:
+        previous_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest = json.loads(path.read_text())
+        for entry, original in zip(manifest["runs"][0]["estimates"], source, strict=True):
+            entry["seeds"] = original["seeds"].copy()
+        path.write_text(json.dumps(manifest))
+        reference = next(row for row in fit["provenance"]["cache_manifests"] if row["sha256"] == previous_hash)
+        reference["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return fit, paths, expected
+
+
+def test_common_rng_schedule_uses_paired_repeat_likelihood_gaps(tmp_path):
+    fit, paths, _ = common_rng_fixture(tmp_path)
+    report = gamma_precision_report(fit, paths)
+    assert all(pair["coupling"] == "exact_paired_common_random_numbers"
+               for pair in report["same_problem_rng_audit"]["cross_law_pairs"])
+    pair = report["validation_comparisons"][0]
+    left, right = [row["splits"]["validation"] for row in report["candidates"][:2]]
+    gaps = np.asarray(left["raw_repeat_total_log_likelihoods"]) - right["raw_repeat_total_log_likelihoods"]
+    covariance = np.cov(left["raw_repeat_total_log_likelihoods"], right["raw_repeat_total_log_likelihoods"])[0, 1]
+    np.testing.assert_allclose(pair["raw_repeat_validation_log_likelihood_gaps"], gaps)
+    np.testing.assert_allclose(pair["validation_gap_mc_se"], gaps.std(ddof=1) / 2)
+    np.testing.assert_allclose(pair["validation_gap_mc_se"]**2,
+                               left["raw_repeat_total_log_likelihood_mc_se"]**2
+                               + right["raw_repeat_total_log_likelihood_mc_se"]**2 - 2 * covariance / 4)
+    assert not np.isclose(pair["validation_gap_mc_se"],
+                          np.hypot(left["raw_repeat_total_log_likelihood_mc_se"],
+                                   right["raw_repeat_total_log_likelihood_mc_se"]))
+    assert pair["repeat_variance_degrees_of_freedom"] == 3
+    assert pair["method"] == "paired_raw_repeat_total_log_likelihood_gap_SE"
+
+
+@pytest.mark.parametrize("failure", ["within_law_duplicate", "partial_coupling", "misaligned_pairing"])
+def test_common_rng_schedule_rejects_duplicate_or_incomplete_pairing(tmp_path, failure):
+    fit, paths, _ = common_rng_fixture(tmp_path)
+    path = paths[1]
+    previous_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest = json.loads(path.read_text())
+    seeds = manifest["runs"][0]["estimates"][0]["seeds"]
+    if failure == "within_law_duplicate":
+        seeds[1] = seeds[0]
+    elif failure == "partial_coupling":
+        seeds[0] += 100000
+    else:
+        seeds.reverse()
+    path.write_text(json.dumps(manifest))
+    reference = next(row for row in fit["provenance"]["cache_manifests"] if row["sha256"] == previous_hash)
+    reference["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="RNG"):
+        gamma_precision_report(fit, paths)
 
 
 @pytest.mark.parametrize("failure", ["manifest_hash", "same_problem_rng", "pooled_fit_score"])
